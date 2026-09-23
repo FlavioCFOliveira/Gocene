@@ -41,11 +41,18 @@ func newFakeCharFilterFactory(args map[string]string) (*fakeCharFilterFactory, e
 	return &fakeCharFilterFactory{AbstractAnalysisFactory: *base}, nil
 }
 
-// Create returns a pass-through CharFilter wrapping input unchanged.
+// Create returns input unchanged.
 //
-// Mirrors FakeCharFilterFactory.create(Reader) (Lucene 10.4.0).
-func (f *fakeCharFilterFactory) Create(input io.Reader) CharFilter {
-	return NewCharFilter(input)
+// Mirrors FakeCharFilterFactory.create(Reader) (Lucene 10.5.0), which returns
+// its argument.
+func (f *fakeCharFilterFactory) Create(input io.Reader) io.Reader {
+	return input
+}
+
+// Normalize is the default CharFilterFactory.normalize(Reader) the Java class
+// inherits: it returns input unchanged.
+func (f *fakeCharFilterFactory) Normalize(input io.Reader) io.Reader {
+	return input
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -78,18 +85,6 @@ func TestFakeCharFilterFactory_Create(t *testing.T) {
 	}
 	if string(buf[:n]) != "hello" {
 		t.Errorf("expected pass-through, got %q", string(buf[:n]))
-	}
-}
-
-// TestFakeCharFilterFactory_CorrectOffset verifies that the pass-through
-// filter introduces no offset delta (CorrectOffset is identity).
-func TestFakeCharFilterFactory_CorrectOffset(t *testing.T) {
-	f, _ := newFakeCharFilterFactory(map[string]string{})
-	cf := f.Create(strings.NewReader("abc"))
-	for _, off := range []int{0, 1, 5, 100} {
-		if got := cf.CorrectOffset(off); got != off {
-			t.Errorf("CorrectOffset(%d) = %d, want %d", off, got, off)
-		}
 	}
 }
 

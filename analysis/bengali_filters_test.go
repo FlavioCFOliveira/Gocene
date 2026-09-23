@@ -71,9 +71,7 @@ func drainBengaliTerms(t *testing.T, stream analysis.TokenStream) []string {
 func tokenizeBengaliWhitespace(t *testing.T, input string) analysis.Tokenizer {
 	t.Helper()
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	return tok
 }
 

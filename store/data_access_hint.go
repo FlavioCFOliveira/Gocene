@@ -4,30 +4,21 @@
 
 package store
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // DataAccessHint is the Go port of org.apache.lucene.store.DataAccessHint.
 //
 // It hints at the data access pattern likely to be used when reading a file.
-type DataAccessHint uint8
+// The type lives in package spi (which breaks the store/index import cycle)
+// and is aliased here so that there is exactly one Go type and every value
+// satisfies FileOpenHint.
+type DataAccessHint = spi.DataAccessHint
 
 const (
-	// DataAccessRandom indicates the access pattern is completely random.
-	DataAccessRandom DataAccessHint = iota
+	// DataAccessRandom indicates the access pattern is completely random
+	// (DataAccessHint.RANDOM).
+	DataAccessRandom = spi.DataAccessRandom
 	// DataAccessSequential indicates the access pattern is only sequential
-	// (forwards-only).
-	DataAccessSequential
+	// (DataAccessHint.SEQUENTIAL).
+	DataAccessSequential = spi.DataAccessSequential
 )
-
-// fileOpenHint satisfies the FileOpenHint marker interface.
-func (DataAccessHint) fileOpenHint() {}
-
-// String returns the Lucene-equivalent constant name for the hint.
-func (h DataAccessHint) String() string {
-	switch h {
-	case DataAccessRandom:
-		return "RANDOM"
-	case DataAccessSequential:
-		return "SEQUENTIAL"
-	default:
-		return "UNKNOWN"
-	}
-}

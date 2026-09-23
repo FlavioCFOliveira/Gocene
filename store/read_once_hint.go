@@ -4,19 +4,14 @@
 
 package store
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // ReadOnceHint is the Go port of org.apache.lucene.store.ReadOnceHint.
 //
-// In Lucene this is a single-instance enum (INSTANCE) used as a hint that the
-// file will only be read once, sequentially. The Go equivalent is a
-// zero-sized singleton type with a single value, ReadOnceInstance.
-type ReadOnceHint struct{}
+// The type lives in package spi (which breaks the store/index import cycle)
+// and is aliased here so that there is exactly one Go type and its value
+// satisfies FileOpenHint.
+type ReadOnceHint = spi.ReadOnceHint
 
-// ReadOnceInstance is the singleton ReadOnceHint value, matching Lucene's
-// ReadOnceHint.INSTANCE.
-var ReadOnceInstance = ReadOnceHint{}
-
-// fileOpenHint satisfies the FileOpenHint marker interface.
-func (ReadOnceHint) fileOpenHint() {}
-
-// String returns the Lucene-equivalent constant name.
-func (ReadOnceHint) String() string { return "INSTANCE" }
+// ReadOnceInstance is the singleton ReadOnceHint value (ReadOnceHint.INSTANCE).
+var ReadOnceInstance = spi.ReadOnceInstance

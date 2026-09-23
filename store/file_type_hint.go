@@ -4,32 +4,18 @@
 
 package store
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // FileTypeHint is the Go port of org.apache.lucene.store.FileTypeHint.
 //
-// It hints at the type of file being opened. Note that metadata files should
-// be opened with Directory.OpenChecksumInput which does not accept hints, so
-// no INDEX_METADATA constant is provided.
-type FileTypeHint uint8
+// It hints at the type of file being opened. The type lives in package spi
+// (which breaks the store/index import cycle) and is aliased here so that
+// there is exactly one Go type and every value satisfies FileOpenHint.
+type FileTypeHint = spi.FileTypeHint
 
 const (
-	// FileTypeIndex indicates the file contains indexes. It is small (~1% or
-	// less of the data size) and generally fits in the page cache.
-	FileTypeIndex FileTypeHint = iota
-	// FileTypeData indicates the file contains field data.
-	FileTypeData
+	// FileTypeIndex indicates the file contains indexes (FileTypeHint.INDEX).
+	FileTypeIndex = spi.FileTypeIndex
+	// FileTypeData indicates the file contains field data (FileTypeHint.DATA).
+	FileTypeData = spi.FileTypeData
 )
-
-// fileOpenHint satisfies the FileOpenHint marker interface.
-func (FileTypeHint) fileOpenHint() {}
-
-// String returns the Lucene-equivalent constant name for the hint.
-func (h FileTypeHint) String() string {
-	switch h {
-	case FileTypeIndex:
-		return "INDEX"
-	case FileTypeData:
-		return "DATA"
-	default:
-		return "UNKNOWN"
-	}
-}

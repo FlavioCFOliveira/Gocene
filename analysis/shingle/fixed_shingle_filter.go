@@ -80,11 +80,17 @@ func NewFixedShingleFilterFull(
 func (f *FixedShingleFilter) IncrementToken() (bool, error) {
 	var shinglePosInc, startOffset, endOffset int
 
-	outer:
+outer:
 	for {
-		_, ok := f.IncrementGraph()
+		ok, err := f.IncrementGraph()
+		if err != nil {
+			return false, err
+		}
 		if !ok {
-			_, ok2 := f.IncrementBaseToken()
+			ok2, err := f.IncrementBaseToken()
+			if err != nil {
+				return false, err
+			}
 			if !ok2 {
 				return false, nil
 			}
@@ -107,7 +113,10 @@ func (f *FixedShingleFilter) IncrementToken() (bool, error) {
 		}
 
 		for i := 1; i < f.shingleSize; i++ {
-			_, ok := f.IncrementGraphToken()
+			ok, err := f.IncrementGraphToken()
+			if err != nil {
+				return false, err
+			}
 			if !ok {
 				trailing := f.GetTrailingPositions()
 				if i+trailing < f.shingleSize {
@@ -193,7 +202,7 @@ func NewFixedShingleFilterFactory() *FixedShingleFilterFactory {
 	return &FixedShingleFilterFactory{
 		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
 		shingleSize:            2,
-		tokenSeparator:        " ",
+		tokenSeparator:         " ",
 		fillerToken:            "_",
 	}
 }
@@ -206,7 +215,7 @@ func NewFixedShingleFilterFactoryFull(
 	return &FixedShingleFilterFactory{
 		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
 		shingleSize:            shingleSize,
-		tokenSeparator:        tokenSeparator,
+		tokenSeparator:         tokenSeparator,
 		fillerToken:            fillerToken,
 	}
 }

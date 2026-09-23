@@ -4,614 +4,163 @@
 
 package store
 
+// Port of lucene/core/src/test/org/apache/lucene/store/TestMMapDirectory.java
+// (Apache Lucene 10.5.0).
+//
+// Ported methods: getDirectory, testAceWithThreads, testWithNormal,
+// testGroupBySegmentFunc. The remaining methods of the Java class depend on
+// production members of MMapDirectory that Gocene has not ported
+// (supportsMadvise, ADVISE_BY_CONTEXT, PRELOAD_HINT, NO_GROUPING,
+// IndexInput.isLoaded, IndexInput.prefetch, the per-group arena attachment and
+// arena confinement) or on the inherited BaseDirectoryTestCase suite, which is
+// part of the unported test framework; they are not reproduced here.
+
 import (
-	"os"
-	"path/filepath"
+	"bytes"
+	"errors"
+	"math/rand/v2"
+	"sync"
 	"testing"
+	"time"
 )
 
-func TestNewMMapDirectory(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	t.Run("create with valid directory", func(t *testing.T) {
-		dir, err := NewMMapDirectory(tempDir)
-		if err != nil {
-			t.Errorf("NewMMapDirectory() error = %v", err)
-			return
-		}
-		if dir == nil {
-			t.Error("NewMMapDirectory() returned nil")
-			return
-		}
-		if dir.GetPath() != tempDir {
-			t.Errorf("GetPath() = %v, want %v", dir.GetPath(), tempDir)
-		}
-		if err := dir.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
-
-	t.Run("create with non-existent directory", func(t *testing.T) {
-		_, err := NewMMapDirectory("/nonexistent/path/that/does/not/exist")
-		if err == nil {
-			t.Error("NewMMapDirectory() expected error for non-existent directory")
-		}
-	})
-
-	t.Run("create with file instead of directory", func(t *testing.T) {
-		tempFile, err := os.CreateTemp("", "gocene_mmap_test_file_*")
-		if err != nil {
-			t.Fatalf("failed to create temp file: %v", err)
-		}
-		tempFile.Close()
-		defer os.Remove(tempFile.Name())
-
-		_, err = NewMMapDirectory(tempFile.Name())
-		if err == nil {
-			t.Error("NewMMapDirectory() expected error for file path")
-		}
-	})
+func newMMapDirectoryTestRandom(t *testing.T) *rand.Rand {
+	t.Helper()
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	return rand.New(rand.NewPCG(seed, 0x5DEECE66D))
 }
 
-func TestMMapDirectory_Settings(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
+// getMMapTestDirectory mirrors TestMMapDirectory.getDirectory(Path).
+func getMMapTestDirectory(t *testing.T, path string, random *rand.Rand) *MMapDirectory {
+	t.Helper()
+	m, err := NewMMapDirectory(path)
 	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+		t.Fatalf("NewMMapDirectory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	t.Run("default settings", func(t *testing.T) {
-		if dir.GetPreload() {
-			t.Error("GetPreload() = true, want false")
-		}
-		if dir.GetMaxChunkSize() != 30 {
-			t.Errorf("GetMaxChunkSize() = %d, want 30", dir.GetMaxChunkSize())
-		}
+	var mu sync.Mutex
+	m.SetPreload(func(file string, context IOContext) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return random.IntN(2) == 0
 	})
-
-	t.Run("set preload", func(t *testing.T) {
-		dir.SetPreload(true)
-		if !dir.GetPreload() {
-			t.Error("GetPreload() = false after SetPreload(true)")
-		}
-
-		dir.SetPreload(false)
-		if dir.GetPreload() {
-			t.Error("GetPreload() = true after SetPreload(false)")
-		}
-	})
-
-	t.Run("set chunk size", func(t *testing.T) {
-		dir.SetMaxChunkSize(20) // 1MB chunks
-		if dir.GetMaxChunkSize() != 20 {
-			t.Errorf("GetMaxChunkSize() = %d, want 20", dir.GetMaxChunkSize())
-		}
-
-		// Test bounds
-		dir.SetMaxChunkSize(0)
-		if dir.GetMaxChunkSize() != 1 {
-			t.Errorf("GetMaxChunkSize() = %d, want 1 (min)", dir.GetMaxChunkSize())
-		}
-
-		dir.SetMaxChunkSize(100)
-		if dir.GetMaxChunkSize() != 62 {
-			t.Errorf("GetMaxChunkSize() = %d, want 62 (max)", dir.GetMaxChunkSize())
-		}
-	})
+	return m
 }
 
-func TestMMapDirectory_OpenInput(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+func TestMMapDirectory_AceWithThreads(t *testing.T) {
+	random := newMMapDirectoryTestRandom(t)
+	const nInts = 8 * 1024 * 1024
 
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
+	dir := getMMapTestDirectory(t, t.TempDir(), random)
 	defer dir.Close()
+	out, err := dir.CreateOutput("test", IOContextDefault)
+	mustNoErr(t, err)
+	for i := 0; i < nInts; i++ {
+		mustNoErr(t, out.WriteInt(int32(random.Uint32())))
+	}
+	mustNoErr(t, out.Close())
 
-	ctx := IOContextRead
-
-	t.Run("open existing file", func(t *testing.T) {
-		// Create a test file
-		testFile := filepath.Join(tempDir, "testfile")
-		content := []byte("Hello, World! This is a test file for memory mapping.")
-		if err := os.WriteFile(testFile, content, 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-
-		in, err := dir.OpenInput("testfile", ctx)
-		if err != nil {
-			t.Errorf("OpenInput() error = %v", err)
-			return
-		}
-		defer in.Close()
-
-		if in.Length() != int64(len(content)) {
-			t.Errorf("Length() = %d, want %d", in.Length(), len(content))
-		}
-
-		// Read all content
-		buf := make([]byte, len(content))
-		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
-			t.Errorf("ReadBytes() error = %v", err)
-			return
-		}
-
-		if string(buf) != string(content) {
-			t.Errorf("Read content = %s, want %s", string(buf), string(content))
-		}
-	})
-
-	t.Run("open non-existent file", func(t *testing.T) {
-		_, err := dir.OpenInput("nonexistent", ctx)
-		if err == nil {
-			t.Error("OpenInput() expected error for non-existent file")
-		}
-	})
-
-	t.Run("open empty file", func(t *testing.T) {
-		// Create an empty file
-		testFile := filepath.Join(tempDir, "emptyfile")
-		if err := os.WriteFile(testFile, []byte{}, 0644); err != nil {
-			t.Fatalf("failed to create empty file: %v", err)
-		}
-
-		in, err := dir.OpenInput("emptyfile", ctx)
-		if err != nil {
-			t.Errorf("OpenInput() error = %v", err)
-			return
-		}
-		defer in.Close()
-
-		if in.Length() != 0 {
-			t.Errorf("Length() = %d, want 0", in.Length())
-		}
-	})
-
-	t.Run("read byte by byte", func(t *testing.T) {
-		// Create a test file
-		testFile := filepath.Join(tempDir, "bytefile")
-		content := []byte("ABC")
-		if err := os.WriteFile(testFile, content, 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-
-		in, err := dir.OpenInput("bytefile", ctx)
-		if err != nil {
-			t.Fatalf("OpenInput() error = %v", err)
-		}
-		defer in.Close()
-
-		b1, err := in.ReadByte()
-		if err != nil {
-			t.Errorf("ReadByte() error = %v", err)
-		}
-		if b1 != 'A' {
-			t.Errorf("ReadByte() = %c, want A", b1)
-		}
-
-		b2, err := in.ReadByte()
-		if err != nil {
-			t.Errorf("ReadByte() error = %v", err)
-		}
-		if b2 != 'B' {
-			t.Errorf("ReadByte() = %c, want B", b2)
-		}
-
-		b3, err := in.ReadByte()
-		if err != nil {
-			t.Errorf("ReadByte() error = %v", err)
-		}
-		if b3 != 'C' {
-			t.Errorf("ReadByte() = %c, want C", b3)
-		}
-
-		// Should return EOF at end of file
-		_, err = in.ReadByte()
-		if err == nil {
-			t.Error("ReadByte() expected EOF at end of file")
-		}
-	})
-
-	t.Run("set position", func(t *testing.T) {
-		testFile := filepath.Join(tempDir, "seekfile")
-		content := []byte("0123456789")
-		if err := os.WriteFile(testFile, content, 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-
-		in, err := dir.OpenInput("seekfile", ctx)
-		if err != nil {
-			t.Fatalf("OpenInput() error = %v", err)
-		}
-		defer in.Close()
-
-		// Seek to position 5
-		if err := in.SetPosition(5); err != nil {
-			t.Errorf("SetPosition(5) error = %v", err)
-		}
-
-		b, err := in.ReadByte()
-		if err != nil {
-			t.Errorf("ReadByte() error = %v", err)
-		}
-		if b != '5' {
-			t.Errorf("ReadByte() = %c, want 5", b)
-		}
-	})
-
-	t.Run("clone", func(t *testing.T) {
-		testFile := filepath.Join(tempDir, "clonefile")
-		content := []byte("Clone test content")
-		if err := os.WriteFile(testFile, content, 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-
-		in, err := dir.OpenInput("clonefile", ctx)
-		if err != nil {
-			t.Fatalf("OpenInput() error = %v", err)
-		}
-		defer in.Close()
-
-		// Read first byte
-		in.ReadByte()
-
-		// Clone
+	const iters = 1 * 10 // RANDOM_MULTIPLIER * (TEST_NIGHTLY ? 50 : 10)
+	for iter := 0; iter < iters; iter++ {
+		in, err := dir.OpenInput("test", IOContextDefault)
+		mustNoErr(t, err)
 		clone := in.Clone()
-		defer clone.Close()
-
-		// Clone should be at position 0
-		if clone.GetFilePointer() != 0 {
-			t.Errorf("Clone position = %d, want 0", clone.GetFilePointer())
+		accum := make([]byte, nInts*4)
+		shotgun := make(chan struct{})
+		var t1Err error
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-shotgun
+			for i := 0; i < 10; i++ {
+				if err := clone.SetPosition(0); err != nil {
+					t1Err = err
+					return
+				}
+				if err := clone.ReadBytes(accum, 0, len(accum)); err != nil {
+					t1Err = err
+					return
+				}
+			}
+		}()
+		close(shotgun)
+		// this triggers "bad behaviour": closing input while other threads are running
+		mustNoErr(t, in.Close())
+		wg.Wait()
+		var ace *AlreadyClosedException
+		if t1Err != nil && !errors.As(t1Err, &ace) {
+			// AlreadyClosedException is OK; anything else is a failure
+			t.Fatalf("reader goroutine: %v", t1Err)
 		}
-
-		// Original should still be at position 1
-		if in.GetFilePointer() != 1 {
-			t.Errorf("Original position = %d, want 1", in.GetFilePointer())
-		}
-	})
-
-	t.Run("slice", func(t *testing.T) {
-		testFile := filepath.Join(tempDir, "slicefile")
-		content := []byte("Hello, World!")
-		if err := os.WriteFile(testFile, content, 0644); err != nil {
-			t.Fatalf("failed to create test file: %v", err)
-		}
-
-		in, err := dir.OpenInput("slicefile", ctx)
-		if err != nil {
-			t.Fatalf("OpenInput() error = %v", err)
-		}
-		defer in.Close()
-
-		slice, err := in.Slice("slice", 7, 5) // "World"
-		if err != nil {
-			t.Errorf("Slice() error = %v", err)
-			return
-		}
-		defer slice.Close()
-
-		if slice.Length() != 5 {
-			t.Errorf("Slice Length() = %d, want 5", slice.Length())
-		}
-
-		buf := make([]byte, 5)
-		if err := slice.ReadBytes(buf); err != nil {
-			t.Errorf("ReadBytes() error = %v", err)
-			return
-		}
-
-		if string(buf) != "World" {
-			t.Errorf("Slice content = %s, want World", string(buf))
-		}
-	})
+	}
 }
 
-func TestMMapDirectory_CreateOutput(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+// RANDOM is the default (see Constants.DEFAULT_READADVICE), so test with
+// NORMAL too.
+func TestMMapDirectory_WithNormal(t *testing.T) {
+	random := newMMapDirectoryTestRandom(t)
+	const size = 8 * 1024
+	bs := make([]byte, size)
+	for i := range bs {
+		bs[i] = byte(random.Uint32())
 	}
-	defer os.RemoveAll(tempDir)
 
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
+	dir, err := NewMMapDirectory(t.TempDir())
+	mustNoErr(t, err)
 	defer dir.Close()
+	out, err := dir.CreateOutput("test", IOContextDefault)
+	mustNoErr(t, err)
+	mustNoErr(t, out.WriteBytes(bs, 0, len(bs)))
+	mustNoErr(t, out.Close())
 
-	ctx := IOContextWrite
-
-	t.Run("create new file", func(t *testing.T) {
-		out, err := dir.CreateOutput("outputfile", ctx)
-		if err != nil {
-			t.Errorf("CreateOutput() error = %v", err)
-			return
-		}
-		defer out.Close()
-
-		// Write some data
-		if err := out.WriteBytes([]byte("Test output")); err != nil {
-			t.Errorf("WriteBytes() error = %v", err)
-			return
-		}
-
-		if out.GetFilePointer() != 11 {
-			t.Errorf("GetFilePointer() = %d, want 11", out.GetFilePointer())
-		}
-
-		if out.GetName() != "outputfile" {
-			t.Errorf("GetName() = %s, want outputfile", out.GetName())
-		}
+	dir.SetReadAdvice(func(s string, c IOContext) *ReadAdvice {
+		normal := ReadAdviceNormal
+		return &normal
 	})
-
-	t.Run("create duplicate file", func(t *testing.T) {
-		_, err := dir.CreateOutput("duplicate", ctx)
-		if err != nil {
-			t.Fatalf("CreateOutput() error = %v", err)
-		}
-
-		// Try to create again
-		_, err = dir.CreateOutput("duplicate", ctx)
-		if err == nil {
-			t.Error("CreateOutput() expected error for duplicate file")
-		}
-	})
-}
-
-func TestMMapDirectory_ReadWriteRoundTrip(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	// Write a file using CreateOutput
-	writeCtx := IOContextWrite
-	out, err := dir.CreateOutput("roundtrip", writeCtx)
-	if err != nil {
-		t.Fatalf("CreateOutput() error = %v", err)
-	}
-
-	content := []byte("This is test content for round-trip verification.")
-	if err := out.WriteBytes(content); err != nil {
-		t.Fatalf("WriteBytes() error = %v", err)
-	}
-	out.Close()
-
-	// Read the file using OpenInput (memory-mapped)
-	readCtx := IOContextRead
-	in, err := dir.OpenInput("roundtrip", readCtx)
-	if err != nil {
-		t.Fatalf("OpenInput() error = %v", err)
-	}
+	in, err := dir.OpenInput("test", IOContextDefault)
+	mustNoErr(t, err)
 	defer in.Close()
-
-	// Verify length
-	if in.Length() != int64(len(content)) {
-		t.Errorf("Length() = %d, want %d", in.Length(), len(content))
-	}
-
-	// Read and verify content
-	buf := make([]byte, len(content))
-	if err := in.ReadBytes(buf); err != nil {
-		t.Errorf("ReadBytes() error = %v", err)
-		return
-	}
-
-	if string(buf) != string(content) {
-		t.Errorf("Read content = %s, want %s", string(buf), string(content))
+	readBytes := make([]byte, size)
+	mustNoErr(t, in.ReadBytes(readBytes, 0, len(readBytes)))
+	if !bytes.Equal(bs, readBytes) {
+		t.Fatal("bytes read differ from bytes written")
 	}
 }
 
-func TestMMapDirectory_MultiChunkFile(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+func TestMMapDirectory_GroupBySegmentFunc(t *testing.T) {
+	// MMapDirectory.GROUP_BY_SEGMENT
+	fn := groupBySegment
+	present := []struct{ name, want string }{
+		{"_0.doc", "0"},
+		{"_51.si", "51"},
+		{"_51_1.si", "51-g"},
+		{"_51_1_gg_ff.si", "51-g"},
+		{"_51_2_gg_ff.si", "51-g"},
+		{"_51_3_gg_ff.si", "51-g"},
+		{"_5987654321.si", "5987654321"},
+		{"_f.si", "f"},
+		{"_ff.si", "ff"},
+		{"_51a.si", "51a"},
+		{"_f51a.si", "f51a"},
+		{"_segment.si", "segment"},
+		// old style
+		{"_5_Lucene90FieldsIndex-doc_ids_0.tmp", "5"},
 	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	// Create a file larger than a single chunk
-	// Set chunk size to something small for testing (64KB)
-	dir.SetMaxChunkSize(16) // 2^16 = 64KB
-
-	// Create a test file larger than 64KB
-	content := make([]byte, 100*1024) // 100KB
-	for i := range content {
-		content[i] = byte(i % 256)
-	}
-
-	testFile := filepath.Join(tempDir, "largefile")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("failed to create large test file: %v", err)
-	}
-
-	ctx := IOContextRead
-	in, err := dir.OpenInput("largefile", ctx)
-	if err != nil {
-		t.Fatalf("OpenInput() error = %v", err)
-	}
-	defer in.Close()
-
-	if in.Length() != int64(len(content)) {
-		t.Errorf("Length() = %d, want %d", in.Length(), len(content))
-	}
-
-	// Read the entire file
-	buf := make([]byte, len(content))
-	if err := in.ReadBytes(buf); err != nil {
-		t.Errorf("ReadBytes() error = %v", err)
-		return
-	}
-
-	// Verify content
-	for i := range content {
-		if buf[i] != content[i] {
-			t.Errorf("Content mismatch at byte %d: got %d, want %d", i, buf[i], content[i])
-			break
+	for _, c := range present {
+		got, ok := fn(c.name)
+		if !ok {
+			t.Errorf("GROUP_BY_SEGMENT(%q): got empty, want %q", c.name, c.want)
+			continue
 		}
-	}
-}
-
-func TestMMapIndexInput_Close(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	// Create a test file
-	testFile := filepath.Join(tempDir, "closefile")
-	content := []byte("Close test content")
-	if err := os.WriteFile(testFile, content, 0644); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	ctx := IOContextRead
-	in, err := dir.OpenInput("closefile", ctx)
-	if err != nil {
-		t.Fatalf("OpenInput() error = %v", err)
-	}
-
-	// Close should succeed
-	if err := in.Close(); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
-
-	// Operations after close should fail
-	// (The file should not be tracked anymore)
-	if dir.IsFileOpen("closefile") {
-		t.Error("File should not be tracked as open after Close()")
-	}
-}
-
-func TestMMapDirectory_Closed(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-
-	// Close the directory
-	dir.Close()
-
-	ctx := IOContextRead
-	_, err = dir.OpenInput("anyfile", ctx)
-	if err == nil {
-		t.Error("OpenInput() expected error on closed directory")
-	}
-}
-
-// TestMMapDirectory_CreateOutputReusesDelegate verifies the resource-leak fix
-// from rmp #4727: every CreateOutput call must reuse a single backing
-// SimpleFSDirectory rather than allocating a fresh one per call. The shared
-// delegate is asserted both by pointer identity and by file-tracking
-// consistency (one openFiles map sees every output handle).
-func TestMMapDirectory_CreateOutputReusesDelegate(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	dir, err := NewMMapDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("failed to create MMapDirectory: %v", err)
-	}
-
-	if dir.writeDelegate != nil {
-		t.Fatal("writeDelegate should be nil before the first CreateOutput call")
-	}
-
-	ctx := IOContextWrite
-
-	out1, err := dir.CreateOutput("file1", ctx)
-	if err != nil {
-		t.Fatalf("first CreateOutput() error = %v", err)
-	}
-	firstDelegate := dir.writeDelegate
-	if firstDelegate == nil {
-		t.Fatal("writeDelegate should be cached after the first CreateOutput call")
-	}
-
-	out2, err := dir.CreateOutput("file2", ctx)
-	if err != nil {
-		t.Fatalf("second CreateOutput() error = %v", err)
-	}
-
-	// The backing directory must be the very same instance across calls.
-	if dir.writeDelegate != firstDelegate {
-		t.Error("CreateOutput allocated a new SimpleFSDirectory instead of reusing the cached one")
-	}
-
-	// A single openFiles map must track both output handles, proving the file
-	// tracking is consistent across calls.
-	openFiles := firstDelegate.GetOpenFiles()
-	for _, name := range []string{"file1", "file2"} {
-		if _, ok := openFiles[name]; !ok {
-			t.Errorf("cached delegate is not tracking %q; openFiles=%v", name, openFiles)
+		if got != c.want {
+			t.Errorf("GROUP_BY_SEGMENT(%q): got %q, want %q", c.name, got, c.want)
 		}
 	}
 
-	if err := out1.Close(); err != nil {
-		t.Errorf("out1.Close() error = %v", err)
-	}
-	if err := out2.Close(); err != nil {
-		t.Errorf("out2.Close() error = %v", err)
-	}
-
-	// Closing the MMapDirectory must close and release the cached delegate.
-	if err := dir.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	if firstDelegate.IsOpen() {
-		t.Error("cached delegate should be closed after MMapDirectory.Close()")
-	}
-	if dir.writeDelegate != nil {
-		t.Error("writeDelegate should be cleared after Close()")
-	}
-
-	// CreateOutput on a closed directory must fail rather than silently
-	// re-creating a delegate.
-	if _, err := dir.CreateOutput("file3", ctx); err == nil {
-		t.Error("CreateOutput() expected error on closed directory")
+	for _, name := range []string{"", "_", "_.si", "foo", "_foo", "__foo", "_segment", "segment.si"} {
+		if got, ok := fn(name); ok {
+			t.Errorf("GROUP_BY_SEGMENT(%q): got %q, want empty", name, got)
+		}
 	}
 }

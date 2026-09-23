@@ -2,347 +2,332 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package analysis
+package analysis_test
 
-	
+// Port of lucene/core/src/test/org/apache/lucene/analysis/TestStopFilter.java
+// (Apache Lucene 10.5.0).
+//
+// StopFilter.makeStopSet is not ported in Gocene. Its Java body is
+// `new CharArraySet(stopWords.size(), ignoreCase)` followed by `addAll`, which
+// is what NewCharArraySetFromCollection does; the port builds the stop sets
+// that way.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
-	"reflect"
+	"fmt"
+	"math"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	testsanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// TestStopFilter_Basic tests basic stop word filtering.
-// Source: TestStopFilter.testStopFilter()
-// Purpose: Tests that stop words are removed from token stream.
-// Note: StopFilter is case-sensitive by default, so input should be lowercase.
-func TestStopFilter_Basic(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		stopWords []string
-		expected  []string
-	}{
-		{
-			name:      "English stop words",
-			input:     "the quick brown fox jumps over the lazy dog",
-			stopWords: EnglishStopWords,
-			expected:  []string{"quick", "brown", "fox", "jumps", "over", "lazy", "dog"},
-		},
-		{
-			name:      "Custom stop words",
-			input:     "foo bar baz qux",
-			stopWords: []string{"bar", "qux"},
-			expected:  []string{"foo", "baz"},
-		},
-		{
-			name:      "All stop words",
-			input:     "the a an",
-			stopWords: []string{"the", "a", "an"},
-			expected:  nil,
-		},
-		{
-			name:      "No stop words",
-			input:     "quick brown fox",
-			stopWords: []string{"the", "a", "an"},
-			expected:  []string{"quick", "brown", "fox"},
-		},
-	}
+const stopFilterMaxNumberOfTokens = 50
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokenizer := NewWhitespaceTokenizer()
-			tokenizer.SetReader(strings.NewReader(tc.input))
+// stopFilterVerbose mirrors LuceneTestCase.VERBOSE (false by default).
+const stopFilterVerbose = false
 
-			stopFilter := NewStopFilter(tokenizer, tc.stopWords)
-			defer stopFilter.Close()
+func newStopFilterTestRandom(t *testing.T) *rand.Rand {
+	t.Helper()
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	return rand.New(rand.NewPCG(seed, 0x632BE59BD9B4E019))
+}
 
-			var tokens []string
-			for {
-				hasToken, err := stopFilter.IncrementToken()
-				if err != nil {
-					t.Fatalf("Error incrementing token: %v", err)
-				}
-				if !hasToken {
-					break
-				}
-				if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-					if termAttr, ok := attr.(CharTermAttribute); ok {
-						tokens = append(tokens, termAttr.String())
-					}
-				}
-			}
+// newWhitespaceMockTokenizer mirrors
+// new MockTokenizer(MockTokenizer.WHITESPACE, false), whose maximum token
+// length is MockTokenizer.DEFAULT_MAX_TOKEN_LENGTH = Integer.MAX_VALUE.
+func newWhitespaceMockTokenizer() *testsanalysis.MockTokenizer {
+	return testsanalysis.NewMockTokenizer(testsanalysis.WHITESPACE, false, math.MaxInt32)
+}
 
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
+func TestStopFilter_ExactCase(t *testing.T) {
+	reader := strings.NewReader("Now is The Time")
+	stopWords := analysis.NewCharArraySetFromCollection([]string{"is", "the", "Time"}, false)
+	in := newWhitespaceMockTokenizer()
+	in.SetReader(reader)
+	stream := analysis.NewStopFilterWithWords(in, stopWords)
+	testutil.AssertTokenStreamContentsSimple(t, stream, []string{"Now", "The"})
+}
+
+func TestStopFilter_StopFilter(t *testing.T) {
+	reader := strings.NewReader("Now is The Time")
+	stopWords := []string{"is", "the", "Time"}
+	stopSet := analysis.NewCharArraySetFromCollection(stopWords, false)
+	in := newWhitespaceMockTokenizer()
+	in.SetReader(reader)
+	stream := analysis.NewStopFilterWithWords(in, stopSet)
+	testutil.AssertTokenStreamContentsSimple(t, stream, []string{"Now", "The"})
+}
+
+func stopFilterLogStopwords(t *testing.T, name string, stopwords []string) {
+	t.Helper()
+	if len(stopwords) == 0 {
+		stopFilterLog(t, fmt.Sprintf("stopword list [%s]: Empty", name))
+	} else {
+		stopFilterLog(t, fmt.Sprintf("stopword list [%s]: [%s]", name, strings.Join(stopwords, ", ")))
 	}
 }
 
-// TestStopFilter_PositionIncrement tests position increments with stop words.
-// Source: TestStopFilter.testPositionIncrement()
-// Purpose: Tests that position increments are adjusted when stop words are removed.
-func TestStopFilter_PositionIncrement(t *testing.T) {
-	input := "the a quick"
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader(input))
-
-	stopFilter := NewStopFilter(tokenizer, []string{"the", "a"})
-	defer stopFilter.Close()
-
-	type tokenInfo struct {
-		text     string
-		position int
-	}
-
-	var tokens []tokenInfo
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
+// generateTestSetWithStopwordsAndStopwordPositions randomly generates a
+// document and a list of stopwords to apply.
+func generateTestSetWithStopwordsAndStopwordPositions(
+	t *testing.T,
+	rand *rand.Rand,
+	numberOfTokens int,
+	sb *strings.Builder,
+	stopwords *[]string,
+	stopwordPositions *[]int,
+) {
+	t.Helper()
+	for i := 0; i < numberOfTokens; i++ {
+		token := strings.TrimSpace(intToEnglish(i))
+		sb.WriteString(token)
+		sb.WriteByte(' ')
+		if i == 0 || rand.IntN(2) == 0 {
+			// with probability 0.5 will tell if this is a stopword or
+			// no - adding always the first token to make sure that the
+			// list of stopwords is not empty;
+			*stopwords = append(*stopwords, token)
+			*stopwordPositions = append(*stopwordPositions, i)
 		}
-		if !hasToken {
-			break
-		}
-
-		var info tokenInfo
-		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				info.text = termAttr.String()
-			}
-		}
-		if attr := stopFilter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
-				info.position = posAttr.GetPositionIncrement()
-			}
-		}
-		tokens = append(tokens, info)
 	}
-
-	if len(tokens) != 1 {
-		t.Fatalf("Expected 1 token, got %d", len(tokens))
-	}
-
-	if tokens[0].text != "quick" || tokens[0].position != 3 {
-		t.Errorf("Expected 'quick' with position 3, got '%s' with position %d",
-			tokens[0].text, tokens[0].position)
-	}
+	stopFilterLog(t, fmt.Sprintf("Number of tokens : %d", numberOfTokens))
+	stopFilterLog(t, "Document : "+sb.String())
+	stopFilterLogStopwords(t, "Stopwords", *stopwords)
 }
 
-// TestStopFilter_CaseSensitivity tests case sensitivity of stop words.
-// Source: TestStopFilter.testCaseSensitivity()
-// Purpose: Tests that stop word matching respects case.
-func TestStopFilter_CaseSensitivity(t *testing.T) {
-	input := "The THE the"
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader(input))
+// testTokenPositionWithStopwordFilter checks that the positions of the terms
+// in a document keep into account the fact that some of the words were
+// filtered by the StopwordFilter.
+func TestStopFilter_TokenPositionWithStopwordFilter(t *testing.T) {
+	random := newStopFilterTestRandom(t)
+	// at least 1 token
+	numberOfTokens := random.IntN(stopFilterMaxNumberOfTokens-1) + 1
+	var sb strings.Builder
+	stopwords := make([]string, 0, numberOfTokens)
+	stopwordPositions := make([]int, 0, numberOfTokens)
+	generateTestSetWithStopwordsAndStopwordPositions(t, random, numberOfTokens, &sb, &stopwords, &stopwordPositions)
 
-	stopFilter := NewStopFilter(tokenizer, []string{"the"})
-	defer stopFilter.Close()
-
-	var tokens []string
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				tokens = append(tokens, termAttr.String())
-			}
-		}
-	}
-
-	expected := []string{"The", "THE"}
-	if !reflect.DeepEqual(tokens, expected) {
-		t.Errorf("Expected %v, got %v", expected, tokens)
-	}
+	stopSet := analysis.NewCharArraySetFromCollection(stopwords, false)
+	stopFilterLogStopwords(t, "All stopwords", stopwords)
+	// with increments
+	reader := strings.NewReader(sb.String())
+	in := newWhitespaceMockTokenizer()
+	in.SetReader(reader)
+	stopfilter := analysis.NewStopFilterWithWords(in, stopSet)
+	doTestStopwordsPositions(t, stopfilter, stopwordPositions, numberOfTokens)
 }
 
-// TestStopFilter_AddRemove tests adding and removing stop words.
-// Source: TestStopFilter.testAddRemove()
-// Purpose: Tests dynamic modification of stop word set.
-func TestStopFilter_AddRemove(t *testing.T) {
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader("foo bar baz"))
+// testTokenPositionsWithConcatenatedStopwordFilters checks that the positions
+// of the terms in a document keep into account the fact that some of the
+// words were filtered by two StopwordFilters concatenated together.
+func TestStopFilter_TokenPositionsWithConcatenatedStopwordFilters(t *testing.T) {
+	random := newStopFilterTestRandom(t)
+	// at least 1 token
+	numberOfTokens := random.IntN(stopFilterMaxNumberOfTokens-1) + 1
+	var sb strings.Builder
+	stopwords := make([]string, 0, numberOfTokens)
+	var stopwordPositions []int
+	generateTestSetWithStopwordsAndStopwordPositions(t, random, numberOfTokens, &sb, &stopwords, &stopwordPositions)
 
-	stopFilter := NewStopFilter(tokenizer, []string{"bar"})
-	defer stopFilter.Close()
-
-	stopFilter.AddStopWord("baz")
-
-	var tokens []string
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				tokens = append(tokens, termAttr.String())
-			}
-		}
+	// we want to make sure that concatenating two list of stopwords
+	// produce the same results of using one unique list of stopwords.
+	// So we first generate a list of stopwords:
+	// e.g.: [a, b, c, d, e]
+	// and then we split the list in two disjoint partitions
+	// e.g. [a, c, e] [b, d]
+	partition := random.IntN(len(stopwords))
+	random.Shuffle(len(stopwords), func(i, j int) { stopwords[i], stopwords[j] = stopwords[j], stopwords[i] })
+	stopwordsRandomPartition := stopwords[:partition]
+	stopwordsRemaining := make(map[string]struct{}, len(stopwords))
+	for _, w := range stopwords {
+		stopwordsRemaining[w] = struct{}{}
+	}
+	// remove the first partition from all the stopwords
+	for _, w := range stopwordsRandomPartition {
+		delete(stopwordsRemaining, w)
+	}
+	remaining := make([]string, 0, len(stopwordsRemaining))
+	for w := range stopwordsRemaining {
+		remaining = append(remaining, w)
 	}
 
-	expected := []string{"foo"}
-	if !reflect.DeepEqual(tokens, expected) {
-		t.Errorf("Expected %v, got %v", expected, tokens)
-	}
+	firstStopSet := analysis.NewCharArraySetFromCollection(stopwordsRandomPartition, false)
+	stopFilterLogStopwords(t, "Stopwords-first", stopwordsRandomPartition)
+	secondStopSet := analysis.NewCharArraySetFromCollection(remaining, false)
+	stopFilterLogStopwords(t, "Stopwords-second", remaining)
 
-	if !stopFilter.IsStopWord("bar") {
-		t.Error("Expected 'bar' to be a stop word")
-	}
-	if stopFilter.IsStopWord("foo") {
-		t.Error("Expected 'foo' not to be a stop word")
-	}
+	reader := strings.NewReader(sb.String())
+	in1 := newWhitespaceMockTokenizer()
+	in1.SetReader(reader)
+
+	// Here we create a stopFilter with the stopwords in the first partition
+	// and then we concatenate it with the stopFilter created with the
+	// stopwords in the second partition
+	stopFilter := analysis.NewStopFilterWithWords(in1, firstStopSet)                     // first part of the set
+	concatenatedStopFilter := analysis.NewStopFilterWithWords(stopFilter, secondStopSet) // two stop filters concatenated!
+
+	// ... and finally we check that the positions of the filtered tokens
+	// matched using the concatenated stopFilters match the positions of the
+	// filtered tokens using the unique original list of stopwords
+	doTestStopwordsPositions(t, concatenatedStopFilter, stopwordPositions, numberOfTokens)
 }
 
-// TestStopFilter_EmptyInput tests stop filter with empty input.
-// Source: TestStopFilter.testEmpty()
-// Purpose: Tests that empty input is handled correctly.
-func TestStopFilter_EmptyInput(t *testing.T) {
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader(""))
-
-	stopFilter := NewStopFilter(tokenizer, EnglishStopWords)
-	defer stopFilter.Close()
-
-	tokenCount := 0
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-		tokenCount++
-	}
-
-	if tokenCount != 0 {
-		t.Errorf("Expected 0 tokens for empty input, got %d", tokenCount)
-	}
+// LUCENE-3849: make sure after .end() we see the "ending" posInc
+func TestStopFilter_EndStopword(t *testing.T) {
+	stopSet := analysis.NewCharArraySetFromCollection([]string{"of"}, false)
+	in := newWhitespaceMockTokenizer()
+	in.SetReader(strings.NewReader("test of"))
+	stopfilter := analysis.NewStopFilterWithWords(in, stopSet)
+	testutil.AssertTokenStreamContents(t, stopfilter, testutil.TokenStreamExpectations{
+		Terms:                  []string{"test"},
+		StartOffsets:           []int{0},
+		EndOffsets:             []int{4},
+		PositionIncrements:     []int{1},
+		FinalOffset:            testutil.IntPtr(7),
+		FinalPositionIncrement: testutil.IntPtr(1),
+	}.WithGraphOffsetsAreCorrect(true))
 }
 
-// TestStopFilter_EmptyStopWords tests stop filter with empty stop word list.
-// Source: TestStopFilter.testEmptyStopWords()
-// Purpose: Tests that empty stop word list passes all tokens through.
-func TestStopFilter_EmptyStopWords(t *testing.T) {
-	input := "the quick brown fox"
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader(input))
-
-	stopFilter := NewStopFilter(tokenizer, []string{})
-	defer stopFilter.Close()
-
-	var tokens []string
-	for {
-		hasToken, err := stopFilter.IncrementToken()
+func doTestStopwordsPositions(t *testing.T, stopfilter *analysis.StopFilter, stopwordPositions []int, numberOfTokens int) {
+	t.Helper()
+	termAtt := stopfilter.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	stopfilter.GetAttribute(tokenattributes.PositionIncrementAttributeType)
+	if err := stopfilter.Reset(); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	stopFilterLog(t, "Test stopwords positions:")
+	for i := 0; i < numberOfTokens; i++ {
+		if slices.Contains(stopwordPositions, i) {
+			// if i is in stopwordPosition it is a stopword and we skip this position
+			continue
+		}
+		ok, err := stopfilter.IncrementToken()
 		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
+			t.Fatalf("incrementToken: %v", err)
 		}
-		if !hasToken {
-			break
+		if !ok {
+			t.Fatalf("expected a token at position %d", i)
 		}
-		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				tokens = append(tokens, termAttr.String())
-			}
-		}
-	}
-
-	expected := []string{"the", "quick", "brown", "fox"}
-	if !reflect.DeepEqual(tokens, expected) {
-		t.Errorf("Expected %v, got %v", expected, tokens)
-	}
-}
-
-// TestStopFilter_WithLowerCase tests stop filter combined with lowercasing.
-// Source: TestStopFilter.testWithLowerCase()
-// Purpose: Tests interaction with LowerCaseFilter.
-func TestStopFilter_WithLowerCase(t *testing.T) {
-	input := "The Quick Brown Fox"
-
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader(input))
-
-	lowerFilter := NewLowerCaseFilter(tokenizer)
-	stopFilter := NewStopFilter(lowerFilter, []string{"the"})
-	defer stopFilter.Close()
-
-	var tokens []string
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				tokens = append(tokens, termAttr.String())
-			}
+		stopFilterLog(t, fmt.Sprintf("token %d: %s", i, termAtt.String()))
+		token := strings.TrimSpace(intToEnglish(i))
+		if got := termAtt.String(); got != token {
+			t.Fatalf("expecting token %d to be %s, got %s", i, token, got)
 		}
 	}
-
-	expected := []string{"quick", "brown", "fox"}
-	if !reflect.DeepEqual(tokens, expected) {
-		t.Errorf("Expected %v, got %v", expected, tokens)
-	}
-}
-
-// TestStopFilter_EndMethod tests the End() method.
-// Source: TestStopFilter.testEnd()
-// Purpose: Tests that End() is properly propagated.
-func TestStopFilter_End(t *testing.T) {
-	tokenizer := NewWhitespaceTokenizer()
-	tokenizer.SetReader(strings.NewReader("test"))
-
-	stopFilter := NewStopFilter(tokenizer, []string{})
-	defer stopFilter.Close()
-
-	for {
-		hasToken, err := stopFilter.IncrementToken()
-		if err != nil {
-			t.Fatalf("Error incrementing token: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-	}
-
-	err := stopFilter.End()
+	ok, err := stopfilter.IncrementToken()
 	if err != nil {
-		t.Errorf("End() returned error: %v", err)
+		t.Fatalf("incrementToken: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected end of stream, got %q", termAtt.String())
+	}
+	if err := stopfilter.End(); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if err := stopfilter.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	stopFilterLog(t, "----------")
+}
+
+// stopFilterLog prints debug info depending on VERBOSE.
+func stopFilterLog(t *testing.T, s string) {
+	t.Helper()
+	if stopFilterVerbose {
+		t.Log(s)
 	}
 }
 
-// TestStopFilter_EnglishStopWords tests the default English stop words.
-// Source: TestStopFilter.testEnglishStopWords()
-// Purpose: Tests the built-in English stop word list.
-func TestStopFilter_EnglishStopWords(t *testing.T) {
-	if len(EnglishStopWords) == 0 {
-		t.Error("EnglishStopWords should not be empty")
-	}
+// intToEnglish mirrors org.apache.lucene.tests.util.English.intToEnglish(int).
+func intToEnglish(i int) string {
+	var result strings.Builder
+	longToEnglish(int64(i), &result)
+	return result.String()
+}
 
-	commonStops := []string{"the", "a", "an", "and", "or", "in", "is", "it", "to"}
-	stopSet := make(map[string]bool)
-	for _, word := range EnglishStopWords {
-		stopSet[word] = true
+// longToEnglish mirrors English.longToEnglish(long, StringBuilder).
+func longToEnglish(i int64, result *strings.Builder) {
+	if i == 0 {
+		result.WriteString("zero")
+		return
 	}
-
-	for _, word := range commonStops {
-		if !stopSet[word] {
-			t.Errorf("Expected '%s' to be in EnglishStopWords", word)
+	if i < 0 {
+		result.WriteString("minus ")
+		i = -i
+	}
+	if i >= 1000000000000000000 { // quadrillion
+		longToEnglish(i/1000000000000000000, result)
+		result.WriteString("quintillion, ")
+		i = i % 1000000000000000000
+	}
+	if i >= 1000000000000000 { // quadrillion
+		longToEnglish(i/1000000000000000, result)
+		result.WriteString("quadrillion, ")
+		i = i % 1000000000000000
+	}
+	if i >= 1000000000000 { // trillions
+		longToEnglish(i/1000000000000, result)
+		result.WriteString("trillion, ")
+		i = i % 1000000000000
+	}
+	if i >= 1000000000 { // billions
+		longToEnglish(i/1000000000, result)
+		result.WriteString("billion, ")
+		i = i % 1000000000
+	}
+	if i >= 1000000 { // millions
+		longToEnglish(i/1000000, result)
+		result.WriteString("million, ")
+		i = i % 1000000
+	}
+	if i >= 1000 { // thousands
+		longToEnglish(i/1000, result)
+		result.WriteString("thousand, ")
+		i = i % 1000
+	}
+	if i >= 100 { // hundreds
+		longToEnglish(i/100, result)
+		result.WriteString("hundred ")
+		i = i % 100
+	}
+	// we know we are smaller here so we can cast
+	if i >= 20 {
+		switch int(i) / 10 {
+		case 9:
+			result.WriteString("ninety")
+		case 8:
+			result.WriteString("eighty")
+		case 7:
+			result.WriteString("seventy")
+		case 6:
+			result.WriteString("sixty")
+		case 5:
+			result.WriteString("fifty")
+		case 4:
+			result.WriteString("forty")
+		case 3:
+			result.WriteString("thirty")
+		case 2:
+			result.WriteString("twenty")
+		}
+		i = i % 10
+		if i == 0 {
+			result.WriteString(" ")
+		} else {
+			result.WriteString("-")
 		}
 	}
+	units := [...]string{
+		"", "one ", "two ", "three ", "four ", "five ", "six ", "seven ", "eight ", "nine ",
+		"ten ", "eleven ", "twelve ", "thirteen ", "fourteen ", "fifteen ", "sixteen ",
+		"seventeen ", "eighteen ", "nineteen ",
+	}
+	result.WriteString(units[int(i)])
 }

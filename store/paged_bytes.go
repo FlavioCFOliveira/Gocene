@@ -129,14 +129,14 @@ func (p *PagedBytes) Copy(input IndexInput, byteCount int64) error {
 
 		if int64(left) < byteCount {
 			// Read partial block
-			if err := input.ReadBytes(p.currentBlock[p.upto : p.upto+left], 0, left); err != nil {
+			if err := input.ReadBytes(p.currentBlock[p.upto:p.upto+left], 0, left); err != nil {
 				return err
 			}
 			p.upto = p.blockSize
 			byteCount -= int64(left)
 		} else {
 			// Read remaining bytes
-			if err := input.ReadBytes(p.currentBlock[p.upto : p.upto+int(byteCount)], 0, int(byteCount)); err != nil {
+			if err := input.ReadBytes(p.currentBlock[p.upto:p.upto+int(byteCount)], 0, int(byteCount)); err != nil {
 				return err
 			}
 			p.upto += int(byteCount)
@@ -429,13 +429,15 @@ func (in *PagedBytesDataInput) ReadByte() (byte, error) {
 }
 
 // ReadBytes reads len(b) bytes into b.
-func (in *PagedBytesDataInput) ReadBytes(b []byte, offset, len int) error {
-	if len == 0 {
+func (in *PagedBytesDataInput) ReadBytes(b []byte, offset, length int) error {
+	if length == 0 {
 		return nil
 	}
 
-	offset = offset
-	offsetEnd := offset + len
+	if util.AssertsEnabled() && !(len(b) >= offset+length) {
+		panic(util.NewAssertionError(nil))
+	}
+	offsetEnd := offset + length
 
 	for {
 		blockLeft := in.blockSize - in.currentBlockUpto

@@ -4,30 +4,21 @@
 
 package store
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // FileDataHint is the Go port of org.apache.lucene.store.FileDataHint.
 //
-// It hints at the type of data stored in the file.
-type FileDataHint uint8
+// It hints at the type of data stored in the file. Lucene declares a single
+// enum; the type lives in package spi (which breaks the store/index import
+// cycle) and is aliased here so that there is exactly one Go type and every
+// value satisfies FileOpenHint.
+type FileDataHint = spi.FileDataHint
 
 const (
-	// FileDataPostings indicates the file contains postings data.
-	FileDataPostings FileDataHint = iota
+	// FileDataPostings indicates the file contains postings data
+	// (FileDataHint.POSTINGS).
+	FileDataPostings = spi.FileDataPostings
 	// FileDataKNNVectors indicates the file contains vector data for kNN
-	// search.
-	FileDataKNNVectors
+	// search (FileDataHint.KNN_VECTORS).
+	FileDataKNNVectors = spi.FileDataKNNVectors
 )
-
-// fileOpenHint satisfies the FileOpenHint marker interface.
-func (FileDataHint) fileOpenHint() {}
-
-// String returns the Lucene-equivalent constant name for the hint.
-func (h FileDataHint) String() string {
-	switch h {
-	case FileDataPostings:
-		return "POSTINGS"
-	case FileDataKNNVectors:
-		return "KNN_VECTORS"
-	default:
-		return "UNKNOWN"
-	}
-}

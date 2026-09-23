@@ -43,10 +43,10 @@ func mkTokOffset(term string, posInc, posLen, start, end int) testanalysis.Token
 }
 
 // sep is the POS_SEP automaton used between adjacent tokens.
-var sep = automaton.MakeChar(analysis.PosSep)
+var sep = automaton.MakeChar(analysis.POS_SEP)
 
 // hole is the HOLE automaton used for missing positions.
-var hole = automaton.MakeChar(analysis.Hole)
+var hole = automaton.MakeChar(analysis.HOLE)
 
 // s2a converts a plain string to a single-string automaton.
 func s2a(s string) *automaton.Automaton {

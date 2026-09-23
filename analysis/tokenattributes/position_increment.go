@@ -52,6 +52,24 @@ func (p *positionIncrementAttribute) End() {
 	p.positionIncrement = 0
 }
 
+// Equals reports whether other is a PositionIncrementAttributeImpl with the
+// same position increment (PositionIncrementAttributeImpl.equals(Object)).
+func (p *positionIncrementAttribute) Equals(other any) bool {
+	if o, ok := other.(*positionIncrementAttribute); ok {
+		if o == p {
+			return true
+		}
+		return p.positionIncrement == o.positionIncrement
+	}
+	return false
+}
+
+// HashCode returns the position increment
+// (PositionIncrementAttributeImpl.hashCode()).
+func (p *positionIncrementAttribute) HashCode() int {
+	return p.positionIncrement
+}
+
 func (p *positionIncrementAttribute) CloneAttribute() util.AttributeImpl {
 	return &positionIncrementAttribute{
 		positionIncrement: p.positionIncrement,

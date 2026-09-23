@@ -2,936 +2,862 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package analysis
+package analysis_test
+
+// Port of lucene/core/src/test/org/apache/lucene/analysis/standard/TestStandardAnalyzer.java
+// (Apache Lucene 10.5.0), including its package-private helper class
+// SpoonFeedMaxCharsReaderWrapper.
+//
+// Not ported, because they depend on test-framework components Gocene has
+// not ported:
+//   - testUnicodeWordBreaks (WordBreakTestUnicode_12_1_0);
+//   - testUnicodeEmojiTests (EmojiTokenizationTestUnicode_12_1);
+//   - testRandomStrings, testRandomHugeStrings, testRandomHugeStringsGraphAfter
+//     (BaseTokenStreamTestCase.checkRandomData).
+//
+// BaseTokenStreamTestCase.assertAnalyzesTo first runs checkResetException
+// and checkAnalysisConsistency, which are not ported; the helper below
+// performs the assertTokenStreamContents part, with finalOffset =
+// input.length() (UTF-16 code units) as Java passes it.
+// LuceneTestCase.newAttributeFactory() randomises the attribute factory; that
+// randomisation is not ported, so the default factory is used.
 
 import (
-	"reflect"
+	"bytes"
+	"io"
+	"math/rand/v2"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf16"
 
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
+	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
 )
 
-// TestStandardAnalyzer_BasicTokenization tests basic tokenization.
-// Source: TestStandardAnalyzer.testAlphanumericSA()
-// Purpose: Tests alphanumeric token handling.
-func TestStandardAnalyzer_BasicTokenization(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "alphanumeric B2B",
-			input:    "B2B",
-			expected: []string{"b2b"},
-		},
-		{
-			name:     "alphanumeric 2B",
-			input:    "2B",
-			expected: []string{"2b"},
-		},
-		{
-			name:     "simple words",
-			input:    "foo bar FOO BAR",
-			expected: []string{"foo", "bar", "foo", "bar"},
-		},
-		{
-			name:     "with punctuation",
-			input:    "foo      bar .  FOO <> BAR",
-			expected: []string{"foo", "bar", "foo", "bar"},
-		},
-		{
-			name:     "quoted word",
-			input:    "\"QUOTED\" word",
-			expected: []string{"quoted", "word"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
+func newStandardAnalyzerTestRandom(t *testing.T) *rand.Rand {
+	t.Helper()
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	return rand.New(rand.NewPCG(seed, 0x2545F4914F6CDD1D))
 }
 
-// TestStandardAnalyzer_Delimiters tests delimiter handling.
-// Source: TestStandardAnalyzer.testDelimitersSA()
-// Purpose: Tests various delimiters like dash, slash, comma.
-func TestStandardAnalyzer_Delimiters(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "dashed phrase",
-			input:    "some-dashed-phrase",
-			expected: []string{"some", "dashed", "phrase"},
-		},
-		{
-			name:     "comma separated",
-			input:    "dogs,chase,cats",
-			expected: []string{"dogs", "chase", "cats"},
-		},
-		{
-			name:     "slash separated",
-			input:    "ac/dc",
-			expected: []string{"ac", "dc"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
+// stringAnalyzer is the part of Analyzer that tokenStream(String, String)
+// maps to in Gocene.
+type stringAnalyzer interface {
+	api.Analyzer
+	TokenStreamFromString(fieldName, text string) (api.TokenStream, error)
 }
 
-// TestStandardAnalyzer_Apostrophes tests apostrophe handling.
-// Source: TestStandardAnalyzer.testApostrophesSA()
-// Purpose: Tests internal apostrophes like O'Reilly.
-func TestStandardAnalyzer_Apostrophes(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "O'Reilly",
-			input:    "O'Reilly",
-			expected: []string{"o'reilly"},
-		},
-		{
-			name:     "you're",
-			input:    "you're",
-			expected: []string{"you're"},
-		},
-		{
-			name:     "she's",
-			input:    "she's",
-			expected: []string{"she's"},
-		},
-		{
-			name:     "Jim's",
-			input:    "Jim's",
-			expected: []string{"jim's"},
-		},
-		{
-			name:     "don't",
-			input:    "don't",
-			expected: []string{"don't"},
-		},
-		{
-			name:     "O'Reilly's",
-			input:    "O'Reilly's",
-			expected: []string{"o'reilly's"},
-		},
+// newStandardTokenizerTestAnalyzer mirrors the Analyzer built in setUp(): a
+// StandardTokenizer as the only component.
+func newStandardTokenizerTestAnalyzer() *analysis.BaseAnalyzer {
+	a := analysis.NewAnalyzer(analysis.GlobalReuseStrategy)
+	a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+		tokenizer := analysis.NewStandardTokenizer()
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				tokenizer.SetReader(r)
+				return nil
+			},
+			Sink: tokenizer,
+		}
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
+	return a
 }
 
-// TestStandardAnalyzer_Numeric tests numeric token handling.
-// Source: TestStandardAnalyzer.testNumericSA()
-// Purpose: Tests floating point, serial, model numbers, IP addresses.
-func TestStandardAnalyzer_Numeric(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "floating point",
-			input:    "21.35",
-			expected: []string{"21.35"},
-		},
-		{
-			name:     "alphanumeric model",
-			input:    "R2D2 C3PO",
-			expected: []string{"r2d2", "c3po"},
-		},
-		{
-			name:     "IP address",
-			input:    "216.239.63.104",
-			expected: []string{"216.239.63.104"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
+// utf16Length mirrors String.length().
+func utf16Length(s string) int {
+	return len(utf16.Encode([]rune(s)))
 }
 
-// TestStandardAnalyzer_TextWithNumbers tests mixed text and numbers.
-// Source: TestStandardAnalyzer.testTextWithNumbersSA()
-// Purpose: Tests handling of text with embedded numbers.
-func TestStandardAnalyzer_TextWithNumbers(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "text with number",
-			input:    "David has 5000 bones",
-			expected: []string{"david", "has", "5000", "bones"},
-		},
-		{
-			name:     "various formats",
-			input:    "C embedded developers wanted",
-			expected: []string{"c", "embedded", "developers", "wanted"},
-		},
+// assertAnalyzesTo mirrors the BaseTokenStreamTestCase.assertAnalyzesTo
+// overloads used by this class: (a, input, output), (a, input, output,
+// types) and (a, input, output, startOffsets, endOffsets).
+func assertAnalyzesTo(t *testing.T, a stringAnalyzer, input string, output []string, extras ...any) {
+	t.Helper()
+	want := testutil.TokenStreamExpectations{Terms: output}
+	switch len(extras) {
+	case 0:
+	case 1:
+		want.Types = extras[0].([]string)
+	case 2:
+		want.StartOffsets = extras[0].([]int)
+		want.EndOffsets = extras[1].([]int)
+	default:
+		t.Fatalf("assertAnalyzesTo: unsupported overload with %d extra arguments", len(extras))
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_Offsets tests offset tracking.
-// Source: TestStandardAnalyzer.testOffsets()
-// Purpose: Tests character offset tracking.
-func TestStandardAnalyzer_Offsets(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	input := "David has 5000 bones"
-	stream, err := analyzer.TokenStream("field", strings.NewReader(input))
+	want.FinalOffset = testutil.IntPtr(utf16Length(input))
+	ts, err := a.TokenStreamFromString("dummy", input)
 	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
+		t.Fatalf("tokenStream: %v", err)
 	}
-	defer stream.Close()
-
-	type tokenInfo struct {
-		text  string
-		start int
-		end   int
-	}
-
-	expected := []tokenInfo{
-		{"david", 0, 5},
-		{"has", 6, 9},
-		{"5000", 10, 14},
-		{"bones", 15, 20},
-	}
-
-	var tokens []tokenInfo
-	for {
-		hasToken, err := stream.IncrementToken()
-		if err != nil {
-			t.Fatalf("IncrementToken failed: %v", err)
-		}
-		if !hasToken {
-			break
-		}
-
-		var info tokenInfo
-		attrSrc := stream.(interface {
-			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
-		}).GetAttributeSource()
-
-		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
-			if termAttr, ok := attr.(CharTermAttribute); ok {
-				info.text = termAttr.String()
-			}
-		}
-		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
-			if offsetAttr, ok := attr.(OffsetAttribute); ok {
-				info.start = offsetAttr.StartOffset()
-				info.end = offsetAttr.EndOffset()
-			}
-		}
-		tokens = append(tokens, info)
-	}
-
-	if len(tokens) != len(expected) {
-		t.Fatalf("Expected %d tokens, got %d", len(expected), len(tokens))
-	}
-
-	for i, exp := range expected {
-		if tokens[i].text != exp.text {
-			t.Errorf("Token[%d]: expected text %q, got %q", i, exp.text, tokens[i].text)
-		}
-		if tokens[i].start != exp.start {
-			t.Errorf("Token[%d]: expected start %d, got %d", i, exp.start, tokens[i].start)
-		}
-		if tokens[i].end != exp.end {
-			t.Errorf("Token[%d]: expected end %d, got %d", i, exp.end, tokens[i].end)
-		}
-	}
+	testutil.AssertTokenStreamContents(t, ts, want.WithGraphOffsetsAreCorrect(true))
 }
 
-// TestStandardAnalyzer_Empty tests empty input handling.
-// Source: TestStandardAnalyzer.testEmpty()
-// Purpose: Tests empty input handling.
-func TestStandardAnalyzer_Empty(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"empty string", ""},
-		{"only space", " "},
-		{"only dot", "."},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if len(tokens) != 0 {
-				t.Errorf("Expected 0 tokens for %q, got %d: %v", tc.input, len(tokens), tokens)
-			}
-		})
-	}
+// checkOneTerm mirrors BaseTokenStreamTestCase.checkOneTerm.
+func checkOneTerm(t *testing.T, a stringAnalyzer, input, expected string) {
+	t.Helper()
+	assertAnalyzesTo(t, a, input, []string{expected})
 }
 
-// TestStandardAnalyzer_Mid tests mid-character handling.
-// Source: TestStandardAnalyzer.testMid()
-// Purpose: Tests handling of mid-letter, mid-num, mid-numlet characters.
-func TestStandardAnalyzer_Mid(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
+// LUCENE-5897: slow tokenization of strings of the form
+// (\p{WB:ExtendNumLet}[\p{WB:Format}\p{WB:Extend}]*)+
+func TestStandardAnalyzer_LargePartiallyMatchingToken(t *testing.T) {
+	random := newStandardAnalyzerTestRandom(t)
+	// TODO: get these lists of chars matching a property from ICU4J
+	// http://www.unicode.org/Public/6.3.0/ucd/auxiliary/WordBreakProperty.txt
+	wordBreakExtendNumLetChars := []rune("_‿⁀⁔︳︴﹍﹎﹏＿")
 
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		// : is in WB:MidLetter - should not split if letter on both sides
-		{"A:B", "A:B", []string{"a:b"}},
-		{"A::B", "A::B", []string{"a", "b"}},
-
-		// . is in WB:MidNumLet - should not split if letter or number on both sides
-		{"1.2", "1.2", []string{"1.2"}},
-		{"A.B", "A.B", []string{"a.b"}},
-		{"1..2", "1..2", []string{"1", "2"}},
-		{"A..B", "A..B", []string{"a", "b"}},
-
-		// , is in WB:MidNum - should not split if number on both sides
-		{"1,2", "1,2", []string{"1,2"}},
-		{"1,,2", "1,,2", []string{"1", "2"}},
-
-		// Mixed consecutive mid characters should trigger split
-		{"A.:B", "A.:B", []string{"a", "b"}},
-		{"A:.B", "A:.B", []string{"a", "b"}},
-		{"1,.2", "1,.2", []string{"1", "2"}},
-		{"1.,2", "1.,2", []string{"1", "2"}},
-
-		// _ is in WB:ExtendNumLet
-		{"A:B_A:B", "A:B_A:B", []string{"a:b_a:b"}},
-		{"A:B_A::B", "A:B_A::B", []string{"a:b_a", "b"}},
-
-		{"1.2_1.2", "1.2_1.2", []string{"1.2_1.2"}},
-		{"A.B_A.B", "A.B_A.B", []string{"a.b_a.b"}},
-		{"1.2_1..2", "1.2_1..2", []string{"1.2_1", "2"}},
-		{"A.B_A..B", "A.B_A..B", []string{"a.b_a", "b"}},
-
-		{"1,2_1,2", "1,2_1,2", []string{"1,2_1,2"}},
-		{"1,2_1,,2", "1,2_1,,2", []string{"1,2_1", "2"}},
-
-		{"C_A.:B", "C_A.:B", []string{"c_a", "b"}},
-		{"C_A:.B", "C_A:.B", []string{"c_a", "b"}},
-
-		{"3_1,.2", "3_1,.2", []string{"3_1", "2"}},
-		{"3_1.,2", "3_1.,2", []string{"3_1", "2"}},
+	// http://www.unicode.org/Public/6.3.0/ucd/auxiliary/WordBreakProperty.txt
+	wordBreakFormatChars := []rune{ // only the first char in ranges
+		0xAD, 0x600, 0x61C, 0x6DD, 0x70F, 0x180E, 0x200E, 0x202A, 0x2060, 0x2066, 0xFEFF, 0xFFF9,
+		0x110BD, 0x1D173, 0xE0001, 0xE0020,
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			// Compare lowercase versions
-			var gotTokens []string
-			for _, tok := range tokens {
-				gotTokens = append(gotTokens, tok)
-			}
-
-			if !reflect.DeepEqual(gotTokens, tc.expected) {
-				t.Errorf("Input %q: expected %v, got %v", tc.input, tc.expected, gotTokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_UnicodeLanguages tests Unicode language support.
-// Source: TestStandardAnalyzer various language tests
-// Purpose: Tests tokenization of various languages.
-func TestStandardAnalyzer_UnicodeLanguages(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name      string
-		input     string
-		minTokens int
-	}{
-		{
-			name:      "Chinese characters",
-			input:     "我是中国人",
-			minTokens: 5, // Each character is a token
-		},
-		{
-			name:      "Korean",
-			input:     "안녕하세요 한글입니다",
-			minTokens: 2,
-		},
-		{
-			name:      "Japanese",
-			input:     "仮名遣い カタカナ",
-			minTokens: 2,
-		},
-		{
-			name:      "Greek",
-			input:     "Γράφεται σε συνεργασία",
-			minTokens: 2,
-		},
-		{
-			name:      "Arabic",
-			input:     "الفيلم الوثائقي",
-			minTokens: 2,
-		},
-		{
-			name:      "Thai",
-			input:     "การที่ได้ต้องแสดงว่างานดี",
-			minTokens: 1,
-		},
+	// http://www.unicode.org/Public/6.3.0/ucd/auxiliary/WordBreakProperty.txt
+	wordBreakExtendChars := []rune{ // only the first char in ranges
+		0x300, 0x483, 0x591, 0x5bf, 0x5c1, 0x5c4, 0x5c7, 0x610, 0x64b, 0x670, 0x6d6, 0x6df, 0x6e7,
+		0x6ea, 0x711, 0x730, 0x7a6, 0x7eb, 0x816, 0x81b, 0x825, 0x829, 0x859, 0x8e4, 0x900, 0x93a,
+		0x93e, 0x951, 0x962, 0x981, 0x9bc, 0x9be, 0x9c7, 0x9cb, 0x9d7, 0x9e2, 0xa01, 0xa3c, 0xa3e,
+		0xa47, 0xa4b, 0xa51, 0xa70, 0xa75, 0xa81, 0xabc, 0xabe, 0xac7, 0xacb, 0xae2, 0xb01, 0xb3c,
+		0xb3e, 0xb47, 0xb4b, 0xb56, 0xb62, 0xb82, 0xbbe, 0xbc6, 0xbca, 0xbd7, 0xc01, 0xc3e, 0xc46,
+		0xc4a, 0xc55, 0xc62, 0xc82, 0xcbc, 0xcbe, 0xcc6, 0xcca, 0xcd5, 0xce2, 0xd02, 0xd3e, 0xd46,
+		0xd4a, 0xd57, 0xd62, 0xd82, 0xdca, 0xdcf, 0xdd6, 0xdd8, 0xdf2, 0xe31, 0xe34, 0xe47, 0xeb1,
+		0xeb4, 0xebb, 0xec8, 0xf18, 0xf35, 0xf37, 0xf39, 0xf3e, 0xf71, 0xf86, 0xf8d, 0xf99, 0xfc6,
+		0x102b, 0x1056, 0x105e, 0x1062, 0x1067, 0x1071, 0x1082, 0x108f, 0x109a, 0x135d, 0x1712,
+		0x1732, 0x1752, 0x1772, 0x17b4, 0x17dd, 0x180b, 0x18a9, 0x1920, 0x1930, 0x19b0, 0x19c8,
+		0x1a17, 0x1a55, 0x1a60, 0x1a7f, 0x1b00, 0x1b34, 0x1b6b, 0x1b80, 0x1ba1, 0x1be6, 0x1c24,
+		0x1cd0, 0x1cd4, 0x1ced, 0x1cf2, 0x1dc0, 0x1dfc, 0x200c, 0x20d0, 0x2cef, 0x2d7f, 0x2de0,
+		0x302a, 0x3099, 0xa66f, 0xa674, 0xa69f, 0xa6f0, 0xa802, 0xa806, 0xa80b, 0xa823, 0xa880,
+		0xa8b4, 0xa8e0, 0xa926, 0xa947, 0xa980, 0xa9b3, 0xaa29, 0xaa43, 0xaa4c, 0xaa7b, 0xaab0,
+		0xaab2, 0xaab7, 0xaabe, 0xaac1, 0xaaeb, 0xaaf5, 0xabe3, 0xabec, 0xfb1e, 0xfe00, 0xfe20,
+		0xff9e, 0x101fd, 0x10a01, 0x10a05, 0x10a0C, 0x10a38, 0x10a3F, 0x11000, 0x11001, 0x11038,
+		0x11080, 0x11082, 0x110b0, 0x110b3, 0x110b7, 0x110b9, 0x11100, 0x11127, 0x1112c, 0x11180,
+		0x11182, 0x111b3, 0x111b6, 0x111bF, 0x116ab, 0x116ac, 0x116b0, 0x116b6, 0x16f51, 0x16f8f,
+		0x1d165, 0x1d167, 0x1d16d, 0x1d17b, 0x1d185, 0x1d1aa, 0x1d242, 0xe0100,
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if len(tokens) < tc.minTokens {
-				t.Errorf("Expected at least %d tokens, got %d: %v", tc.minTokens, len(tokens), tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_Supplementary tests supplementary character handling.
-// Source: TestStandardAnalyzer.testSupplementary()
-// Purpose: Tests handling of supplementary Unicode characters.
-func TestStandardAnalyzer_Supplementary(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	// Test with supplementary characters (ideographic)
-	input := "𩬅艱鍟䇹愯瀛"
-	tokens, err := collectTokensFromAnalyzer(analyzer, input)
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-
-	// Each supplementary character should be a separate token
-	// The exact number depends on implementation
-	if len(tokens) == 0 {
-		t.Error("Expected at least one token for supplementary characters")
-	}
-}
-
-// TestStandardAnalyzer_Emoji tests emoji tokenization.
-// Source: TestStandardAnalyzer.testEmoji()
-// Purpose: Tests handling of emoji characters.
-func TestStandardAnalyzer_Emoji(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name      string
-		input     string
-		minTokens int
-	}{
-		{
-			name:      "simple emoji",
-			input:     "💩 💩💩",
-			minTokens: 1,
-		},
-		{
-			name:      "emoji with text",
-			input:     "poo💩poo",
-			minTokens: 2, // "poo" and "poo" with emoji in between
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if len(tokens) < tc.minTokens {
-				t.Errorf("Expected at least %d tokens, got %d: %v", tc.minTokens, len(tokens), tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_CombiningMarks tests combining marks handling.
-// Source: TestStandardAnalyzer.testCombiningMarks()
-// Purpose: Tests handling of combining marks with various character types.
-func TestStandardAnalyzer_CombiningMarks(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		// Hiragana with combining mark
-		{"hiragana combining", "ざ", []string{"ざ"}},
-		// Katakana with combining mark
-		{"katakana combining", "ザ", []string{"ザ"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if len(tokens) != len(tc.expected) {
-				t.Errorf("Expected %d tokens, got %d", len(tc.expected), len(tokens))
-				return
-			}
-
-			for i, exp := range tc.expected {
-				if tokens[i] != exp {
-					t.Errorf("Token[%d]: expected %q, got %q", i, exp, tokens[i])
+	var builder strings.Builder
+	numChars := 100*1024 + random.IntN(1024*1024-100*1024+1) // TestUtil.nextInt(random(), 100 * 1024, 1024 * 1024)
+	for i := 0; i < numChars; {
+		builder.WriteRune(wordBreakExtendNumLetChars[random.IntN(len(wordBreakExtendNumLetChars))])
+		i++
+		if random.IntN(2) == 0 {
+			numFormatExtendChars := 1 + random.IntN(8) // TestUtil.nextInt(random(), 1, 8)
+			for j := 0; j < numFormatExtendChars; j++ {
+				var codepoint rune
+				if random.IntN(2) == 0 {
+					codepoint = wordBreakFormatChars[random.IntN(len(wordBreakFormatChars))]
+				} else {
+					codepoint = wordBreakExtendChars[random.IntN(len(wordBreakExtendChars))]
+				}
+				builder.WriteRune(codepoint)
+				// Character.toChars(codepoint).length
+				if codepoint > 0xFFFF {
+					i += 2
+				} else {
+					i++
 				}
 			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_LargePartiallyMatchingToken tests large token handling.
-// Source: TestStandardAnalyzer.testLargePartiallyMatchingToken()
-// Purpose: Tests handling of large tokens with special patterns.
-func TestStandardAnalyzer_LargePartiallyMatchingToken(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	// Create a large string with word break extend characters
-	var builder strings.Builder
-	for i := 0; i < 1000; i++ {
-		builder.WriteString("a")
-	}
-	largeInput := builder.String()
-
-	tokens, err := collectTokensFromAnalyzer(analyzer, largeInput)
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-
-	// Should produce one token (or be truncated based on max token length)
-	if len(tokens) == 0 {
-		t.Error("Expected at least one token for large input")
-	}
-}
-
-// TestStandardAnalyzer_HugeDoc tests handling of huge documents.
-// Source: TestStandardAnalyzer.testHugeDoc()
-// Purpose: Tests handling of documents with leading whitespace.
-func TestStandardAnalyzer_HugeDoc(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	// Create input with leading whitespace followed by content
-	var builder strings.Builder
-	for i := 0; i < 4094; i++ {
-		builder.WriteString(" ")
-	}
-	builder.WriteString("testing 1234")
-
-	input := builder.String()
-	tokens, err := collectTokensFromAnalyzer(analyzer, input)
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-
-	expected := []string{"testing", "1234"}
-	if len(tokens) != len(expected) {
-		t.Errorf("Expected %d tokens, got %d: %v", len(expected), len(tokens), tokens)
-	}
-}
-
-// TestStandardAnalyzer_StopWords tests stop word removal.
-// Source: Various tests
-// Purpose: Tests that English stop words are removed when the
-// analyzer is constructed with the English stop list explicitly
-// (Lucene 10.4.0 defaults to no stop words; consumers opt in).
-func TestStandardAnalyzer_StopWords(t *testing.T) {
-	analyzer := NewStandardAnalyzerWithStopWords(EnglishStopWords)
-	defer analyzer.Close()
-
-	// "the" is a stop word and should be removed
-	input := "The quick brown fox"
-	tokens, err := collectTokensFromAnalyzer(analyzer, input)
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-
-	// Check that "the" was not included
-	for _, token := range tokens {
-		if token == "the" {
-			t.Error("Stop word 'the' should have been removed")
 		}
 	}
+	text := builder.String()
+	ts := analysis.NewStandardTokenizer()
+	ts.SetReader(strings.NewReader(text))
+	drainTokenizer(t, ts)
 
-	// Check that other words are present
-	expectedWords := []string{"quick", "brown", "fox"}
-	for _, word := range expectedWords {
-		found := false
-		for _, token := range tokens {
-			if token == word {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected word %q not found in tokens: %v", word, tokens)
-		}
+	newBufferSize := 200 + random.IntN(8192-200+1)              // TestUtil.nextInt(random(), 200, 8192)
+	if err := ts.SetMaxTokenLength(newBufferSize); err != nil { // try a different buffer size
+		t.Fatalf("setMaxTokenLength: %v", err)
 	}
+	ts.SetReader(strings.NewReader(text))
+	drainTokenizer(t, ts)
 }
 
-// TestStandardAnalyzer_CustomStopWords tests custom stop words.
-// Source: Various tests
-// Purpose: Tests analyzer with custom stop words.
-func TestStandardAnalyzer_CustomStopWords(t *testing.T) {
-	customStopWords := []string{"foo", "bar", "baz"}
-	analyzer := NewStandardAnalyzerWithStopWords(customStopWords)
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{
-			name:     "remove custom stop words",
-			input:    "foo hello bar world baz",
-			expected: []string{"hello", "world"},
-		},
-		{
-			name:     "preserve default stop words",
-			input:    "the a an",
-			expected: []string{"the", "a", "an"},
-		},
+// drainTokenizer runs reset(); while (incrementToken()) {}; end(); close().
+func drainTokenizer(t *testing.T, ts *analysis.StandardTokenizer) {
+	t.Helper()
+	if err := ts.Reset(); err != nil {
+		t.Fatalf("reset: %v", err)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_MaxTokenLength tests max token length.
-// Source: TestStandardAnalyzer.testMaxTokenLengthDefault()
-// Purpose: Tests handling of tokens that exceed max length.
-func TestStandardAnalyzer_MaxTokenLength(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	// Create a word that exceeds max token length (default is 255)
-	longWord := strings.Repeat("a", 300)
-	input := "x " + longWord + " y"
-
-	tokens, err := collectTokensFromAnalyzer(analyzer, input)
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-
-	// The long word should be truncated or split
-	// Exact behavior depends on implementation
-	if len(tokens) < 2 {
-		t.Errorf("Expected at least 2 tokens (x and y), got %d: %v", len(tokens), tokens)
-	}
-}
-
-// TestStandardAnalyzer_TokenTypes tests token type tracking.
-// Source: TestStandardAnalyzer.testTypes()
-// Purpose: Tests that different token types are correctly identified.
-func TestStandardAnalyzer_TokenTypes(t *testing.T) {
-	// Note: Type tracking requires TypeAttribute implementation
-	// This test verifies that tokenization works for different types
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name  string
-		input string
-		count int
-	}{
-		{"alphanumeric", "Hello World", 2},
-		{"numeric", "123 456", 2},
-		{"mixed", "Hello 123 World", 3},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-
-			if len(tokens) != tc.count {
-				t.Errorf("Expected %d tokens, got %d: %v", tc.count, len(tokens), tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_MultipleFields tests analyzer with multiple fields.
-// Source: Various tests
-// Purpose: Tests that analyzer works correctly with different field names.
-func TestStandardAnalyzer_MultipleFields(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	input := "Hello World"
-	fieldNames := []string{"title", "content", "body", "_all"}
-
-	for _, fieldName := range fieldNames {
-		t.Run(fieldName, func(t *testing.T) {
-			stream, err := analyzer.TokenStream(fieldName, strings.NewReader(input))
-			if err != nil {
-				t.Fatalf("TokenStream failed for field %s: %v", fieldName, err)
-			}
-			defer stream.Close()
-
-			tokens, err := collectTokensFromStream(stream)
-			if err != nil {
-				t.Fatalf("Collecting tokens failed: %v", err)
-			}
-
-			if len(tokens) != 2 {
-				t.Errorf("Expected 2 tokens for field %s, got %d: %v", fieldName, len(tokens), tokens)
-			}
-		})
-	}
-}
-
-// TestStandardAnalyzer_Reuse tests analyzer reuse.
-// Source: Various tests
-// Purpose: Tests that analyzer can be reused for multiple analyses.
-func TestStandardAnalyzer_Reuse(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	inputs := []string{
-		"First document",
-		"Second document",
-		"Third document",
-	}
-
-	for _, input := range inputs {
-		tokens, err := collectTokensFromAnalyzer(analyzer, input)
-		if err != nil {
-			t.Fatalf("TokenStream failed: %v", err)
-		}
-
-		if len(tokens) == 0 {
-			t.Errorf("Expected tokens for input %q", input)
-		}
-	}
-}
-
-// TestStandardAnalyzer_MaxTokenLengthGetterSetter verifies the
-// MaxTokenLength / SetMaxTokenLength accessors and that the value
-// is propagated to every StandardTokenizer the analyzer creates.
-// Source: TestStandardAnalyzer.testMaxTokenLengthNonDefault().
-func TestStandardAnalyzer_MaxTokenLengthGetterSetter(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	if got := analyzer.MaxTokenLength(); got != DefaultMaxTokenLength {
-		t.Errorf("default MaxTokenLength: got %d, want %d", got, DefaultMaxTokenLength)
-	}
-
-	if err := analyzer.SetMaxTokenLength(0); err == nil {
-		t.Error("SetMaxTokenLength(0) should return an error")
-	}
-	if err := analyzer.SetMaxTokenLength(5); err != nil {
-		t.Fatalf("SetMaxTokenLength(5): %v", err)
-	}
-	if got := analyzer.MaxTokenLength(); got != 5 {
-		t.Errorf("after SetMaxTokenLength(5): got %d, want 5", got)
-	}
-
-	tokens, err := collectTokensFromAnalyzer(analyzer, "ab cd toolong xy z")
-	if err != nil {
-		t.Fatalf("collect: %v", err)
-	}
-	want := []string{"ab", "cd", "toolo", "ng", "xy", "z"}
-	if !reflect.DeepEqual(tokens, want) {
-		t.Errorf("got %v, want %v", tokens, want)
-	}
-}
-
-// TestStandardAnalyzer_DefaultEmptyStopSet verifies that the no-arg
-// constructor matches Lucene's CharArraySet.EMPTY_SET semantics:
-// no English stop word is removed unless the analyzer is
-// constructed via NewStandardAnalyzerWithStopWords.
-func TestStandardAnalyzer_DefaultEmptyStopSet(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-	tokens, err := collectTokensFromAnalyzer(analyzer, "the quick brown fox")
-	if err != nil {
-		t.Fatalf("collect: %v", err)
-	}
-	want := []string{"the", "quick", "brown", "fox"}
-	if !reflect.DeepEqual(tokens, want) {
-		t.Errorf("got %v, want %v", tokens, want)
-	}
-}
-
-// TestStandardAnalyzer_EdgeCases exercises pathological and mixed-script
-// inputs that historically cause divergence between Gocene and Lucene.
-// Source: Sprint 15 T103 (rmp 225).
-func TestStandardAnalyzer_EdgeCases(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
-	defer analyzer.Close()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected []string
-	}{
-		{"empty", "", nil},
-		{"whitespace only", "   \t\n", nil},
-		{"control chars", "hello\x00world\x01test", []string{"hello", "world", "test"}},
-		{"very long token", strings.Repeat("a", 1025), []string{strings.Repeat("a", 255), strings.Repeat("a", 255), strings.Repeat("a", 255), strings.Repeat("a", 255), "aaaaa"}},
-		{"url http", "Visit http://example.com/path", []string{"visit", "http", "example.com", "path"}},
-		{"url https", "Check https://www.test.org?q=1", []string{"check", "https", "www.test.org", "q", "1"}},
-		{"email simple", "Contact user@example.com please", []string{"contact", "user", "example.com", "please"}},
-		{"mixed script latin+cjk", "hello世界test", []string{"hello", "世", "界", "test"}},
-		{"mixed script latin+arabic", "مرحبا hello", []string{"مرحبا", "hello"}},
-		{"nfc nfd equivalent", "café café", []string{"café", "café"}},
-		{"surrogate pair", "𠜎𠜱", []string{"𠜎", "𠜱"}},
-		{"emoji sequence", "flag 🇺🇸 text", []string{"flag", "🇺🇸", "text"}},
-		{"invisible formatting", "test​word", []string{"test", "word"}},
-		{"non-breaking space", "hello world", []string{"hello", "world"}},
-		{"zero width joiner", "family 👨‍👩‍👧", []string{"family", "👨‍", "👩‍", "👧"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
-			if err != nil {
-				t.Fatalf("TokenStream failed: %v", err)
-			}
-			if !reflect.DeepEqual(tokens, tc.expected) {
-				t.Errorf("got %v, want %v", tokens, tc.expected)
-			}
-		})
-	}
-}
-
-// collectTokensFromStream collects tokens from a token stream.
-func collectTokensFromStream(stream TokenStream) ([]string, error) {
-	var tokens []string
 	for {
-		hasToken, err := stream.IncrementToken()
+		ok, err := ts.IncrementToken()
 		if err != nil {
-			return nil, err
+			t.Fatalf("incrementToken: %v", err)
 		}
-		if !hasToken {
+		if !ok {
 			break
 		}
+	}
+	if err := ts.End(); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if err := ts.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
 
-		attrSrc := stream.(interface {
-			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
-		}).GetAttributeSource()
-		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
-		if termAttr != nil {
-			if ct, ok := termAttr.(CharTermAttribute); ok {
-				tokens = append(tokens, ct.String())
-			}
+func TestStandardAnalyzer_HugeDoc(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString(strings.Repeat(" ", 4094))
+	sb.WriteString("testing 1234")
+	input := sb.String()
+	tokenizer := analysis.NewStandardTokenizer()
+	tokenizer.SetReader(strings.NewReader(input))
+	testutil.AssertTokenStreamContentsSimple(t, tokenizer, []string{"testing", "1234"})
+}
+
+func TestStandardAnalyzer_Armenian(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։",
+		[]string{
+			"Վիքիպեդիայի",
+			"13",
+			"միլիոն",
+			"հոդվածները",
+			"4,600",
+			"հայերեն",
+			"վիքիպեդիայում",
+			"գրվել",
+			"են",
+			"կամավորների",
+			"կողմից",
+			"ու",
+			"համարյա",
+			"բոլոր",
+			"հոդվածները",
+			"կարող",
+			"է",
+			"խմբագրել",
+			"ցանկաց",
+			"մարդ",
+			"ով",
+			"կարող",
+			"է",
+			"բացել",
+			"Վիքիպեդիայի",
+			"կայքը",
+		})
+}
+
+func TestStandardAnalyzer_Amharic(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"ዊኪፔድያ የባለ ብዙ ቋንቋ የተሟላ ትክክለኛና ነጻ መዝገበ ዕውቀት (ኢንሳይክሎፒዲያ) ነው። ማንኛውም",
+		[]string{
+			"ዊኪፔድያ",
+			"የባለ",
+			"ብዙ",
+			"ቋንቋ",
+			"የተሟላ",
+			"ትክክለኛና",
+			"ነጻ",
+			"መዝገበ",
+			"ዕውቀት",
+			"ኢንሳይክሎፒዲያ",
+			"ነው",
+			"ማንኛውም",
+		})
+}
+
+func TestStandardAnalyzer_Arabic(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"الفيلم الوثائقي الأول عن ويكيبيديا يسمى \"الحقيقة بالأرقام: قصة ويكيبيديا\" (بالإنجليزية: Truth in Numbers: The Wikipedia Story)، سيتم إطلاقه في 2008.",
+		[]string{
+			"الفيلم",
+			"الوثائقي",
+			"الأول",
+			"عن",
+			"ويكيبيديا",
+			"يسمى",
+			"الحقيقة",
+			"بالأرقام",
+			"قصة",
+			"ويكيبيديا",
+			"بالإنجليزية",
+			"Truth",
+			"in",
+			"Numbers",
+			"The",
+			"Wikipedia",
+			"Story",
+			"سيتم",
+			"إطلاقه",
+			"في",
+			"2008",
+		})
+}
+
+func TestStandardAnalyzer_Aramaic(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"ܘܝܩܝܦܕܝܐ (ܐܢܓܠܝܐ: Wikipedia) ܗܘ ܐܝܢܣܩܠܘܦܕܝܐ ܚܐܪܬܐ ܕܐܢܛܪܢܛ ܒܠܫܢ̈ܐ ܣܓܝܐ̈ܐ܂ ܫܡܗ ܐܬܐ ܡܢ ܡ̈ܠܬܐ ܕ\"ܘܝܩܝ\" ܘ\"ܐܝܢܣܩܠܘܦܕܝܐ\"܀",
+		[]string{
+			"ܘܝܩܝܦܕܝܐ",
+			"ܐܢܓܠܝܐ",
+			"Wikipedia",
+			"ܗܘ",
+			"ܐܝܢܣܩܠܘܦܕܝܐ",
+			"ܚܐܪܬܐ",
+			"ܕܐܢܛܪܢܛ",
+			"ܒܠܫܢ̈ܐ",
+			"ܣܓܝܐ̈ܐ",
+			"ܫܡܗ",
+			"ܐܬܐ",
+			"ܡܢ",
+			"ܡ̈ܠܬܐ",
+			"ܕ",
+			"ܘܝܩܝ",
+			"ܘ",
+			"ܐܝܢܣܩܠܘܦܕܝܐ",
+		})
+}
+
+func TestStandardAnalyzer_Bengali(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"এই বিশ্বকোষ পরিচালনা করে উইকিমিডিয়া ফাউন্ডেশন (একটি অলাভজনক সংস্থা)। উইকিপিডিয়ার শুরু ১৫ জানুয়ারি, ২০০১ সালে। এখন পর্যন্ত ২০০টিরও বেশী ভাষায় উইকিপিডিয়া রয়েছে।",
+		[]string{
+			"এই",
+			"বিশ্বকোষ",
+			"পরিচালনা",
+			"করে",
+			"উইকিমিডিয়া",
+			"ফাউন্ডেশন",
+			"একটি",
+			"অলাভজনক",
+			"সংস্থা",
+			"উইকিপিডিয়ার",
+			"শুরু",
+			"১৫",
+			"জানুয়ারি",
+			"২০০১",
+			"সালে",
+			"এখন",
+			"পর্যন্ত",
+			"২০০টিরও",
+			"বেশী",
+			"ভাষায়",
+			"উইকিপিডিয়া",
+			"রয়েছে",
+		})
+}
+
+func TestStandardAnalyzer_Farsi(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"ویکی پدیای انگلیسی در تاریخ ۲۵ دی ۱۳۷۹ به صورت مکملی برای دانشنامهٔ تخصصی نوپدیا نوشته شد.",
+		[]string{
+			"ویکی",
+			"پدیای",
+			"انگلیسی",
+			"در",
+			"تاریخ",
+			"۲۵",
+			"دی",
+			"۱۳۷۹",
+			"به",
+			"صورت",
+			"مکملی",
+			"برای",
+			"دانشنامهٔ",
+			"تخصصی",
+			"نوپدیا",
+			"نوشته",
+			"شد",
+		})
+}
+
+func TestStandardAnalyzer_Greek(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"Γράφεται σε συνεργασία από εθελοντές με το λογισμικό wiki, κάτι που σημαίνει ότι άρθρα μπορεί να προστεθούν ή να αλλάξουν από τον καθένα.",
+		[]string{
+			"Γράφεται",
+			"σε",
+			"συνεργασία",
+			"από",
+			"εθελοντές",
+			"με",
+			"το",
+			"λογισμικό",
+			"wiki",
+			"κάτι",
+			"που",
+			"σημαίνει",
+			"ότι",
+			"άρθρα",
+			"μπορεί",
+			"να",
+			"προστεθούν",
+			"ή",
+			"να",
+			"αλλάξουν",
+			"από",
+			"τον",
+			"καθένα",
+		})
+}
+
+func TestStandardAnalyzer_Thai(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"การที่ได้ต้องแสดงว่างานดี. แล้วเธอจะไปไหน? ๑๒๓๔",
+		[]string{"การที่ได้ต้องแสดงว่างานดี", "แล้วเธอจะไปไหน", "๑๒๓๔"})
+}
+
+func TestStandardAnalyzer_Lao(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"ສາທາລະນະລັດ ປະຊາທິປະໄຕ ປະຊາຊົນລາວ",
+		[]string{"ສາທາລະນະລັດ", "ປະຊາທິປະໄຕ", "ປະຊາຊົນລາວ"})
+}
+
+func TestStandardAnalyzer_Tibetan(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"སྣོན་མཛོད་དང་ལས་འདིས་བོད་ཡིག་མི་ཉམས་གོང་འཕེལ་དུ་གཏོང་བར་ཧ་ཅང་དགེ་མཚན་མཆིས་སོ། །",
+		[]string{
+			"སྣོན", "མཛོད", "དང", "ལས", "འདིས", "བོད", "ཡིག",
+			"མི", "ཉམས", "གོང", "འཕེལ", "དུ", "གཏོང", "བར",
+			"ཧ", "ཅང", "དགེ", "མཚན", "མཆིས", "སོ",
+		})
+}
+
+// For chinese, tokenize as char (these can later form bigrams or whatever)
+func TestStandardAnalyzer_Chinese(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "我是中国人。 １２３４ Ｔｅｓｔｓ ", []string{"我", "是", "中", "国", "人", "１２３４", "Ｔｅｓｔｓ"})
+}
+
+func TestStandardAnalyzer_Empty(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t, a, "", []string{})
+	assertAnalyzesTo(t, a, ".", []string{})
+	assertAnalyzesTo(t, a, " ", []string{})
+}
+
+// test various jira issues this analyzer is related to */
+func TestStandardAnalyzer_LUCENE1545(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	/*
+	 * Standard analyzer does not correctly tokenize combining character U+0364 COMBINING LATIN SMALL LETTRE E.
+	 * The word "moͤchte" is incorrectly tokenized into "mo" "chte", the combining character is lost.
+	 * Expected result is only on token "moͤchte".
+	 */
+	assertAnalyzesTo(t, a, "moͤchte", []string{"moͤchte"})
+}
+
+// Tests from StandardAnalyzer, just to show behavior is similar */
+func TestStandardAnalyzer_AlphanumericSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// alphanumeric tokens
+	assertAnalyzesTo(t, a, "B2B", []string{"B2B"})
+	assertAnalyzesTo(t, a, "2B", []string{"2B"})
+}
+
+func TestStandardAnalyzer_DelimitersSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// other delimiters: "-", "/", ","
+	assertAnalyzesTo(t,
+		a, "some-dashed-phrase", []string{"some", "dashed", "phrase"})
+	assertAnalyzesTo(t,
+		a, "dogs,chase,cats", []string{"dogs", "chase", "cats"})
+	assertAnalyzesTo(t, a, "ac/dc", []string{"ac", "dc"})
+}
+
+func TestStandardAnalyzer_ApostrophesSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// internal apostrophes: O'Reilly, you're, O'Reilly's
+	assertAnalyzesTo(t, a, "O'Reilly", []string{"O'Reilly"})
+	assertAnalyzesTo(t, a, "you're", []string{"you're"})
+	assertAnalyzesTo(t, a, "she's", []string{"she's"})
+	assertAnalyzesTo(t, a, "Jim's", []string{"Jim's"})
+	assertAnalyzesTo(t, a, "don't", []string{"don't"})
+	assertAnalyzesTo(t, a, "O'Reilly's", []string{"O'Reilly's"})
+}
+
+func TestStandardAnalyzer_NumericSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// floating point, serial, model numbers, ip addresses, etc.
+	assertAnalyzesTo(t, a, "21.35", []string{"21.35"})
+	assertAnalyzesTo(t, a, "R2D2 C3PO", []string{"R2D2", "C3PO"})
+	assertAnalyzesTo(t, a, "216.239.63.104", []string{"216.239.63.104"})
+	assertAnalyzesTo(t, a, "216.239.63.104", []string{"216.239.63.104"})
+}
+
+func TestStandardAnalyzer_TextWithNumbersSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// numbers
+	assertAnalyzesTo(t,
+		a, "David has 5000 bones", []string{"David", "has", "5000", "bones"})
+}
+
+func TestStandardAnalyzer_VariousTextSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// various
+	assertAnalyzesTo(t,
+		a, "C embedded developers wanted", []string{"C", "embedded", "developers", "wanted"})
+	assertAnalyzesTo(t,
+		a, "foo bar FOO BAR", []string{"foo", "bar", "FOO", "BAR"})
+	assertAnalyzesTo(t,
+		a, "foo      bar .  FOO <> BAR", []string{"foo", "bar", "FOO", "BAR"})
+	assertAnalyzesTo(t, a, "\"QUOTED\" word", []string{"QUOTED", "word"})
+}
+
+func TestStandardAnalyzer_KoreanSA(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// Korean words
+	assertAnalyzesTo(t, a, "안녕하세요 한글입니다", []string{"안녕하세요", "한글입니다"})
+}
+
+func TestStandardAnalyzer_Offsets(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"David has 5000 bones",
+		[]string{"David", "has", "5000", "bones"},
+		[]int{0, 6, 10, 15},
+		[]int{5, 9, 14, 20})
+}
+
+func TestStandardAnalyzer_Types(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"David has 5000 bones",
+		[]string{"David", "has", "5000", "bones"},
+		[]string{"<ALPHANUM>", "<ALPHANUM>", "<NUM>", "<ALPHANUM>"})
+}
+
+func TestStandardAnalyzer_Supplementary(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"𩬅艱鍟䇹愯瀛",
+		[]string{"𩬅", "艱", "鍟", "䇹", "愯", "瀛"},
+		[]string{
+			"<IDEOGRAPHIC>",
+			"<IDEOGRAPHIC>",
+			"<IDEOGRAPHIC>",
+			"<IDEOGRAPHIC>",
+			"<IDEOGRAPHIC>",
+			"<IDEOGRAPHIC>",
+		})
+}
+
+func TestStandardAnalyzer_Korean(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "훈민정음", []string{"훈민정음"}, []string{"<HANGUL>"})
+}
+
+func TestStandardAnalyzer_Japanese(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"仮名遣い カタカナ",
+		[]string{"仮", "名", "遣", "い", "カタカナ"},
+		[]string{
+			"<IDEOGRAPHIC>", "<IDEOGRAPHIC>", "<IDEOGRAPHIC>", "<HIRAGANA>", "<KATAKANA>",
+		})
+}
+
+func TestStandardAnalyzer_CombiningMarks(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	checkOneTerm(t, a, "ざ", "ざ") // hiragana
+	checkOneTerm(t, a, "ザ", "ザ") // katakana
+	checkOneTerm(t, a, "壹゙", "壹゙") // ideographic
+	checkOneTerm(t, a, "아゙", "아゙") // hangul
+}
+
+// Multiple consecutive chars in \p{WB:MidLetter}, \p{WB:MidNumLet}, and/or \p{MidNum} should
+// trigger a token split.
+func TestStandardAnalyzer_Mid(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// ':' is in \p{WB:MidLetter}, which should trigger a split unless there is a Letter char on
+	// both sides
+	assertAnalyzesTo(t, a, "A:B", []string{"A:B"})
+	assertAnalyzesTo(t, a, "A::B", []string{"A", "B"})
+
+	// '.' is in \p{WB:MidNumLet}, which should trigger a split unless there is a Letter or Numeric
+	// char on both sides
+	assertAnalyzesTo(t, a, "1.2", []string{"1.2"})
+	assertAnalyzesTo(t, a, "A.B", []string{"A.B"})
+	assertAnalyzesTo(t, a, "1..2", []string{"1", "2"})
+	assertAnalyzesTo(t, a, "A..B", []string{"A", "B"})
+
+	// ',' is in \p{WB:MidNum}, which should trigger a split unless there is a Numeric char on both
+	// sides
+	assertAnalyzesTo(t, a, "1,2", []string{"1,2"})
+	assertAnalyzesTo(t, a, "1,,2", []string{"1", "2"})
+
+	// Mixed consecutive \p{WB:MidLetter} and \p{WB:MidNumLet} should trigger a split
+	assertAnalyzesTo(t, a, "A.:B", []string{"A", "B"})
+	assertAnalyzesTo(t, a, "A:.B", []string{"A", "B"})
+
+	// Mixed consecutive \p{WB:MidNum} and \p{WB:MidNumLet} should trigger a split
+	assertAnalyzesTo(t, a, "1,.2", []string{"1", "2"})
+	assertAnalyzesTo(t, a, "1.,2", []string{"1", "2"})
+
+	// '_' is in \p{WB:ExtendNumLet}
+
+	assertAnalyzesTo(t, a, "A:B_A:B", []string{"A:B_A:B"})
+	assertAnalyzesTo(t, a, "A:B_A::B", []string{"A:B_A", "B"})
+
+	assertAnalyzesTo(t, a, "1.2_1.2", []string{"1.2_1.2"})
+	assertAnalyzesTo(t, a, "A.B_A.B", []string{"A.B_A.B"})
+	assertAnalyzesTo(t, a, "1.2_1..2", []string{"1.2_1", "2"})
+	assertAnalyzesTo(t, a, "A.B_A..B", []string{"A.B_A", "B"})
+
+	assertAnalyzesTo(t, a, "1,2_1,2", []string{"1,2_1,2"})
+	assertAnalyzesTo(t, a, "1,2_1,,2", []string{"1,2_1", "2"})
+
+	assertAnalyzesTo(t, a, "C_A.:B", []string{"C_A", "B"})
+	assertAnalyzesTo(t, a, "C_A:.B", []string{"C_A", "B"})
+
+	assertAnalyzesTo(t, a, "3_1,.2", []string{"3_1", "2"})
+	assertAnalyzesTo(t, a, "3_1.,2", []string{"3_1", "2"})
+}
+
+// simple emoji */
+func TestStandardAnalyzer_Emoji(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a,
+		"💩 💩💩",
+		[]string{"💩", "💩", "💩"},
+		[]string{"<EMOJI>", "<EMOJI>", "<EMOJI>"})
+}
+
+// emoji zwj sequence */
+func TestStandardAnalyzer_EmojiSequence(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "👩‍❤️‍👩", []string{"👩‍❤️‍👩"}, []string{"<EMOJI>"})
+}
+
+// emoji zwj sequence with fitzpatrick modifier */
+func TestStandardAnalyzer_EmojiSequenceWithModifier(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "👨🏼‍⚕️", []string{"👨🏼‍⚕️"}, []string{"<EMOJI>"})
+}
+
+// regional indicator */
+func TestStandardAnalyzer_EmojiRegionalIndicator(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "🇺🇸🇺🇸", []string{"🇺🇸", "🇺🇸"}, []string{"<EMOJI>", "<EMOJI>"})
+}
+
+// variation sequence */
+func TestStandardAnalyzer_EmojiVariationSequence(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "#️⃣", []string{"#️⃣"}, []string{"<EMOJI>"})
+	assertAnalyzesTo(t,
+		a,
+		"3️⃣",
+		[]string{
+			"3️⃣",
+		},
+		[]string{"<EMOJI>"})
+
+	// text presentation sequences
+	assertAnalyzesTo(t, a, "#\uFE0E", []string{}, []string{})
+	assertAnalyzesTo(t,
+		a,
+		"3\uFE0E", // \uFE0E is included in \p{WB:Extend}
+		[]string{
+			"3\uFE0E",
+		},
+		[]string{"<NUM>"})
+	assertAnalyzesTo(t,
+		a,
+		"\u2B55\uFE0E", // \u2B55 = HEAVY BLACK CIRCLE
+		[]string{
+			"\u2B55",
+		},
+		[]string{"<EMOJI>"})
+	assertAnalyzesTo(t,
+		a,
+		"\u2B55\uFE0E\u200D\u2B55\uFE0E",
+		[]string{"\u2B55", "\u200D\u2B55"},
+		[]string{"<EMOJI>", "<EMOJI>"})
+}
+
+func TestStandardAnalyzer_EmojiTagSequence(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	assertAnalyzesTo(t,
+		a, "🏴󠁧󠁢󠁥󠁮󠁧󠁿", []string{"🏴󠁧󠁢󠁥󠁮󠁧󠁿"}, []string{"<EMOJI>"})
+}
+
+func TestStandardAnalyzer_EmojiTokenization(t *testing.T) {
+	a := newStandardTokenizerTestAnalyzer()
+	defer a.Close()
+	// simple emoji around latin
+	assertAnalyzesTo(t,
+		a,
+		"poo💩poo",
+		[]string{"poo", "💩", "poo"},
+		[]string{"<ALPHANUM>", "<EMOJI>", "<ALPHANUM>"})
+	// simple emoji around non-latin
+	assertAnalyzesTo(t,
+		a,
+		"💩中國💩",
+		[]string{"💩", "中", "國", "💩"},
+		[]string{"<EMOJI>", "<IDEOGRAPHIC>", "<IDEOGRAPHIC>", "<EMOJI>"})
+}
+
+func TestStandardAnalyzer_Normalize(t *testing.T) {
+	a := analysis.NewStandardAnalyzer()
+	got, err := a.NormalizeText("dummy", "\"\\À3[]()! Cz@")
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if want := []byte("\"\\à3[]()! cz@"); !bytes.Equal(want, got.ValidBytes()) {
+		t.Fatalf("normalize: got %q, want %q", got.ValidBytes(), want)
+	}
+}
+
+func TestStandardAnalyzer_MaxTokenLengthDefault(t *testing.T) {
+	a := analysis.NewStandardAnalyzer()
+
+	// exact max length:
+	bString := strings.Repeat("b", analysis.StandardAnalyzerDefaultMaxTokenLength)
+	// first bString is exact max default length; next one is 1 too long
+	input := "x " + bString + " " + bString + "b"
+	assertAnalyzesTo(t, a, input, []string{"x", bString, bString, "b"})
+	if err := a.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestStandardAnalyzer_MaxTokenLengthNonDefault(t *testing.T) {
+	a := analysis.NewStandardAnalyzer()
+	a.SetMaxTokenLength(5)
+	assertAnalyzesTo(t, a, "ab cd toolong xy z", []string{"ab", "cd", "toolo", "ng", "xy", "z"})
+	if err := a.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func TestStandardAnalyzer_SplitSurrogatePairWithSpoonFeedReader(t *testing.T) {
+	text := "12345678\U00010300" // U+D800 U+DF00 = U+10300 = 𐌀 (OLD ITALIC LETTER A)
+
+	// Collect tokens with normal reader
+	a := analysis.NewStandardAnalyzer()
+	ts, err := a.TokenStreamFromString("dummy", text)
+	if err != nil {
+		t.Fatalf("tokenStream: %v", err)
+	}
+	var tokens []string
+	termAtt := ts.GetAttributeSource().AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	mustNoErr(t, ts.Reset())
+	for {
+		ok, err := ts.IncrementToken()
+		mustNoErr(t, err)
+		if !ok {
+			break
+		}
+		tokens = append(tokens, termAtt.String())
+	}
+	mustNoErr(t, ts.End())
+	mustNoErr(t, ts.Close())
+
+	// Tokens from a spoon-feed reader should be the same as from a normal
+	// reader. The 9th unit is the first unit of the supplementary character,
+	// so the 9-max spoon-feed reader will split it at a read boundary.
+	reader := &spoonFeedMaxCharsReaderWrapper{maxChars: 9, in: strings.NewReader(text)}
+	ts, err = a.TokenStream("dummy", reader)
+	if err != nil {
+		t.Fatalf("tokenStream: %v", err)
+	}
+	termAtt = ts.GetAttributeSource().AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	mustNoErr(t, ts.Reset())
+	for tokenNum := 0; ; tokenNum++ {
+		ok, err := ts.IncrementToken()
+		mustNoErr(t, err)
+		if !ok {
+			break
+		}
+		if tokenNum >= len(tokens) {
+			t.Fatalf("token #%d mismatch: extra token %q", tokenNum, termAtt.String())
+		}
+		if got := termAtt.String(); got != tokens[tokenNum] {
+			t.Fatalf("token #%d mismatch: got %q, want %q", tokenNum, got, tokens[tokenNum])
 		}
 	}
+	mustNoErr(t, ts.End())
+	mustNoErr(t, ts.Close())
+}
 
-	return tokens, nil
+// spoonFeedMaxCharsReaderWrapper is the port of the package-private class
+// SpoonFeedMaxCharsReaderWrapper: every read returns at most maxChars units.
+// Java readers deliver UTF-16 units; Go readers deliver UTF-8 bytes, so the
+// limit applies to bytes.
+type spoonFeedMaxCharsReaderWrapper struct {
+	in       io.Reader
+	maxChars int
+}
+
+func (r *spoonFeedMaxCharsReaderWrapper) Close() error {
+	if c, ok := r.in.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// Read returns the configured number of units if available.
+func (r *spoonFeedMaxCharsReaderWrapper) Read(p []byte) (int, error) {
+	return r.in.Read(p[:min(r.maxChars, len(p))])
 }

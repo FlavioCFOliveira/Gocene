@@ -2,787 +2,441 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Source: lucene/core/src/test/org/apache/lucene/store/TestBufferedIndexInput.java
-// Purpose: Tests for BufferedIndexInput including buffer boundary reads,
-// EOF detection, backwards reads, and bulk primitive reads.
-
 package store
+
+// Port of lucene/core/src/test/org/apache/lucene/store/TestBufferedIndexInput.java
+// (Apache Lucene 10.5.0).
 
 import (
 	"encoding/binary"
-	"io"
+	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
+	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-const testFileLength = 100 * 1024 // 100KB
+// testFileLength mirrors TestBufferedIndexInput.TEST_FILE_LENGTH.
+const testFileLength = 100 * 1024
+
+// newBufferedIndexInputTestRandom mirrors LuceneTestCase.random(): a seeded
+// generator whose seed is logged so that a failure can be replayed.
+func newBufferedIndexInputTestRandom(t *testing.T) *rand.Rand {
+	t.Helper()
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	return rand.New(rand.NewPCG(seed, 0x9E3779B97F4A7C15))
+}
+
+// testReadByte: call readByte() repeatedly, past the buffer boundary, and see
+// that it is working as expected.
+func TestBufferedIndexInput_ReadByte(t *testing.T) {
+	input, _ := newMyBufferedIndexInput(t)
+	for i := 0; i < DefaultBufferSize*10; i++ {
+		b, err := input.ReadByte()
+		if err != nil {
+			t.Fatalf("readByte at %d: %v", i, err)
+		}
+		if b != byten(int64(i)) {
+			t.Fatalf("readByte at %d: got %d, want %d", i, b, byten(int64(i)))
+		}
+	}
+}
+
+// testReadBytes: call readBytes() repeatedly, with various chunk sizes (from 1
+// byte to larger than the buffer size), and see that it returns the bytes we
+// expect.
+func TestBufferedIndexInput_ReadBytes(t *testing.T) {
+	input, _ := newMyBufferedIndexInput(t)
+	runReadBytes(t, input, DefaultBufferSize, newBufferedIndexInputTestRandom(t))
+}
+
+func runReadBytes(t *testing.T, input IndexInput, bufferSize int, r *rand.Rand) {
+	t.Helper()
+	pos := 0
+	// gradually increasing size:
+	for size := 1; size < bufferSize*10; size = size + size/200 + 1 {
+		mustCheckReadBytes(t, input, size, pos)
+		pos += size
+		if pos >= testFileLength {
+			// wrap
+			pos = 0
+			if err := input.SetPosition(0); err != nil {
+				t.Fatalf("seek(0): %v", err)
+			}
+		}
+	}
+	// wildly fluctuating size:
+	for i := int64(0); i < 100; i++ {
+		size := r.IntN(10000)
+		mustCheckReadBytes(t, input, 1+size, pos)
+		pos += 1 + size
+		if pos >= testFileLength {
+			// wrap
+			pos = 0
+			if err := input.SetPosition(0); err != nil {
+				t.Fatalf("seek(0): %v", err)
+			}
+		}
+	}
+	// constant small size (7 bytes):
+	for i := 0; i < bufferSize; i++ {
+		mustCheckReadBytes(t, input, 7, pos)
+		pos += 7
+		if pos >= testFileLength {
+			// wrap
+			pos = 0
+			if err := input.SetPosition(0); err != nil {
+				t.Fatalf("seek(0): %v", err)
+			}
+		}
+	}
+}
+
+// checkReadBytesBuffer mirrors the test class field `buffer`.
+var checkReadBytesBuffer = make([]byte, 10)
+
+// checkReadBytes mirrors TestBufferedIndexInput.checkReadBytes. Assertion
+// failures stop the test; the error of readBytes is returned so that callers
+// can assert on the IOException the Java method propagates.
+func checkReadBytes(t *testing.T, input IndexInput, size, pos int) error {
+	t.Helper()
+	// Just to see that "offset" is treated properly in readBytes(), we
+	// add an arbitrary offset at the beginning of the array
+	offset := size % 10 // arbitrary
+	checkReadBytesBuffer = util.GrowByte(checkReadBytesBuffer, offset+size)
+	if got := input.GetFilePointer(); got != int64(pos) {
+		t.Fatalf("getFilePointer: got %d, want %d", got, pos)
+	}
+	left := int64(testFileLength) - input.GetFilePointer()
+	if left <= 0 {
+		return nil
+	} else if left < int64(size) {
+		size = int(left)
+	}
+	if err := input.ReadBytes(checkReadBytesBuffer, offset, size); err != nil {
+		return err
+	}
+	if got := input.GetFilePointer(); got != int64(pos+size) {
+		t.Fatalf("getFilePointer after read: got %d, want %d", got, pos+size)
+	}
+	for i := 0; i < size; i++ {
+		if want, got := byten(int64(pos+i)), checkReadBytesBuffer[offset+i]; want != got {
+			t.Fatalf("pos=%d filepos=%d: got %d, want %d", i, pos+i, got, want)
+		}
+	}
+	return nil
+}
+
+func mustCheckReadBytes(t *testing.T, input IndexInput, size, pos int) {
+	t.Helper()
+	if err := checkReadBytes(t, input, size, pos); err != nil {
+		t.Fatalf("readBytes(size=%d, pos=%d): %v", size, pos, err)
+	}
+}
+
+// testEOF: attempts to readBytes() past an EOF will fail, while reads up to
+// the EOF will succeed. The EOF is determined by the BufferedIndexInput's
+// arbitrary length() value.
+func TestBufferedIndexInput_EOF(t *testing.T) {
+	input, _ := newMyBufferedIndexInputWithLength(t, 1024)
+	// see that we can read all the bytes at one go:
+	mustCheckReadBytes(t, input, int(input.Length()), 0)
+	// go back and see that we can't read more than that, for small and
+	// large overflows:
+	pos := int(input.Length()) - 10
+	mustSeek(t, input, int64(pos))
+	mustCheckReadBytes(t, input, 10, pos)
+	mustSeek(t, input, int64(pos))
+	// block read past end of file
+	if err := checkReadBytes(t, input, 11, pos); err == nil {
+		t.Fatal("expected IOException reading 11 bytes past EOF")
+	}
+
+	mustSeek(t, input, int64(pos))
+
+	// block read past end of file
+	if err := checkReadBytes(t, input, 50, pos); err == nil {
+		t.Fatal("expected IOException reading 50 bytes past EOF")
+	}
+
+	mustSeek(t, input, int64(pos))
+
+	// block read past end of file
+	if err := checkReadBytes(t, input, 100000, pos); err == nil {
+		t.Fatal("expected IOException reading 100000 bytes past EOF")
+	}
+}
+
+func mustSeek(t *testing.T, input IndexInput, pos int64) {
+	t.Helper()
+	if err := input.SetPosition(pos); err != nil {
+		t.Fatalf("seek(%d): %v", pos, err)
+	}
+}
+
+// testBackwardsByteReads: when reading backwards, we page backwards rather
+// than refilling on every call.
+func TestBufferedIndexInput_BackwardsByteReads(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	input, impl := newMyBufferedIndexInputWithLength(t, 1024*8)
+	for i := 2048; i > 0; i -= r.IntN(16) {
+		got, err := input.ReadByteAt(int64(i))
+		if err != nil {
+			t.Fatalf("readByte(%d): %v", i, err)
+		}
+		if want := byten(int64(i)); got != want {
+			t.Fatalf("readByte(%d): got %d, want %d", i, got, want)
+		}
+	}
+	if impl.readCount != 3 {
+		t.Fatalf("readCount: got %d, want 3", impl.readCount)
+	}
+}
+
+func TestBufferedIndexInput_BackwardsShortReads(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	input, impl := newMyBufferedIndexInputWithLength(t, 1024*8)
+	bb := make([]byte, 2)
+	for i := 2048; i > 0; i -= r.IntN(16) + 1 {
+		bb[0] = byten(int64(i))
+		bb[1] = byten(int64(i + 1))
+		got, err := input.ReadShortAt(int64(i))
+		if err != nil {
+			t.Fatalf("readShort(%d): %v", i, err)
+		}
+		if want := int16(binary.LittleEndian.Uint16(bb)); got != want {
+			t.Fatalf("readShort(%d): got %d, want %d", i, got, want)
+		}
+	}
+	// readCount can be three or four, depending on whether or not we had to
+	// adjust the bufferStart to include a whole short
+	if impl.readCount != 4 && impl.readCount != 3 {
+		t.Fatalf("Expected 4 or 3, got %d", impl.readCount)
+	}
+}
+
+func TestBufferedIndexInput_BackwardsIntReads(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	input, impl := newMyBufferedIndexInputWithLength(t, 1024*8)
+	bb := make([]byte, 4)
+	for i := 2048; i > 0; i -= r.IntN(16) + 3 {
+		for k := 0; k < 4; k++ {
+			bb[k] = byten(int64(i + k))
+		}
+		got, err := input.ReadIntAt(int64(i))
+		if err != nil {
+			t.Fatalf("readInt(%d): %v", i, err)
+		}
+		if want := int32(binary.LittleEndian.Uint32(bb)); got != want {
+			t.Fatalf("readInt(%d): got %d, want %d", i, got, want)
+		}
+	}
+	// readCount can be three or four, depending on whether or not we had to
+	// adjust the bufferStart to include a whole int
+	if impl.readCount != 4 && impl.readCount != 3 {
+		t.Fatalf("Expected 4 or 3, got %d", impl.readCount)
+	}
+}
+
+func TestBufferedIndexInput_BackwardsLongReads(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	input, impl := newMyBufferedIndexInputWithLength(t, 1024*8)
+	bb := make([]byte, 8)
+	for i := 2048; i > 0; i -= r.IntN(16) + 7 {
+		for k := 0; k < 8; k++ {
+			bb[k] = byten(int64(i + k))
+		}
+		got, err := input.ReadLongAt(int64(i))
+		if err != nil {
+			t.Fatalf("readLong(%d): %v", i, err)
+		}
+		if want := int64(binary.LittleEndian.Uint64(bb)); got != want {
+			t.Fatalf("readLong(%d): got %d, want %d", i, got, want)
+		}
+	}
+	// readCount can be three or four, depending on whether or not we had to
+	// adjust the bufferStart to include a whole long
+	if impl.readCount != 4 && impl.readCount != 3 {
+		t.Fatalf("Expected 4 or 3, got %d", impl.readCount)
+	}
+}
+
+func TestBufferedIndexInput_ReadFloats(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	const length = 1024 * 8
+	input, _ := newMyBufferedIndexInputWithLength(t, length)
+	bb := make([]byte, 4)
+	const bufferLength = 128
+	floatBuffer := make([]float32, bufferLength)
+
+	for alignment := 0; alignment < 4; alignment++ {
+		mustSeek(t, input, 0)
+		for i := 0; i < alignment; i++ {
+			if _, err := input.ReadByte(); err != nil {
+				t.Fatalf("readByte: %v", err)
+			}
+		}
+		bulkReads := length/(bufferLength*4) - 1
+		for i := 0; i < bulkReads; i++ {
+			pos := alignment + i*bufferLength*4
+			floatOffset := r.IntN(3)
+			if err := input.SkipBytes(int64(floatOffset * 4)); err != nil {
+				t.Fatalf("skipBytes: %v", err)
+			}
+			if err := input.ReadFloats(floatBuffer, floatOffset, bufferLength-floatOffset); err != nil {
+				t.Fatalf("readFloats: %v", err)
+			}
+			for idx := floatOffset; idx < bufferLength; idx++ {
+				offset := pos + idx*4
+				for k := 0; k < 4; k++ {
+					bb[k] = byten(int64(offset + k))
+				}
+				want := binary.LittleEndian.Uint32(bb)
+				if got := math.Float32bits(floatBuffer[idx]); got != want {
+					t.Fatalf("alignment=%d idx=%d: got bits %#x, want %#x", alignment, idx, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestBufferedIndexInput_ReadInts(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	const length = 1024 * 8
+	input, _ := newMyBufferedIndexInputWithLength(t, length)
+	bb := make([]byte, 4)
+	const bufferLength = 128
+	intBuffer := make([]int32, bufferLength)
+
+	for alignment := 0; alignment < 4; alignment++ {
+		mustSeek(t, input, 0)
+		for i := 0; i < alignment; i++ {
+			if _, err := input.ReadByte(); err != nil {
+				t.Fatalf("readByte: %v", err)
+			}
+		}
+		bulkReads := length/(bufferLength*4) - 1
+		for i := 0; i < bulkReads; i++ {
+			pos := alignment + i*bufferLength*4
+			intOffset := r.IntN(3)
+			if err := input.SkipBytes(int64(intOffset * 4)); err != nil {
+				t.Fatalf("skipBytes: %v", err)
+			}
+			if err := input.ReadInts(intBuffer, intOffset, bufferLength-intOffset); err != nil {
+				t.Fatalf("readInts: %v", err)
+			}
+			for idx := intOffset; idx < bufferLength; idx++ {
+				offset := pos + idx*4
+				for k := 0; k < 4; k++ {
+					bb[k] = byten(int64(offset + k))
+				}
+				if want := int32(binary.LittleEndian.Uint32(bb)); intBuffer[idx] != want {
+					t.Fatalf("alignment=%d idx=%d: got %d, want %d", alignment, idx, intBuffer[idx], want)
+				}
+			}
+		}
+	}
+}
+
+func TestBufferedIndexInput_ReadLongs(t *testing.T) {
+	r := newBufferedIndexInputTestRandom(t)
+	const length = 1024 * 8
+	input, _ := newMyBufferedIndexInputWithLength(t, length)
+	bb := make([]byte, 8)
+	const bufferLength = 128
+	longBuffer := make([]int64, bufferLength)
+
+	for alignment := 0; alignment < 8; alignment++ {
+		mustSeek(t, input, 0)
+		for i := 0; i < alignment; i++ {
+			if _, err := input.ReadByte(); err != nil {
+				t.Fatalf("readByte: %v", err)
+			}
+		}
+		bulkReads := length/(bufferLength*8) - 1
+		for i := 0; i < bulkReads; i++ {
+			pos := alignment + i*bufferLength*8
+			longOffset := r.IntN(3)
+			if err := input.SkipBytes(int64(longOffset * 8)); err != nil {
+				t.Fatalf("skipBytes: %v", err)
+			}
+			if err := input.ReadLongs(longBuffer, longOffset, bufferLength-longOffset); err != nil {
+				t.Fatalf("readLongs: %v", err)
+			}
+			for idx := longOffset; idx < bufferLength; idx++ {
+				offset := pos + idx*8
+				for k := 0; k < 8; k++ {
+					bb[k] = byten(int64(offset + k))
+				}
+				if want := int64(binary.LittleEndian.Uint64(bb)); longBuffer[idx] != want {
+					t.Fatalf("alignment=%d idx=%d: got %d, want %d", alignment, idx, longBuffer[idx], want)
+				}
+			}
+		}
+	}
+}
 
 // byten emulates a file - byten(n) returns the n'th byte in that file.
-// This matches the Java implementation: (byte) (n * n % 256)
+// MyBufferedIndexInput reads this "file".
 func byten(n int64) byte {
-	return byte((n * n) % 256)
+	return byte(n * n % 256)
 }
 
-// myBufferedIndexInput is a test implementation of BufferedIndexInput
-// that generates data dynamically based on the byten function.
+// myBufferedIndexInput is the port of the test class MyBufferedIndexInput.
+// Gocene renders the abstract BufferedIndexInput as a concrete type that
+// delegates readInternal/seekInternal to a bufferedInternal implementation;
+// this type is that implementation. Under that contract readInternal receives
+// the file position explicitly, so the reader starts at that position.
 type myBufferedIndexInput struct {
-	*BufferedIndexInput
-	pos        int64
-	len        int64
-	readCount  int64
-	bufferSize int
+	pos       int64
+	len       int64
+	readCount int64
 }
 
-// newMyBufferedIndexInput creates a new test input with the given length.
-// If len is <= 0, it creates an "infinite" file (Long.MAX_VALUE equivalent).
-func newMyBufferedIndexInput(length int64, bufferSize int) *myBufferedIndexInput {
-	if length <= 0 {
-		length = math.MaxInt64
+// newMyBufferedIndexInputWithLength mirrors MyBufferedIndexInput(long len).
+func newMyBufferedIndexInputWithLength(t *testing.T, length int64) (*BufferedIndexInput, *myBufferedIndexInput) {
+	t.Helper()
+	impl := &myBufferedIndexInput{len: length, pos: 0}
+	in, err := NewBufferedIndexInput(impl, DefaultBufferSize)
+	if err != nil {
+		t.Fatalf("NewBufferedIndexInput: %v", err)
 	}
-	if bufferSize <= 0 {
-		bufferSize = 1024 // Default buffer size
-	}
-	m := &myBufferedIndexInput{
-		len:        length,
-		bufferSize: bufferSize,
-	}
-	m.BufferedIndexInput = NewBufferedIndexInput("MyBufferedIndexInput", length, bufferSize)
-	return m
+	return in, impl
 }
 
-// readInternal implements the buffered read by generating data using byten.
-func (m *myBufferedIndexInput) readInternal(b []byte) (int, error) {
+// newMyBufferedIndexInput mirrors MyBufferedIndexInput(): an infinite file.
+func newMyBufferedIndexInput(t *testing.T) (*BufferedIndexInput, *myBufferedIndexInput) {
+	t.Helper()
+	return newMyBufferedIndexInputWithLength(t, math.MaxInt64)
+}
+
+func (m *myBufferedIndexInput) ReadInternal(b []byte, offset int64) (int, error) {
 	m.readCount++
-	startPos := m.GetFilePointer()
+	m.pos = offset
 	for i := range b {
-		if startPos+int64(i) >= m.len {
-			return i, io.EOF
-		}
-		b[i] = byten(startPos + int64(i))
+		b[i] = byten(m.pos)
+		m.pos++
 	}
 	return len(b), nil
 }
 
-// refill overrides the BufferedIndexInput refill to use our readInternal.
-func (m *myBufferedIndexInput) refill() error {
-	start := m.GetFilePointer()
-	n, err := m.readInternal(m.buffer)
-	if err != nil && err != io.EOF {
-		return err
-	}
-	m.bufferStart = start
-	m.bufferLength = n
-	m.bufferPosition = 0
+func (m *myBufferedIndexInput) SeekInternal(pos int64) error {
+	m.pos = pos
 	return nil
 }
 
-// ReadByte reads a single byte, using the buffer when possible.
-func (m *myBufferedIndexInput) ReadByte() (byte, error) {
-	if m.bufferPosition >= m.bufferLength {
-		if err := m.refill(); err != nil {
-			return 0, err
-		}
-		if m.bufferLength == 0 {
-			return 0, io.EOF
-		}
-	}
-	b := m.buffer[m.bufferPosition]
-	m.bufferPosition++
-	m.SetFilePointer(m.GetFilePointer() + 1)
-	return b, nil
+func (m *myBufferedIndexInput) Close() error { return nil }
+
+func (m *myBufferedIndexInput) Length() int64 { return m.len }
+
+func (m *myBufferedIndexInput) Description() string {
+	return fmt.Sprintf("MyBufferedIndexInput(len=%d)", m.len)
 }
 
-// ReadBytes reads len(b) bytes into b.
-func (m *myBufferedIndexInput) ReadBytes(b []byte) error {
-	// If the read is larger than the buffer, bypass the buffer
-	if len(b) > len(m.buffer) {
-		// First flush any buffered bytes
-		if m.bufferPosition < m.bufferLength {
-			n := m.bufferLength - m.bufferPosition
-			if n > len(b) {
-				n = len(b)
-			}
-			copy(b[:n], m.buffer[m.bufferPosition:m.bufferPosition+n])
-			m.bufferPosition += n
-			m.SetFilePointer(m.GetFilePointer() + int64(n))
-			b = b[n:]
-			if len(b) == 0 {
-				return nil
-			}
-		}
-
-		// Read directly from the source
-		n, err := m.readInternal(b)
-		if err != nil {
-			return err
-		}
-		m.SetFilePointer(m.GetFilePointer() + int64(n))
-		return nil
-	}
-
-	// Use the buffer for smaller reads
-	for len(b) > 0 {
-		if m.bufferPosition >= m.bufferLength {
-			if err := m.refill(); err != nil {
-				return err
-			}
-			if m.bufferLength == 0 {
-				return io.EOF
-			}
-		}
-		n := m.bufferLength - m.bufferPosition
-		if n > len(b) {
-			n = len(b)
-		}
-		copy(b[:n], m.buffer[m.bufferPosition:m.bufferPosition+n])
-		m.bufferPosition += n
-		m.SetFilePointer(m.GetFilePointer() + int64(n))
-		b = b[n:]
-	}
-	return nil
-}
-
-// SetPosition changes the current position.
-func (m *myBufferedIndexInput) SetPosition(pos int64) error {
-	if pos < 0 || pos > m.len {
-		return io.EOF
-	}
-
-	// Check if the seek is within our buffer
-	if pos >= m.bufferStart && pos < m.bufferStart+int64(m.bufferLength) {
-		m.bufferPosition = int(pos - m.bufferStart)
-	} else {
-		// Seek is outside buffer, invalidate it
-		m.bufferStart = pos
-		m.bufferLength = 0
-		m.bufferPosition = 0
-	}
-	m.SetFilePointer(pos)
-	return nil
-}
-
-// Length returns the total length of the input.
-func (m *myBufferedIndexInput) Length() int64 {
-	return m.len
-}
-
-// Clone returns a clone of this input.
-func (m *myBufferedIndexInput) Clone() IndexInput {
-	cloned := newMyBufferedIndexInput(m.len, m.bufferSize)
-	cloned.SetFilePointer(m.GetFilePointer())
-	// Copy buffer state
-	cloned.bufferStart = m.bufferStart
-	cloned.bufferLength = m.bufferLength
-	cloned.bufferPosition = m.bufferPosition
-	copy(cloned.buffer, m.buffer)
-	return cloned
-}
-
-// Slice returns a subset of this input.
-func (m *myBufferedIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
-	if offset+length > m.len {
-		return nil, io.EOF
-	}
-	sliced := newMyBufferedIndexInput(length, m.bufferSize)
-	sliced.SetFilePointer(0)
-	return sliced, nil
-}
-
-// Close closes this input.
-func (m *myBufferedIndexInput) Close() error {
-	return nil
-}
-
-// TestReadByte tests calling readByte() repeatedly, past the buffer boundary.
-// Source: TestBufferedIndexInput.testReadByte()
-func TestBufferedIndexInput_ReadByte(t *testing.T) {
-	input := newMyBufferedIndexInput(-1, 1024) // Infinite file
-	bufferSize := input.GetBufferSize()
-
-	// Read 10x buffer size worth of bytes
-	for i := 0; i < bufferSize*10; i++ {
-		b, err := input.ReadByte()
-		if err != nil {
-			t.Fatalf("unexpected error at position %d: %v", i, err)
-		}
-		expected := byten(int64(i))
-		if b != expected {
-			t.Errorf("position %d: expected %d, got %d", i, expected, b)
-		}
-	}
-}
-
-// TestReadBytes tests calling readBytes() repeatedly with various chunk sizes.
-// Source: TestBufferedIndexInput.testReadBytes()
-func TestBufferedIndexInput_ReadBytes(t *testing.T) {
-	input := newMyBufferedIndexInput(testFileLength, 1024)
-	r := rand.New(rand.NewSource(42))
-	runReadBytes(t, input, input.GetBufferSize(), r)
-}
-
-func runReadBytes(t *testing.T, input *myBufferedIndexInput, bufferSize int, r *rand.Rand) {
-	pos := 0
-
-	// Gradually increasing size
-	for size := 1; size < bufferSize*10; size = size + size/200 + 1 {
-		checkReadBytes(t, input, size, &pos)
-		if pos >= testFileLength {
-			// Wrap
-			pos = 0
-			input.SetPosition(0)
-		}
-	}
-
-	// Wildly fluctuating size
-	for i := 0; i < 100; i++ {
-		size := r.Intn(10000)
-		checkReadBytes(t, input, 1+size, &pos)
-		if pos >= testFileLength {
-			// Wrap
-			pos = 0
-			input.SetPosition(0)
-		}
-	}
-
-	// Constant small size (7 bytes)
-	for i := 0; i < bufferSize; i++ {
-		checkReadBytes(t, input, 7, &pos)
-		if pos >= testFileLength {
-			// Wrap
-			pos = 0
-			input.SetPosition(0)
-		}
-	}
-}
-
-var testBuffer = make([]byte, 10000)
-
-func checkReadBytes(t *testing.T, input *myBufferedIndexInput, size int, pos *int) {
-	// Just to see that "offset" is treated properly in readBytes(), we
-	// add an arbitrary offset at the beginning of the array
-	offset := size % 10 // arbitrary
-	if offset+size > len(testBuffer) {
-		testBuffer = make([]byte, offset+size)
-	}
-
-	if input.GetFilePointer() != int64(*pos) {
-		t.Errorf("expected file pointer %d, got %d", *pos, input.GetFilePointer())
-	}
-
-	left := int(input.Length() - input.GetFilePointer())
-	if left <= 0 {
-		return
-	} else if left < size {
-		size = left
-	}
-
-	err := input.ReadBytes(testBuffer[offset : offset+size])
-	if err != nil {
-		t.Fatalf("unexpected error reading %d bytes at position %d: %v", size, *pos, err)
-	}
-
-	if input.GetFilePointer() != int64(*pos+size) {
-		t.Errorf("expected file pointer %d, got %d", *pos+size, input.GetFilePointer())
-	}
-
-	for i := 0; i < size; i++ {
-		expected := byten(int64(*pos + i))
-		actual := testBuffer[offset+i]
-		if actual != expected {
-			t.Errorf("pos=%d filepos=%d: expected %d, got %d", i, *pos+i, expected, actual)
-		}
-	}
-
-	*pos += size
-}
-
-// TestEOF tests that attempts to readBytes() past an EOF will fail, while
-// reads up to the EOF will succeed.
-// Source: TestBufferedIndexInput.testEOF()
-func TestBufferedIndexInput_EOF(t *testing.T) {
-	input := newMyBufferedIndexInput(1024, 1024)
-
-	// See that we can read all the bytes at one go
-	buf := make([]byte, input.Length())
-	err := input.ReadBytes(buf)
-	if err != nil {
-		t.Fatalf("unexpected error reading all bytes: %v", err)
-	}
-
-	// Go back and see that we can't read more than that
-	pos := int(input.Length()) - 10
-	input.SetPosition(int64(pos))
-	checkReadBytes(t, input, 10, &pos)
-
-	// Try to read past end of file (small overflow)
-	input.SetPosition(int64(pos - 10))
-	err = input.ReadBytes(make([]byte, 11))
-	if err == nil {
-		t.Error("expected error when reading past EOF (small overflow)")
-	}
-
-	// Try to read past end of file (larger overflow)
-	input.SetPosition(int64(pos - 10))
-	err = input.ReadBytes(make([]byte, 50))
-	if err == nil {
-		t.Error("expected error when reading past EOF (larger overflow)")
-	}
-
-	// Try to read past end of file (large overflow)
-	input.SetPosition(int64(pos - 10))
-	err = input.ReadBytes(make([]byte, 100000))
-	if err == nil {
-		t.Error("expected error when reading past EOF (large overflow)")
-	}
-}
-
-// TestBackwardsByteReads tests that when reading backwards, we page backwards
-// rather than refilling on every call.
-// Source: TestBufferedIndexInput.testBackwardsByteReads()
-func TestBufferedIndexInput_BackwardsByteReads(t *testing.T) {
-	input := newMyBufferedIndexInput(1024*8, 1024)
-	r := rand.New(rand.NewSource(42))
-
-	// Reset read count
-	input.readCount = 0
-
-	// Read backwards from position 2048 to 0
-	for i := 2048; i > 0; i -= r.Intn(16) + 1 {
-		// Seek to position i
-		input.SetPosition(int64(i))
-		input.bufferStart = int64(i)
-		input.bufferLength = 0
-		input.bufferPosition = 0
-
-		// Read byte at position i
-		b, err := input.ReadByte()
-		if err != nil {
-			t.Fatalf("unexpected error at position %d: %v", i, err)
-		}
-		expected := byten(int64(i))
-		if b != expected {
-			t.Errorf("position %d: expected %d, got %d", i, expected, b)
-		}
-	}
-
-	// With a buffer size of 1024 and reading from 2048 backwards,
-	// we should have approximately 3 buffer fills (2048/1024 = 2, plus some margin)
-	if input.readCount != 3 {
-		t.Logf("note: readCount was %d, expected 3 (this may vary based on random access pattern)", input.readCount)
-	}
-}
-
-// TestBackwardsShortReads tests reading shorts backwards.
-// Source: TestBufferedIndexInput.testBackwardsShortReads()
-func TestBufferedIndexInput_BackwardsShortReads(t *testing.T) {
-	input := newMyBufferedIndexInput(1024*8, 1024)
-	r := rand.New(rand.NewSource(42))
-
-	// Reset read count
-	input.readCount = 0
-
-	bb := make([]byte, 2)
-
-	// Read shorts backwards from position 2048 to 0
-	for i := 2048; i > 0; i -= r.Intn(16) + 2 {
-		// Read two bytes and combine into short (little-endian)
-		input.SetPosition(int64(i))
-		input.bufferStart = int64(i)
-		input.bufferLength = 0
-		input.bufferPosition = 0
-
-		b0, _ := input.ReadByte()
-		b1, _ := input.ReadByte()
-
-		bb[0] = b0
-		bb[1] = b1
-		expected := int16(binary.LittleEndian.Uint16(bb))
-
-		// Verify the bytes match
-		if b0 != byten(int64(i)) || b1 != byten(int64(i+1)) {
-			t.Errorf("position %d: byte mismatch", i)
-		}
-
-		_ = expected // Used for verification
-	}
-
-	// readCount can be three or four, depending on whether or not we had to adjust the bufferStart
-	// to include a whole short
-	if input.readCount != 3 && input.readCount != 4 {
-		t.Logf("note: readCount was %d, expected 3 or 4", input.readCount)
-	}
-}
-
-// TestBackwardsIntReads tests reading ints backwards.
-// Source: TestBufferedIndexInput.testBackwardsIntReads()
-func TestBufferedIndexInput_BackwardsIntReads(t *testing.T) {
-	input := newMyBufferedIndexInput(1024*8, 1024)
-	r := rand.New(rand.NewSource(42))
-
-	// Reset read count
-	input.readCount = 0
-
-	bb := make([]byte, 4)
-
-	// Read ints backwards from position 2048 to 0
-	for i := 2048; i > 0; i -= r.Intn(16) + 4 {
-		input.SetPosition(int64(i))
-		input.bufferStart = int64(i)
-		input.bufferLength = 0
-		input.bufferPosition = 0
-
-		// Read four bytes and combine into int (little-endian)
-		for j := 0; j < 4; j++ {
-			b, _ := input.ReadByte()
-			bb[j] = b
-		}
-		expected := int32(binary.LittleEndian.Uint32(bb))
-		_ = expected
-	}
-
-	// readCount can be three or four
-	if input.readCount != 3 && input.readCount != 4 {
-		t.Logf("note: readCount was %d, expected 3 or 4", input.readCount)
-	}
-}
-
-// TestBackwardsLongReads tests reading longs backwards.
-// Source: TestBufferedIndexInput.testBackwardsLongReads()
-func TestBufferedIndexInput_BackwardsLongReads(t *testing.T) {
-	input := newMyBufferedIndexInput(1024*8, 1024)
-	r := rand.New(rand.NewSource(42))
-
-	// Reset read count
-	input.readCount = 0
-
-	bb := make([]byte, 8)
-
-	// Read longs backwards from position 2048 to 0
-	for i := 2048; i > 0; i -= r.Intn(16) + 8 {
-		input.SetPosition(int64(i))
-		input.bufferStart = int64(i)
-		input.bufferLength = 0
-		input.bufferPosition = 0
-
-		// Read eight bytes and combine into long (little-endian)
-		for j := 0; j < 8; j++ {
-			b, _ := input.ReadByte()
-			bb[j] = b
-		}
-		expected := int64(binary.LittleEndian.Uint64(bb))
-		_ = expected
-	}
-
-	// readCount can be three or four
-	if input.readCount != 3 && input.readCount != 4 {
-		t.Logf("note: readCount was %d, expected 3 or 4", input.readCount)
-	}
-}
-
-// TestReadFloats tests bulk float reads.
-// Source: TestBufferedIndexInput.testReadFloats()
-func TestBufferedIndexInput_ReadFloats(t *testing.T) {
-	length := 1024 * 8
-	input := newMyBufferedIndexInput(int64(length), 1024)
-	bb := make([]byte, 4)
-	bufferLength := 128
-	floatBuffer := make([]float32, bufferLength)
-
-	for alignment := 0; alignment < 4; alignment++ {
-		input.SetPosition(0)
-		for i := 0; i < alignment; i++ {
-			input.ReadByte()
-		}
-
-		bulkReads := length/(bufferLength*4) - 1
-		r := rand.New(rand.NewSource(42))
-
-		for i := 0; i < bulkReads; i++ {
-			pos := alignment + i*bufferLength*4
-			floatOffset := r.Intn(3)
-
-			// Skip bytes
-			for j := 0; j < floatOffset*4; j++ {
-				input.ReadByte()
-			}
-
-			// Read floats into buffer
-			for idx := floatOffset; idx < bufferLength; idx++ {
-				_ = pos + idx*4 // offset calculated but not directly used
-				for j := 0; j < 4; j++ {
-					b, _ := input.ReadByte()
-					bb[j] = b
-				}
-				floatBuffer[idx] = math.Float32frombits(binary.LittleEndian.Uint32(bb))
-			}
-
-			// Verify the floats
-			for idx := floatOffset; idx < bufferLength; idx++ {
-				offset := int64(pos + idx*4)
-				for j := 0; j < 4; j++ {
-					bb[j] = byten(offset + int64(j))
-				}
-				expectedBits := binary.LittleEndian.Uint32(bb)
-				actualBits := math.Float32bits(floatBuffer[idx])
-				if actualBits != expectedBits {
-					t.Errorf("alignment=%d pos=%d idx=%d: expected float bits %d, got %d",
-						alignment, pos, idx, expectedBits, actualBits)
-				}
-			}
-		}
-	}
-}
-
-// TestReadInts tests bulk int reads.
-// Source: TestBufferedIndexInput.testReadInts()
-func TestBufferedIndexInput_ReadInts(t *testing.T) {
-	length := 1024 * 8
-	input := newMyBufferedIndexInput(int64(length), 1024)
-	bb := make([]byte, 4)
-	bufferLength := 128
-	intBuffer := make([]int32, bufferLength)
-
-	for alignment := 0; alignment < 4; alignment++ {
-		input.SetPosition(0)
-		for i := 0; i < alignment; i++ {
-			input.ReadByte()
-		}
-
-		bulkReads := length/(bufferLength*4) - 1
-		r := rand.New(rand.NewSource(42))
-
-		for i := 0; i < bulkReads; i++ {
-			pos := alignment + i*bufferLength*4
-			intOffset := r.Intn(3)
-
-			// Skip bytes
-			for j := 0; j < intOffset*4; j++ {
-				input.ReadByte()
-			}
-
-			// Read ints into buffer
-			for idx := intOffset; idx < bufferLength; idx++ {
-				_ = pos + idx*4 // offset calculated but not directly used
-				for j := 0; j < 4; j++ {
-					b, _ := input.ReadByte()
-					bb[j] = b
-				}
-				intBuffer[idx] = int32(binary.LittleEndian.Uint32(bb))
-			}
-
-			// Verify the ints
-			for idx := intOffset; idx < bufferLength; idx++ {
-				offset := int64(pos + idx*4)
-				for j := 0; j < 4; j++ {
-					bb[j] = byten(offset + int64(j))
-				}
-				expected := int32(binary.LittleEndian.Uint32(bb))
-				if intBuffer[idx] != expected {
-					t.Errorf("alignment=%d pos=%d idx=%d: expected %d, got %d",
-						alignment, pos, idx, expected, intBuffer[idx])
-				}
-			}
-		}
-	}
-}
-
-// TestReadLongs tests bulk long reads.
-// Source: TestBufferedIndexInput.testReadLongs()
-func TestBufferedIndexInput_ReadLongs(t *testing.T) {
-	length := 1024 * 8
-	input := newMyBufferedIndexInput(int64(length), 1024)
-	bb := make([]byte, 8)
-	bufferLength := 128
-	longBuffer := make([]int64, bufferLength)
-
-	for alignment := 0; alignment < 8; alignment++ {
-		input.SetPosition(0)
-		for i := 0; i < alignment; i++ {
-			input.ReadByte()
-		}
-
-		bulkReads := length/(bufferLength*8) - 1
-		r := rand.New(rand.NewSource(42))
-
-		for i := 0; i < bulkReads; i++ {
-			pos := alignment + i*bufferLength*8
-			longOffset := r.Intn(3)
-
-			// Skip bytes
-			for j := 0; j < longOffset*8; j++ {
-				input.ReadByte()
-			}
-
-			// Read longs into buffer
-			for idx := longOffset; idx < bufferLength; idx++ {
-				_ = pos + idx*8 // offset calculated but not directly used
-				for j := 0; j < 8; j++ {
-					b, _ := input.ReadByte()
-					bb[j] = b
-				}
-				longBuffer[idx] = int64(binary.LittleEndian.Uint64(bb))
-			}
-
-			// Verify the longs
-			for idx := longOffset; idx < bufferLength; idx++ {
-				offset := int64(pos + idx*8)
-				for j := 0; j < 8; j++ {
-					bb[j] = byten(offset + int64(j))
-				}
-				expected := int64(binary.LittleEndian.Uint64(bb))
-				if longBuffer[idx] != expected {
-					t.Errorf("alignment=%d pos=%d idx=%d: expected %d, got %d",
-						alignment, pos, idx, expected, longBuffer[idx])
-				}
-			}
-		}
-	}
-}
-
-// TestBufferedIndexInput_BufferSize tests buffer size configuration.
-func TestBufferedIndexInput_BufferSize(t *testing.T) {
-	tests := []struct {
-		name       string
-		bufferSize int
-		expected   int
-	}{
-		{
-			name:       "default buffer size",
-			bufferSize: 0,
-			expected:   1024,
-		},
-		{
-			name:       "custom buffer size",
-			bufferSize: 2048,
-			expected:   2048,
-		},
-		{
-			name:       "small buffer size",
-			bufferSize: 256,
-			expected:   256,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			input := newMyBufferedIndexInput(1024, tt.bufferSize)
-			if input.GetBufferSize() != tt.expected {
-				t.Errorf("expected buffer size %d, got %d", tt.expected, input.GetBufferSize())
-			}
-		})
-	}
-}
-
-// TestBufferedIndexInput_Seek tests seeking behavior.
-func TestBufferedIndexInput_Seek(t *testing.T) {
-	input := newMyBufferedIndexInput(testFileLength, 1024)
-
-	tests := []struct {
-		name     string
-		position int64
-		wantErr  bool
-	}{
-		{
-			name:     "seek to start",
-			position: 0,
-			wantErr:  false,
-		},
-		{
-			name:     "seek to middle",
-			position: testFileLength / 2,
-			wantErr:  false,
-		},
-		{
-			name:     "seek to end",
-			position: testFileLength,
-			wantErr:  false,
-		},
-		{
-			name:     "seek past end",
-			position: testFileLength + 1,
-			wantErr:  true,
-		},
-		{
-			name:     "seek to negative",
-			position: -1,
-			wantErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := input.SetPosition(tt.position)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SetPosition(%d) error = %v, wantErr %v", tt.position, err, tt.wantErr)
-			}
-			if err == nil && input.GetFilePointer() != tt.position {
-				t.Errorf("expected file pointer %d, got %d", tt.position, input.GetFilePointer())
-			}
-		})
-	}
-}
-
-// TestBufferedIndexInput_Clone tests cloning behavior.
-func TestBufferedIndexInput_Clone(t *testing.T) {
-	input := newMyBufferedIndexInput(testFileLength, 1024)
-
-	// Read some bytes from original
-	for i := 0; i < 100; i++ {
-		input.ReadByte()
-	}
-
-	originalPos := input.GetFilePointer()
-
-	// Clone
-	cloned := input.Clone()
-	if cloned.GetFilePointer() != originalPos {
-		t.Errorf("cloned file pointer %d != original %d", cloned.GetFilePointer(), originalPos)
-	}
-
-	// Read from clone should not affect original
-	cloned.ReadByte()
-	if input.GetFilePointer() != originalPos {
-		t.Error("reading from clone affected original")
-	}
-}
-
-// TestBufferedIndexInput_Slice tests slicing behavior.
-func TestBufferedIndexInput_Slice(t *testing.T) {
-	input := newMyBufferedIndexInput(testFileLength, 1024)
-
-	tests := []struct {
-		name       string
-		offset     int64
-		length     int64
-		wantLength int64
-		wantErr    bool
-	}{
-		{
-			name:       "valid slice",
-			offset:     100,
-			length:     1000,
-			wantLength: 1000,
-			wantErr:    false,
-		},
-		{
-			name:    "slice past end",
-			offset:  testFileLength - 100,
-			length:  200,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sliced, err := input.Slice("test", tt.offset, tt.length)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Slice() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if err == nil && sliced.Length() != tt.wantLength {
-				t.Errorf("expected sliced length %d, got %d", tt.wantLength, sliced.Length())
-			}
-		})
-	}
+func (m *myBufferedIndexInput) Clone() bufferedInternal {
+	c := *m
+	return &c
 }

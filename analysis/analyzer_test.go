@@ -37,7 +37,7 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		}
 		if bts, ok := stream1.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
+			GetAttribute(reflect.Type) util.AttributeImpl
 		}); ok {
 			if attr := bts.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
@@ -66,9 +66,9 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		}
 		if bts, ok := stream2.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
+			GetAttribute(reflect.Type) util.AttributeImpl
 		}); ok {
-			if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
+			if attr := bts.GetAttribute(CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens2 = append(tokens2, termAttr.String())
 				}
@@ -132,9 +132,9 @@ func TestSimpleAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) util.AttributeImpl
+					GetAttribute(reflect.Type) util.AttributeImpl
 				}); ok {
-					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
+					if attr := bts.GetAttribute(CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}
@@ -156,7 +156,7 @@ func TestSimpleAnalyzer(t *testing.T) {
 // and Lucene 10.4.0 ships with no default stop words; the English
 // stop list must be requested explicitly.
 func TestStandardAnalyzer(t *testing.T) {
-	analyzer := NewStandardAnalyzerWithStopWords(EnglishStopWords)
+	analyzer := NewStandardAnalyzerWithStopWords(NewCharArraySetFromCollection(EnglishStopWords, false))
 	defer analyzer.Close()
 
 	tests := []struct {
@@ -197,9 +197,9 @@ func TestStandardAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) util.AttributeImpl
+					GetAttribute(reflect.Type) util.AttributeImpl
 				}); ok {
-					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
+					if attr := bts.GetAttribute(CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}
@@ -255,9 +255,9 @@ func TestWhitespaceAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) util.AttributeImpl
+					GetAttribute(reflect.Type) util.AttributeImpl
 				}); ok {
-					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
+					if attr := bts.GetAttribute(CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}

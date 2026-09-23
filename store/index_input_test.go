@@ -4,407 +4,277 @@
 
 package store
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexInput.java
+// (Apache Lucene 10.5.0). The Java class lives in package index but tests only
+// store types (ByteArrayDataInput, Directory inputs, IndexInput.skipBytes), so
+// the Go port lives beside those types.
+//
+// LuceneTestCase.newDirectory() picks a random Directory implementation from
+// the test framework; that randomisation is not ported, so the port uses
+// ByteBuffersDirectory, one of the implementations newDirectory() can return.
+
 import (
-	"io"
+	"math"
+	"math/rand/v2"
+	"sync"
 	"testing"
+	"time"
 )
 
-func TestByteArrayDataInput(t *testing.T) {
-	tests := []struct {
-		name string
-		fn   func(t *testing.T)
-	}{
-		{
-			name: "read byte",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03}
-				in := NewByteArrayDataInput(data)
+// TestIndexInput.READ_TEST_BYTES is ported as readTestBytes in
+// filter_index_input_test.go (TestFilterIndexInput extends TestIndexInput in
+// Java and shares the fixture and InterceptingIndexInput).
 
-				b, err := in.ReadByte()
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if b != 0x01 {
-					t.Errorf("expected 0x01, got 0x%02x", b)
-				}
-			},
-		},
-		{
-			name: "read bytes",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-				in := NewByteArrayDataInput(data)
+// indexInputCount mirrors COUNT = RANDOM_MULTIPLIER * 65536 (RANDOM_MULTIPLIER
+// defaults to 1).
+const indexInputCount = 1 * 65536
 
-				buf := make([]byte, 3)
-				if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+// indexInputTestNightly mirrors LuceneTestCase.TEST_NIGHTLY (false by default).
+const indexInputTestNightly = false
 
-				expected := []byte{0x01, 0x02, 0x03}
-				for i, b := range buf {
-					if b != expected[i] {
-						t.Errorf("byte %d: expected 0x%02x, got 0x%02x", i, expected[i], b)
-					}
-				}
-			},
-		},
-		{
-			name: "read bytes n",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-				in := NewByteArrayDataInput(data)
+var (
+	indexInputFixtureOnce sync.Once
+	indexInputInts        []int32
+	indexInputLongs       []int64
+	indexInputRandomBytes []byte
+	indexInputSeed        uint64
+)
 
-				result, err := in.ReadBytesN(3)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+// indexInputBeforeClass mirrors the @BeforeClass method of TestIndexInput.
+func indexInputBeforeClass(t *testing.T) {
+	t.Helper()
+	indexInputFixtureOnce.Do(func() {
+		indexInputSeed = uint64(time.Now().UnixNano())
+		random := rand.New(rand.NewPCG(indexInputSeed, 0))
+		indexInputInts = make([]int32, indexInputCount)
+		indexInputLongs = make([]int64, indexInputCount)
+		indexInputRandomBytes = make([]byte, indexInputCount*(5+4+9+8))
+		bdo := NewByteArrayDataOutput(indexInputRandomBytes)
+		for i := 0; i < indexInputCount; i++ {
+			i1 := int32(random.Uint32())
+			indexInputInts[i] = i1
+			mustWrite(bdo.WriteVInt(i1))
+			mustWrite(bdo.WriteInt(i1))
 
-				if len(result) != 3 {
-					t.Errorf("expected length 3, got %d", len(result))
-				}
-			},
-		},
-		{
-			name: "read past end returns EOF",
-			fn: func(t *testing.T) {
-				data := []byte{0x01}
-				in := NewByteArrayDataInput(data)
+			var l1 int64
+			if rarely(random) {
+				// a long with lots of zeroes at the end
+				l1 = nextLong(random, 0, math.MaxInt32) << 32
+			} else {
+				l1 = nextLong(random, 0, math.MaxInt64)
+			}
+			indexInputLongs[i] = l1
+			mustWrite(bdo.WriteVLong(l1))
+			mustWrite(bdo.WriteLong(l1))
+		}
+	})
+	t.Logf("beforeClass random seed: %d", indexInputSeed)
+}
 
-				_, err := in.ReadByte()
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				_, err = in.ReadByte()
-				if err != io.EOF {
-					t.Errorf("expected EOF, got %v", err)
-				}
-			},
-		},
-		{
-			name: "get and set position",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03}
-				in := NewByteArrayDataInput(data)
-
-				if in.GetPosition() != 0 {
-					t.Errorf("expected position 0, got %d", in.GetPosition())
-				}
-
-				if err := in.SetPosition(2); err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if in.GetPosition() != 2 {
-					t.Errorf("expected position 2, got %d", in.GetPosition())
-				}
-			},
-		},
-		{
-			name: "set position out of range returns error",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02}
-				in := NewByteArrayDataInput(data)
-
-				if err := in.SetPosition(10); err == nil {
-					t.Error("expected error for out of range position")
-				}
-			},
-		},
-		{
-			name: "length returns correct value",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03}
-				in := NewByteArrayDataInput(data)
-
-				if in.Length() != 3 {
-					t.Errorf("expected length 3, got %d", in.Length())
-				}
-			},
-		},
-		{
-			name: "reset",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03}
-				in := NewByteArrayDataInput(data)
-
-				in.ReadByte()
-				in.ReadByte()
-
-				newData := []byte{0x0A, 0x0B}
-				in.Reset(newData)
-
-				if in.GetPosition() != 0 {
-					t.Errorf("expected position 0 after reset, got %d", in.GetPosition())
-				}
-
-				if in.Length() != 2 {
-					t.Errorf("expected length 2 after reset, got %d", in.Length())
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, tt.fn)
+func mustWrite(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
 
-func TestBaseIndexInput(t *testing.T) {
-	tests := []struct {
-		name string
-		fn   func(t *testing.T)
-	}{
-		{
-			name: "new base index input has correct initial state",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
+// rarely mirrors LuceneTestCase.rarely(Random) for the default, non-nightly
+// configuration: p = 1, so the call returns true for 1% of draws.
+func rarely(r *rand.Rand) bool {
+	return r.IntN(100) >= 99
+}
 
-				if bi.GetDescription() != "test" {
-					t.Errorf("expected description 'test', got '%s'", bi.GetDescription())
-				}
-
-				if bi.Length() != 100 {
-					t.Errorf("expected length 100, got %d", bi.Length())
-				}
-
-				if bi.GetFilePointer() != 0 {
-					t.Errorf("expected file pointer 0, got %d", bi.GetFilePointer())
-				}
-			},
-		},
-		{
-			name: "set file pointer",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-				bi.SetFilePointer(50)
-
-				if bi.GetFilePointer() != 50 {
-					t.Errorf("expected file pointer 50, got %d", bi.GetFilePointer())
-				}
-			},
-		},
-		{
-			name: "validate seek with negative position",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSeek(-1); err == nil {
-					t.Error("expected error for negative position")
-				}
-			},
-		},
-		{
-			name: "validate seek with position exceeding length",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSeek(101); err == nil {
-					t.Error("expected error for position exceeding length")
-				}
-			},
-		},
-		{
-			name: "validate seek with valid position",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSeek(50); err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-			},
-		},
-		{
-			name: "validate slice with negative offset",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSlice(-1, 10); err == nil {
-					t.Error("expected error for negative offset")
-				}
-			},
-		},
-		{
-			name: "validate slice with negative length",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSlice(0, -1); err == nil {
-					t.Error("expected error for negative length")
-				}
-			},
-		},
-		{
-			name: "validate slice exceeding length",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.ValidateSlice(50, 60); err == nil {
-					t.Error("expected error for slice exceeding length")
-				}
-			},
-		},
-		{
-			name: "skip bytes",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-				bi.SetFilePointer(10)
-
-				if err := bi.SkipBytes(20); err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-
-				if bi.GetFilePointer() != 30 {
-					t.Errorf("expected file pointer 30, got %d", bi.GetFilePointer())
-				}
-			},
-		},
-		{
-			name: "skip bytes with negative count",
-			fn: func(t *testing.T) {
-				bi := NewBaseIndexInput("test", 100)
-
-				if err := bi.SkipBytes(-1); err == nil {
-					t.Error("expected error for negative skip")
-				}
-			},
-		},
+// nextLong mirrors TestUtil.nextLong(Random, long start, long end): a uniform
+// value in [start, end], both ends inclusive.
+func nextLong(r *rand.Rand, start, end int64) int64 {
+	if start > end {
+		panic("start must be <= end")
 	}
+	span := uint64(end) - uint64(start) + 1
+	if span == 0 {
+		return int64(r.Uint64())
+	}
+	return start + int64(r.Uint64N(span))
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, tt.fn)
+func checkIndexInputReads(t *testing.T, is DataInput) {
+	t.Helper()
+	wantVInts := []int32{128, 16383, 16384, 16385, math.MaxInt32, -1}
+	for _, want := range wantVInts {
+		got, err := is.ReadVInt()
+		mustNoErr(t, err)
+		if got != want {
+			t.Fatalf("readVInt: got %d, want %d", got, want)
+		}
+	}
+	for _, want := range []int64{math.MaxInt32, math.MaxInt64} {
+		got, err := is.ReadVLong()
+		mustNoErr(t, err)
+		if got != want {
+			t.Fatalf("readVLong: got %d, want %d", got, want)
+		}
+	}
+	wantStrings := []string{
+		"Lucene",
+		"¿",
+		"Lu¿ce¿ne",
+		"☠",
+		"Lu☠ce☠ne",
+		"\U0001D11E",
+		"\U0001D11E\U0001D160",
+		"Lu\U0001D11Ece\U0001D160ne",
+		"\u0000",
+		"Lu\u0000ce\u0000ne",
+	}
+	for _, want := range wantStrings {
+		got, err := is.ReadString()
+		mustNoErr(t, err)
+		if got != want {
+			t.Fatalf("readString: got %q, want %q", got, want)
+		}
 	}
 }
 
-func TestDataInputHelpers(t *testing.T) {
-	tests := []struct {
-		name string
-		fn   func(t *testing.T)
-	}{
-		{
-			name: "read uint16",
-			fn: func(t *testing.T) {
-				// Big-endian: 0x01 0x02 = 0x0102 = 258
-				data := []byte{0x01, 0x02}
-				in := NewByteArrayDataInput(data)
-
-				v, err := ReadUint16(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if v != 0x0102 {
-					t.Errorf("expected 0x0102, got 0x%04x", v)
-				}
-			},
-		},
-		{
-			name: "read uint32",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03, 0x04}
-				in := NewByteArrayDataInput(data)
-
-				v, err := ReadUint32(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if v != 0x01020304 {
-					t.Errorf("expected 0x01020304, got 0x%08x", v)
-				}
-			},
-		},
-		{
-			name: "read uint64",
-			fn: func(t *testing.T) {
-				data := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-				in := NewByteArrayDataInput(data)
-
-				v, err := ReadUint64(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if v != 0x0102030405060708 {
-					t.Errorf("expected 0x0102030405060708, got 0x%016x", v)
-				}
-			},
-		},
-		{
-			name: "read vint small value",
-			fn: func(t *testing.T) {
-				// Single byte for values < 128
-				data := []byte{0x64} // 100
-				in := NewByteArrayDataInput(data)
-
-				v, err := ReadVInt(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if v != 100 {
-					t.Errorf("expected 100, got %d", v)
-				}
-			},
-		},
-		{
-			name: "read vint large value",
-			fn: func(t *testing.T) {
-				// Multi-byte for larger values
-				// 0x80 + high bit set, 0x02 = (0x00 << 7) | 0x02 = 2
-				// Actually let's use a simpler case: 128 = 0x80 0x01
-				// 0x80 means high bit set, continue
-				// 0x01 = 1, so total = (1 << 7) | 0 = 128
-				data := []byte{0x80, 0x01}
-				in := NewByteArrayDataInput(data)
-
-				v, err := ReadVInt(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if v != 128 {
-					t.Errorf("expected 128, got %d", v)
-				}
-			},
-		},
-		{
-			name: "read string",
-			fn: func(t *testing.T) {
-				// Length (vint) + bytes
-				// "hi" = length 2 (0x02) + 'h' 'i'
-				data := []byte{0x02, 'h', 'i'}
-				in := NewByteArrayDataInput(data)
-
-				s, err := ReadString(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if s != "hi" {
-					t.Errorf("expected 'hi', got '%s'", s)
-				}
-			},
-		},
-		{
-			name: "read empty string",
-			fn: func(t *testing.T) {
-				data := []byte{0x00}
-				in := NewByteArrayDataInput(data)
-
-				s, err := ReadString(in)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if s != "" {
-					t.Errorf("expected empty string, got '%s'", s)
-				}
-			},
-		},
+func checkIndexInputRandomReads(t *testing.T, is DataInput) {
+	t.Helper()
+	for i := 0; i < indexInputCount; i++ {
+		vi, err := is.ReadVInt()
+		mustNoErr(t, err)
+		if vi != indexInputInts[i] {
+			t.Fatalf("readVInt[%d]: got %d, want %d", i, vi, indexInputInts[i])
+		}
+		ii, err := is.ReadInt()
+		mustNoErr(t, err)
+		if ii != indexInputInts[i] {
+			t.Fatalf("readInt[%d]: got %d, want %d", i, ii, indexInputInts[i])
+		}
+		vl, err := is.ReadVLong()
+		mustNoErr(t, err)
+		if vl != indexInputLongs[i] {
+			t.Fatalf("readVLong[%d]: got %d, want %d", i, vl, indexInputLongs[i])
+		}
+		ll, err := is.ReadLong()
+		mustNoErr(t, err)
+		if ll != indexInputLongs[i] {
+			t.Fatalf("readLong[%d]: got %d, want %d", i, ll, indexInputLongs[i])
+		}
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, tt.fn)
+func checkIndexInputSeeksAndSkips(t *testing.T, is IndexInput, random *rand.Rand) {
+	t.Helper()
+	length := is.Length()
+
+	iterations := 10
+	if indexInputTestNightly {
+		iterations = 1_000
 	}
+	for i := 0; i < iterations; i++ {
+		mustNoErr(t, is.SetPosition(0)) // make sure we're at the start
+
+		for curr := int64(0); curr < length; {
+			maxSkipTo := length - 1
+			// if we're close to the end, just skip all the way
+			var skipTo int64
+			if length-curr < 10 {
+				skipTo = maxSkipTo
+			} else {
+				skipTo = nextLong(random, curr, maxSkipTo)
+			}
+			skipDelta := skipTo - curr
+
+			// first reposition using seek
+			startByte1, err := is.ReadByte()
+			mustNoErr(t, err)
+			mustNoErr(t, is.SetPosition(skipTo))
+			endByte1, err := is.ReadByte()
+			mustNoErr(t, err)
+
+			// do the same thing but with skipBytes
+			mustNoErr(t, is.SetPosition(curr))
+			startByte2, err := is.ReadByte()
+			mustNoErr(t, err)
+			mustNoErr(t, is.SetPosition(curr))
+			mustNoErr(t, is.SkipBytes(skipDelta))
+			endByte2, err := is.ReadByte()
+			mustNoErr(t, err)
+
+			if startByte1 != startByte2 {
+				t.Fatalf("start byte: %d != %d", startByte1, startByte2)
+			}
+			if endByte1 != endByte2 {
+				t.Fatalf("end byte: %d != %d", endByte1, endByte2)
+			}
+			// +1 since we read the byte we seek/skip to
+			if got, want := is.GetFilePointer(), curr+skipDelta+1; got != want {
+				t.Fatalf("getFilePointer: got %d, want %d", got, want)
+			}
+
+			curr = is.GetFilePointer()
+		}
+	}
+}
+
+// testRawIndexInputRead checks the IndexInput methods of any impl.
+func TestIndexInput_RawIndexInputRead(t *testing.T) {
+	indexInputBeforeClass(t)
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	random := rand.New(rand.NewPCG(seed, 1))
+	for i := 0; i < 10; i++ {
+		dir := NewByteBuffersDirectory()
+		os, err := dir.CreateOutput("foo", IOContextDefault)
+		mustNoErr(t, err)
+		mustNoErr(t, os.WriteBytes(readTestBytes, 0, len(readTestBytes)))
+		mustNoErr(t, os.Close())
+		is, err := dir.OpenInput("foo", IOContextDefault)
+		mustNoErr(t, err)
+		checkIndexInputReads(t, is)
+		checkIndexInputSeeksAndSkips(t, is, random)
+		mustNoErr(t, is.Close())
+
+		os, err = dir.CreateOutput("bar", IOContextDefault)
+		mustNoErr(t, err)
+		mustNoErr(t, os.WriteBytes(indexInputRandomBytes, 0, len(indexInputRandomBytes)))
+		mustNoErr(t, os.Close())
+		is, err = dir.OpenInput("bar", IOContextDefault)
+		mustNoErr(t, err)
+		checkIndexInputRandomReads(t, is)
+		checkIndexInputSeeksAndSkips(t, is, random)
+		mustNoErr(t, is.Close())
+		mustNoErr(t, dir.Close())
+	}
+}
+
+func TestIndexInput_ByteArrayDataInput(t *testing.T) {
+	indexInputBeforeClass(t)
+	is := NewByteArrayDataInput(readTestBytes)
+	checkIndexInputReads(t, is)
+	is = NewByteArrayDataInput(indexInputRandomBytes)
+	checkIndexInputRandomReads(t, is)
+}
+
+func TestIndexInput_NoReadOnSkipBytes(t *testing.T) {
+	seed := uint64(time.Now().UnixNano())
+	t.Logf("random seed: %d", seed)
+	random := rand.New(rand.NewPCG(seed, 2))
+	length := int64(1_000_000)
+	if indexInputTestNightly {
+		length = math.MaxInt64
+	}
+	maxSeekPos := length - 1
+	is := getInterceptingIndexInput(length)
+
+	for is.GetFilePointer() < maxSeekPos {
+		seekPos := nextLong(random, is.GetFilePointer(), maxSeekPos)
+		skipDelta := seekPos - is.GetFilePointer()
+		mustNoErr(t, is.SkipBytes(skipDelta))
+		if got := is.GetFilePointer(); got != seekPos {
+			t.Fatalf("getFilePointer: got %d, want %d", got, seekPos)
+		}
+	}
+}
+
+// getInterceptingIndexInput mirrors TestIndexInput.getIndexInput(long).
+func getInterceptingIndexInput(length int64) IndexInput {
+	return newInterceptingIndexInput("foo", length)
 }
