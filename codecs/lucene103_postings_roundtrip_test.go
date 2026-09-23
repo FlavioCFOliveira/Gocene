@@ -8,11 +8,13 @@
 package codecs
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -34,6 +36,8 @@ type l103Term struct {
 }
 
 type l103Terms struct {
+	spi.TermsBase
+
 	field      string
 	terms      []*l103Term // sorted by text
 	hasFreqs   bool
@@ -250,6 +254,21 @@ func (p *l103PostingsEnum) GetPayload() ([]byte, error) {
 }
 func (p *l103PostingsEnum) Cost() int64 { return int64(len(p.term.docs)) }
 
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *l103PostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *l103PostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *l103TermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("l103TermsEnum.Impacts: unsupported operation")
+}
+
 // l103WriteState builds a write state whose FieldInfos reflect the requested
 // options (including stored payloads). maxDoc must be greater than every
 // document ID that will be written, because the block-tree writer uses it to
@@ -265,8 +284,8 @@ func l103WriteState(t *testing.T, dir store.Directory, name, field string, opts 
 	if storePayloads {
 		fi.SetStorePayloads()
 	}
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("FieldInfos.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("FieldInfos.Add: nil")
 	}
 	return &SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
 }

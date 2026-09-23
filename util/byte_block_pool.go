@@ -263,13 +263,11 @@ func (p *ByteBlockPool) ReadBytes(offset int64, bytes []byte, bytesOffset, bytes
 	}
 }
 
-// ReadByteAt reads a single byte at the given offset.
+// ReadByteAt reads a single byte at the given offset. Mirrors
+// ByteBlockPool.readByte(long) of Apache Lucene 10.5.0; the Go name carries
+// the At suffix because the method name ReadByte is reserved for the
+// io.ByteReader signature ReadByte() (byte, error), which go vet enforces.
 func (p *ByteBlockPool) ReadByteAt(offset int64) byte {
-	return p.ReadByte(offset)
-}
-
-// ReadByte reads a single byte at the given offset.
-func (p *ByteBlockPool) ReadByte(offset int64) byte {
 	bufferIndex := int(offset >> ByteBlockShift)
 	pos := int(offset & ByteBlockMask)
 	return p.buffers[bufferIndex][pos]

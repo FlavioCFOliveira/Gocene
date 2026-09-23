@@ -321,8 +321,8 @@ func TestLucene90DV_Numeric_DenseConst(t *testing.T) {
 
 	fi := dvRTNumericField("num", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -389,8 +389,8 @@ func TestLucene90DV_Numeric_DenseDelta(t *testing.T) {
 
 	fi := dvRTNumericField("num", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -453,8 +453,8 @@ func TestLucene90DV_Numeric_Sparse(t *testing.T) {
 
 	fi := dvRTNumericField("num", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -519,8 +519,8 @@ func TestLucene90DV_Numeric_BlockBoundary(t *testing.T) {
 
 	fi := dvRTNumericField("num", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -592,8 +592,8 @@ func TestLucene90DV_Binary_FixedWidth(t *testing.T) {
 
 	fi := dvRTBinaryField("bin", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -668,8 +668,8 @@ func TestLucene90DV_Binary_VarWidth(t *testing.T) {
 
 	fi := dvRTBinaryField("bin", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -770,8 +770,8 @@ func TestLucene90DV_Sorted_FewTerms(t *testing.T) {
 
 	fi := dvRTSortedField("sorted", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -848,8 +848,8 @@ func TestLucene90DV_Sorted_BlockBoundary(t *testing.T) {
 
 	fi := dvRTSortedField("sorted", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -926,8 +926,8 @@ func TestLucene90DV_SortedSet_SingleValue(t *testing.T) {
 
 	fi := dvRTSortedSetField("ss", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -1012,8 +1012,8 @@ func TestLucene90DV_SortedSet_MultiValue(t *testing.T) {
 
 	fi := dvRTSortedSetField("ss", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -1091,8 +1091,8 @@ func TestLucene90DV_SortedNumeric_SingleValue(t *testing.T) {
 
 	fi := dvRTSortedNumericField("sn", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -1166,8 +1166,8 @@ func TestLucene90DV_SortedNumeric_MultiValue(t *testing.T) {
 
 	fi := dvRTSortedNumericField("sn", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws, rs, cleanup := dvRTSegmentState(t, maxDoc, fis)
@@ -1245,8 +1245,8 @@ func TestLucene90DV_MultipleFields(t *testing.T) {
 
 	fis := index.NewFieldInfos()
 	for _, fi := range []*index.FieldInfo{fiNum, fiBin, fiSN} {
-		if err := fis.Add(fi); err != nil {
-			t.Fatalf("fis.Add: %v", err)
+		if added := fis.Add(fi); added == nil {
+			t.Fatalf("fis.Add: nil")
 		}
 	}
 
@@ -1372,8 +1372,8 @@ func TestLucene90DV_GenerationalUpdate_RoundTrip(t *testing.T) {
 
 	fi := dvRTNumericField("count", 0)
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	// Shared temp directory — both base and update segments live here, matching

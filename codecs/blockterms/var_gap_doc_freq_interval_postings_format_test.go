@@ -4,36 +4,19 @@
 
 package blockterms_test
 
-import (
-	"testing"
+// Port of
+// lucene/codecs/src/test/org/apache/lucene/codecs/blockterms/TestVarGapDocFreqIntervalPostingsFormat.java
+// (Apache Lucene 10.5.0). Basic tests of a PF using VariableGap terms dictionary (fixed interval).
+//
+// The class only builds its codec with
+// TestUtil.alwaysPostingsFormat(new LuceneVarGapDocFreqInterval(...)) and inherits every test method
+// from org.apache.lucene.tests.index.BasePostingsFormatTestCase; neither the
+// test-framework postings format org.apache.lucene.tests.codecs.blockterms.LuceneVarGapDocFreqInterval
+// nor the base test case is ported.
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/blockterms"
-)
+import "testing"
 
-// TestVarGapDocFreqIntervalPostingsFormat validates the variable-gap
-// terms index reader/writer (doc-freq-interval variant).
-// Port of org.apache.lucene.codecs.blockterms.TestVarGapDocFreqIntervalPostingsFormat.
-func TestVarGapDocFreqIntervalPostingsFormat(t *testing.T) {
-	baseR := blockterms.NewTermsIndexReaderBase("/idx/vardfi")
-	baseW := blockterms.NewTermsIndexWriterBase("/idx/vardfi")
-
-	t.Run("variable gap reader", func(t *testing.T) {
-		r := blockterms.NewVariableGapTermsIndexReader(baseR)
-		if r == nil {
-			t.Fatal("NewVariableGapTermsIndexReader returned nil")
-		}
-		if r.Base != baseR {
-			t.Error("Base not set on reader")
-		}
-	})
-
-	t.Run("variable gap writer", func(t *testing.T) {
-		w := blockterms.NewVariableGapTermsIndexWriter(baseW)
-		if w == nil {
-			t.Fatal("NewVariableGapTermsIndexWriter returned nil")
-		}
-		if w.Base != baseW {
-			t.Error("Base not set on writer")
-		}
-	})
+func TestVarGapDocFreqIntervalPostingsFormat_BasePostingsFormatTestCase(t *testing.T) {
+	t.Fatal("requires org.apache.lucene.tests.index.BasePostingsFormatTestCase and " +
+		"org.apache.lucene.tests.codecs.blockterms.LuceneVarGapDocFreqInterval (not ported)")
 }

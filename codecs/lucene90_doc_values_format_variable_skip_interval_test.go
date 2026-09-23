@@ -132,8 +132,8 @@ func dvSkipperTestSegment(t *testing.T, maxDoc int) (
 		DocValuesSkipIndexType: index.DocValuesSkipIndexTypeRange,
 	})
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws := &codecs.SegmentWriteState{
@@ -569,8 +569,8 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMul
 		DocValuesSkipIndexType: index.DocValuesSkipIndexTypeRange,
 	})
 	fis := index.NewFieldInfos()
-	if err := fis.Add(fi); err != nil {
-		t.Fatalf("fis.Add: %v", err)
+	if added := fis.Add(fi); added == nil {
+		t.Fatalf("fis.Add: nil")
 	}
 
 	ws := &codecs.SegmentWriteState{

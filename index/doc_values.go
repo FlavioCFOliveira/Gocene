@@ -114,6 +114,24 @@ func GetNumeric(reader LeafReader, field string) (NumericDocValues, error) {
 	return dv, nil
 }
 
+// GetBinary returns BinaryDocValues for the field, or an empty instance when
+// the field has none.
+//
+// Mirrors org.apache.lucene.index.DocValues#getBinary (Apache Lucene 10.5.0).
+func GetBinary(reader LeafReader, field string) (BinaryDocValues, error) {
+	dv, err := reader.GetBinaryDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		if err := checkField(reader, field, spi.DocValuesTypeBinary); err != nil {
+			return nil, err
+		}
+		return EmptyBinary(), nil
+	}
+	return dv, nil
+}
+
 // GetSortedNumeric returns SortedNumericDocValues for the field, or an empty
 // instance when the field has none. A single-valued NUMERIC field is adapted
 // with Singleton, exactly as Java does.

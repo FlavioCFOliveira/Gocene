@@ -23,9 +23,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -59,8 +61,6 @@ type BlockTermsReader struct {
 
 // NewBlockTermsReader builds a BlockTermsReader.
 func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.PostingsReaderBase, state *index.SegmentReadState) (*BlockTermsReader, error) {
-	postingsReader = postingsReader
-
 	filename := index.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, TermsExtension)
 	in, err := state.Directory.OpenInput(filename, store.IOContext{Context: store.ContextRead})
@@ -227,6 +227,40 @@ func (r *BlockTermsReader) Close() error {
 		firstErr = err
 	}
 	return firstErr
+}
+
+// Iterator mirrors BlockTermsReader.iterator(): the field names, in the
+// sorted order of Java's TreeMap<String, FieldReader>.
+func (r *BlockTermsReader) Iterator() (spi.FieldIterator, error) {
+	names := make([]string, 0, len(r.fields))
+	for name := range r.fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return spi.NewMemoryFieldIterator(names), nil
+}
+
+// CheckIntegrity mirrors BlockTermsReader.checkIntegrity(): it verifies the
+// terms file checksum and then the postings.
+func (r *BlockTermsReader) CheckIntegrity() error {
+	// verify terms
+	if _, err := codecs.ChecksumEntireFile(r.in); err != nil {
+		return err
+	}
+
+	// verify postings
+	return r.postingsReader.CheckIntegrity()
+}
+
+// GetMergeInstance returns the receiver, as the inherited
+// FieldsProducer.getMergeInstance() does.
+func (r *BlockTermsReader) GetMergeInstance() spi.FieldsProducer {
+	return r
+}
+
+// String mirrors BlockTermsReader.toString().
+func (r *BlockTermsReader) String() string {
+	return fmt.Sprintf("BlockTermsReader(index=%v,delegate=%v)", r.indexReader, r.postingsReader)
 }
 
 func (r *BlockTermsReader) Terms(field string) (index.Terms, error) {
@@ -592,7 +626,7 @@ func (e *segmentTermsEnum) decodeMetaData() error {
 		}
 		e.state.DocFreq = int(docFreq)
 
-		if e.reader.fields[e.term.String()].fieldInfo.IndexOptions() == index.IndexOptionsDocs {
+		if e.fr.fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			e.state.TotalTermFreq = int64(docFreq)
 		} else {
 			tf, err := e.freqReader.ReadVLong()
@@ -602,7 +636,7 @@ func (e *segmentTermsEnum) decodeMetaData() error {
 			e.state.TotalTermFreq = int64(docFreq) + tf
 		}
 
-		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, absolute); err != nil {
+		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.fr.fieldInfo, e.termStateRef, absolute); err != nil {
 			return err
 		}
 		e.metaDataUpto++
@@ -708,7 +742,7 @@ func (e *segmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.reader.postingsReader.Postings(e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, nil, flags)
+	return e.reader.postingsReader.Postings(e.fr.fieldInfo, e.termStateRef, nil, flags)
 }
 
 // Impacts returns an ImpactsEnum for the current term. Port of
@@ -863,3 +897,5 @@ func (e *segmentTermsEnum) TermState() (index.TermState, error) {
 	}
 	return e.state.Clone(), nil
 }
+
+var _ spi.FieldsProducer = (*BlockTermsReader)(nil)

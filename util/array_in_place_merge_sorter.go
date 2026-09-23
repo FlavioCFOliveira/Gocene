@@ -17,10 +17,8 @@ package util
 //   - arr is the slice being sorted in place.
 //   - cmp is the user-supplied comparator.
 //
-// Unlike the IntroSorter adapter this implementation needs no pivot storage:
-// InPlaceMergeSorter does not call SetPivot/ComparePivot. The trivial
-// SetPivot/ComparePivot implementations exist solely to satisfy
-// SorterInterface and are never reached on the merge-sort path.
+// Like the Java class, it overrides only compare and swap; the binary sort
+// of short runs therefore uses the default Sorter pivot (the slot index).
 type arrayInPlaceMergeSorter[T any] struct {
 	arr []T
 	cmp func(a, b T) int
@@ -43,17 +41,3 @@ func (a *arrayInPlaceMergeSorter[T]) Compare(i, j int) int {
 func (a *arrayInPlaceMergeSorter[T]) Swap(i, j int) {
 	a.arr[i], a.arr[j] = a.arr[j], a.arr[i]
 }
-
-// Sort is part of SorterInterface but is unused for InPlaceMergeSorter
-// implementations: the parent InPlaceMergeSorter.Sort drives the algorithm.
-// Provided as a no-op so the adapter satisfies the interface.
-func (a *arrayInPlaceMergeSorter[T]) Sort(from, to int) {}
-
-// SetPivot is unused by InPlaceMergeSorter; provided to satisfy
-// SorterInterface.
-func (a *arrayInPlaceMergeSorter[T]) SetPivot(i int) {}
-
-// ComparePivot is unused by InPlaceMergeSorter; provided to satisfy
-// SorterInterface. Returns 0 unconditionally and is never invoked on the
-// merge-sort path.
-func (a *arrayInPlaceMergeSorter[T]) ComparePivot(i int) int { return 0 }

@@ -15,12 +15,12 @@ import (
 func roundTripStoredFieldsInts(t *testing.T, values []int32) []int64 {
 	t.Helper()
 
-	out := store.NewByteArrayDataOutput(0)
+	out := store.NewByteBuffersDataOutput()
 	if err := WriteStoredFieldsInts(values, 0, len(values), out); err != nil {
 		t.Fatalf("WriteStoredFieldsInts: %v", err)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	got := make([]int64, len(values))
 	if err := ReadStoredFieldsInts(in, len(values), got, 0); err != nil {
 		t.Fatalf("ReadStoredFieldsInts: %v", err)
@@ -159,12 +159,12 @@ func TestStoredFieldsInts_OffsetWindow(t *testing.T) {
 	}
 	start, count := 3, 10
 
-	out := store.NewByteArrayDataOutput(0)
+	out := store.NewByteBuffersDataOutput()
 	if err := WriteStoredFieldsInts(values, start, count, out); err != nil {
 		t.Fatalf("WriteStoredFieldsInts: %v", err)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	dst := make([]int64, count+4)
 	for i := range dst {
 		dst[i] = -111

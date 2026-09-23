@@ -4,178 +4,93 @@
 
 package flexible
 
+// Port of
+// lucene/queryparser/src/test/org/apache/lucene/queryparser/flexible/core/nodes/TestQueryNode.java
+// (Apache Lucene 10.5.0). Gocene renders QueryNode.add(QueryNode),
+// add(List), set(List), removeChildren(QueryNode) and containsTag(String) as
+// AddChild, AddChildren, SetChildren, RemoveChild and HasTag; the Java
+// BooleanQueryNode(List) constructor is NewBooleanQueryNode with an empty
+// operator.
+
 import (
-	"strings"
+	"slices"
 	"testing"
 )
 
-func TestDeletedQueryNode(t *testing.T) {
-	n := NewDeletedQueryNode()
-	if n.ToQueryString(false) != "" {
-		t.Error("ToQueryString should be empty")
-	}
-	cloned := n.CloneTree()
-	if cloned == nil {
-		t.Error("CloneTree returned nil")
-	}
-	if _, ok := cloned.(*DeletedQueryNode); !ok {
-		t.Errorf("CloneTree type = %T, want *DeletedQueryNode", cloned)
+/* LUCENE-2227 bug in QueryNodeImpl.add() */
+func TestQueryNode_testAddChildren(t *testing.T) {
+	var nodeA QueryNode = NewFieldQueryNode("foo", "A", 0, 1)
+	var nodeB QueryNode = NewFieldQueryNode("foo", "B", 1, 2)
+	bq := NewBooleanQueryNode("", []QueryNode{nodeA})
+	bq.AddChildren([]QueryNode{nodeB})
+	if got := len(bq.GetChildren()); got != 2 {
+		t.Fatalf("children = %d, want 2", got)
 	}
 }
 
-func TestAnyQueryNode(t *testing.T) {
-	c1 := NewFieldQueryNode("f", "a", 0, 1)
-	c2 := NewFieldQueryNode("f", "b", 2, 3)
-	n := NewAnyQueryNode([]QueryNode{c1, c2}, 1)
+/* LUCENE-3045 bug in QueryNodeImpl.containsTag(String key)*/
+func TestQueryNode_testTags(t *testing.T) {
+	var node QueryNode = NewFieldQueryNode("foo", "A", 0, 1)
 
-	if n.GetMinimumMatchingElements() != 1 {
-		t.Errorf("GetMinimumMatchingElements() = %d, want 1", n.GetMinimumMatchingElements())
+	node.SetTag("TaG", new(struct{ _ byte }))
+	if !(len(node.GetTagMap()) > 0) {
+		t.Fatal("getTagMap().size() > 0")
 	}
-	qs := n.ToQueryString(false)
-	if !strings.Contains(qs, "OR") || !strings.HasSuffix(qs, "/1") {
-		t.Errorf("ToQueryString() = %q, unexpected format", qs)
+	if !node.HasTag("tAg") {
+		t.Fatal(`containsTag("tAg")`)
 	}
-
-	cloned := n.CloneTree().(*AnyQueryNode)
-	if cloned.GetMinimumMatchingElements() != 1 {
-		t.Error("clone lost minimumMatchingElements")
-	}
-	if len(cloned.GetChildren()) != 2 {
-		t.Errorf("clone has %d children, want 2", len(cloned.GetChildren()))
+	if node.GetTag("tAg") == nil {
+		t.Fatal(`getTag("tAg") != null`)
 	}
 }
 
-func TestNoTokenFoundQueryNode(t *testing.T) {
-	n := NewNoTokenFoundQueryNode("body", "stop", 0, 4)
-	if n.ToQueryString(false) != "" {
-		t.Error("ToQueryString should be empty")
+/* LUCENE-5099 - QueryNodeProcessorImpl should set parent to null before returning on processing */
+func TestQueryNode_testRemoveFromParent(t *testing.T) {
+	booleanNode := NewBooleanQueryNode("", []QueryNode{})
+	fieldNode := NewFieldQueryNode("foo", "A", 0, 1)
+	if fieldNode.GetParent() != nil {
+		t.Fatal("assertNull(fieldNode.getParent())")
 	}
-	if n.GetField() != "body" {
-		t.Errorf("GetField() = %q, want %q", n.GetField(), "body")
+
+	booleanNode.AddChild(fieldNode)
+	if fieldNode.GetParent() == nil {
+		t.Fatal("assertNotNull(fieldNode.getParent())")
 	}
-	cloned := n.CloneTree()
-	if _, ok := cloned.(*NoTokenFoundQueryNode); !ok {
-		t.Errorf("CloneTree type = %T, want *NoTokenFoundQueryNode", cloned)
+
+	fieldNode.RemoveFromParent()
+	if fieldNode.GetParent() != nil {
+		t.Fatal("assertNull(fieldNode.getParent())")
+	}
+	/* LUCENE-5805 - QueryNodeImpl.removeFromParent does a lot of work without any effect */
+	if slices.Contains(booleanNode.GetChildren(), QueryNode(fieldNode)) {
+		t.Fatal("assertFalse(booleanNode.getChildren().contains(fieldNode))")
+	}
+
+	booleanNode.AddChild(fieldNode)
+	if fieldNode.GetParent() == nil {
+		t.Fatal("assertNotNull(fieldNode.getParent())")
+	}
+
+	booleanNode.SetChildren([]QueryNode{})
+	if fieldNode.GetParent() != nil {
+		t.Fatal("assertNull(fieldNode.getParent())")
 	}
 }
 
-func TestOpaqueQueryNode(t *testing.T) {
-	n := NewOpaqueQueryNode("geo", "48.8566,2.3522")
-	if n.GetSchema() != "geo" {
-		t.Errorf("GetSchema() = %q, want geo", n.GetSchema())
-	}
-	if n.GetValue() != "48.8566,2.3522" {
-		t.Errorf("GetValue() = %q unexpected", n.GetValue())
-	}
-	qs := n.ToQueryString(false)
-	if qs != "@geo:48.8566,2.3522" {
-		t.Errorf("ToQueryString() = %q, want @geo:48.8566,2.3522", qs)
-	}
-	cloned := n.CloneTree().(*OpaqueQueryNode)
-	if cloned.GetSchema() != "geo" || cloned.GetValue() != "48.8566,2.3522" {
-		t.Error("clone fields differ")
-	}
-}
+func TestQueryNode_testRemoveChildren(t *testing.T) {
+	booleanNode := NewBooleanQueryNode("", []QueryNode{})
+	fieldNode := NewFieldQueryNode("foo", "A", 0, 1)
 
-func TestPathQueryNode(t *testing.T) {
-	n := NewPathQueryNode([]string{"root", "child", "leaf"})
-	qs := n.ToQueryString(false)
-	if qs != "root/child/leaf" {
-		t.Errorf("ToQueryString() = %q, want root/child/leaf", qs)
+	booleanNode.AddChild(fieldNode)
+	if !(len(booleanNode.GetChildren()) == 1) {
+		t.Fatal("booleanNode.getChildren().size() == 1")
 	}
-	cloned := n.CloneTree().(*PathQueryNode)
-	elems := cloned.GetPathElements()
-	if len(elems) != 3 || elems[2] != "leaf" {
-		t.Error("clone path elements differ")
-	}
-}
 
-func TestProximityQueryNode(t *testing.T) {
-	n := NewProximityQueryNode("body", "hello world", 5, ProximityWord, 0, 11)
-	if n.GetDistance() != 5 {
-		t.Errorf("GetDistance() = %d, want 5", n.GetDistance())
+	booleanNode.RemoveChild(fieldNode)
+	if !(len(booleanNode.GetChildren()) == 0) {
+		t.Fatal("booleanNode.getChildren().size() == 0")
 	}
-	if n.GetProximityType() != ProximityWord {
-		t.Error("GetProximityType() != ProximityWord")
+	if fieldNode.GetParent() != nil {
+		t.Fatal("assertNull(fieldNode.getParent())")
 	}
-	qs := n.ToQueryString(false)
-	if !strings.Contains(qs, "WORD") || !strings.Contains(qs, "5") {
-		t.Errorf("ToQueryString() = %q unexpected", qs)
-	}
-	cloned := n.CloneTree().(*ProximityQueryNode)
-	if cloned.GetDistance() != 5 {
-		t.Error("clone distance differs")
-	}
-}
-
-func TestQuotedFieldQueryNode(t *testing.T) {
-	n := NewQuotedFieldQueryNode("title", "hello world", 0, 11)
-	qs := n.ToQueryString(false)
-	if qs != `title:"hello world"` {
-		t.Errorf("ToQueryString() = %q, want title:\"hello world\"", qs)
-	}
-	cloned := n.CloneTree().(*QuotedFieldQueryNode)
-	if cloned.GetField() != "title" || cloned.GetText() != "hello world" {
-		t.Error("clone fields differ")
-	}
-}
-
-func TestSlopQueryNode(t *testing.T) {
-	child := NewFieldQueryNode("f", "quick fox", 0, 9)
-	n := NewSlopQueryNode(child, 2)
-	if n.GetValue() != 2 {
-		t.Errorf("GetValue() = %d, want 2", n.GetValue())
-	}
-	qs := n.ToQueryString(false)
-	if !strings.HasSuffix(qs, "~2") {
-		t.Errorf("ToQueryString() = %q, should end with ~2", qs)
-	}
-	cloned := n.CloneTree().(*SlopQueryNode)
-	if cloned.GetValue() != 2 {
-		t.Error("clone value differs")
-	}
-}
-
-func TestTokenizedPhraseQueryNode(t *testing.T) {
-	t1 := NewFieldQueryNode("", "quick", 0, 5)
-	t2 := NewFieldQueryNode("", "fox", 6, 9)
-	n := NewTokenizedPhraseQueryNode("body", []QueryNode{t1, t2})
-
-	if n.GetField() != "body" {
-		t.Errorf("GetField() = %q, want body", n.GetField())
-	}
-	qs := n.ToQueryString(false)
-	if qs != `body:"quick fox"` {
-		t.Errorf("ToQueryString() = %q, want body:\"quick fox\"", qs)
-	}
-	cloned := n.CloneTree().(*TokenizedPhraseQueryNode)
-	if cloned.GetField() != "body" || len(cloned.GetChildren()) != 2 {
-		t.Error("clone fields or children differ")
-	}
-}
-
-func TestFieldQueryNode_ValueInterface(t *testing.T) {
-	n := NewFieldQueryNode("f", "hello", 0, 5)
-	if n.GetValue() != "hello" {
-		t.Errorf("GetValue() = %v, want hello", n.GetValue())
-	}
-	n.SetValue("world")
-	if n.GetText() != "world" {
-		t.Errorf("text after SetValue = %q, want world", n.GetText())
-	}
-	n.SetValue(42) // non-string: should be no-op
-	if n.GetText() != "world" {
-		t.Errorf("text after invalid SetValue = %q, want world", n.GetText())
-	}
-}
-
-func TestFieldableNodeInterface(t *testing.T) {
-	var _ FieldableNode = (*FieldQueryNode)(nil)
-	var _ FieldableNode = (*QuotedFieldQueryNode)(nil)
-	var _ FieldableNode = (*TokenizedPhraseQueryNode)(nil)
-}
-
-func TestTextableNodeInterface(t *testing.T) {
-	var _ TextableQueryNode = (*FieldQueryNode)(nil)
-	var _ TextableQueryNode = (*QuotedFieldQueryNode)(nil)
 }

@@ -158,8 +158,8 @@ func runNormsRoundTrip(t *testing.T, maxDoc int, fields []normsRTField) {
 		if !fi.HasNorms() {
 			t.Fatalf("field %q misconfigured: HasNorms()=false", f.name)
 		}
-		if err := fis.Add(fi); err != nil {
-			t.Fatalf("FieldInfos.Add(%q): %v", f.name, err)
+		if added := fis.Add(fi); added == nil {
+			t.Fatalf("FieldInfos.Add(%q): nil", f.name)
 		}
 		infos[f.name] = fi
 	}

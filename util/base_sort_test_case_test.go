@@ -181,7 +181,7 @@ func generateEntries(r *rand.Rand, strategy testStrategy, length int) []entry {
 // runSorterTest exercises a sorter with the given strategy and length.
 // Mirrors BaseSortTestCase.test(Strategy, int) in Java, including the random
 // offset/tail padding around the sorted region.
-func runSorterTest(t *testing.T, r *rand.Rand, strategy testStrategy, length int, newSorter func([]entry) SorterInterface) {
+func runSorterTest(t *testing.T, r *rand.Rand, strategy testStrategy, length int, newSorter func([]entry) interface{ Sort(from, to int) }) {
 	arr := generateEntries(r, strategy, length)
 
 	// Create a copy with offset padding to mirror the Java test contract.

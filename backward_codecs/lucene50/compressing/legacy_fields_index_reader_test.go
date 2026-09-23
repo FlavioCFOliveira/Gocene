@@ -36,7 +36,7 @@ func buildIndexPayload(t *testing.T, blocks []blockSpec) store.IndexInput {
 	}
 
 	// packed-ints version
-	if err := store.WriteVInt(out, int32(packed.VersionCurrent)); err != nil {
+	if err := out.WriteVInt(int32(packed.VersionCurrent)); err != nil {
 		t.Fatalf("WriteVInt packedIntsVersion: %v", err)
 	}
 
@@ -44,18 +44,18 @@ func buildIndexPayload(t *testing.T, blocks []blockSpec) store.IndexInput {
 		numChunks := len(b.docDeltas)
 
 		// numChunks
-		if err := store.WriteVInt(out, int32(numChunks)); err != nil {
+		if err := out.WriteVInt(int32(numChunks)); err != nil {
 			t.Fatalf("WriteVInt numChunks: %v", err)
 		}
 
 		// doc bases section
-		if err := store.WriteVInt(out, int32(b.docBase)); err != nil {
+		if err := out.WriteVInt(int32(b.docBase)); err != nil {
 			t.Fatalf("WriteVInt docBase: %v", err)
 		}
-		if err := store.WriteVInt(out, int32(b.avgChunkDocs)); err != nil {
+		if err := out.WriteVInt(int32(b.avgChunkDocs)); err != nil {
 			t.Fatalf("WriteVInt avgChunkDocs: %v", err)
 		}
-		if err := store.WriteVInt(out, int32(b.bitsPerDocBase)); err != nil {
+		if err := out.WriteVInt(int32(b.bitsPerDocBase)); err != nil {
 			t.Fatalf("WriteVInt bitsPerDocBase: %v", err)
 		}
 		if err := writePackedNoHeader(t, out, b.docDeltas, b.bitsPerDocBase); err != nil {
@@ -63,13 +63,13 @@ func buildIndexPayload(t *testing.T, blocks []blockSpec) store.IndexInput {
 		}
 
 		// start pointers section
-		if err := store.WriteVLong(out, b.startPointer); err != nil {
+		if err := out.WriteVLong(b.startPointer); err != nil {
 			t.Fatalf("WriteVLong startPointer: %v", err)
 		}
-		if err := store.WriteVLong(out, b.avgChunkSize); err != nil {
+		if err := out.WriteVLong(b.avgChunkSize); err != nil {
 			t.Fatalf("WriteVLong avgChunkSize: %v", err)
 		}
-		if err := store.WriteVInt(out, int32(b.bitsPerStartPointer)); err != nil {
+		if err := out.WriteVInt(int32(b.bitsPerStartPointer)); err != nil {
 			t.Fatalf("WriteVInt bitsPerStartPointer: %v", err)
 		}
 		if err := writePackedNoHeader(t, out, b.spDeltas, b.bitsPerStartPointer); err != nil {
@@ -78,7 +78,7 @@ func buildIndexPayload(t *testing.T, blocks []blockSpec) store.IndexInput {
 	}
 
 	// terminating zero
-	if err := store.WriteVInt(out, 0); err != nil {
+	if err := out.WriteVInt(0); err != nil {
 		t.Fatalf("WriteVInt terminator: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -146,7 +146,7 @@ func zigzagEncode(v int64) int64 {
 // TestLegacyFieldsIndexReader_CompileTimeAssertion verifies the interface
 // compliance at compile time.
 func TestLegacyFieldsIndexReader_CompileTimeAssertion(t *testing.T) {
-	var _ LegacyFieldsIndex = (*LegacyFieldsIndexReader)(nil)
+	var _ FieldsIndex = (*LegacyFieldsIndexReader)(nil)
 }
 
 // TestLegacyFieldsIndexReader_EmptyIndex verifies that an index with no blocks
@@ -331,14 +331,14 @@ func TestLegacyFieldsIndexReader_CorruptBitsPerDocBase(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	// packedIntsVersion
-	_ = store.WriteVInt(out, int32(packed.VersionCurrent))
+	_ = out.WriteVInt(int32(packed.VersionCurrent))
 	// numChunks = 1 (non-zero)
-	_ = store.WriteVInt(out, 1)
+	_ = out.WriteVInt(1)
 	// docBase, avgChunkDocs
-	_ = store.WriteVInt(out, 0)
-	_ = store.WriteVInt(out, 1)
+	_ = out.WriteVInt(0)
+	_ = out.WriteVInt(1)
 	// bitsPerDocBase = 33 (invalid)
-	_ = store.WriteVInt(out, 33)
+	_ = out.WriteVInt(33)
 	_ = out.Close()
 
 	in, _ := dir.OpenInput("bad.dat", store.IOContext{})
@@ -360,15 +360,15 @@ func TestLegacyFieldsIndexReader_CorruptBitsPerStartPointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	_ = store.WriteVInt(out, int32(packed.VersionCurrent))
-	_ = store.WriteVInt(out, 1) // numChunks
-	_ = store.WriteVInt(out, 0) // docBase
-	_ = store.WriteVInt(out, 1) // avgChunkDocs
-	_ = store.WriteVInt(out, 0) // bitsPerDocBase=0 (zero-width)
+	_ = out.WriteVInt(int32(packed.VersionCurrent))
+	_ = out.WriteVInt(1) // numChunks
+	_ = out.WriteVInt(0) // docBase
+	_ = out.WriteVInt(1) // avgChunkDocs
+	_ = out.WriteVInt(0) // bitsPerDocBase=0 (zero-width)
 	// no packed data for zero-width
-	_ = store.WriteVLong(out, 0) // startPointer
-	_ = store.WriteVLong(out, 0) // avgChunkSize
-	_ = store.WriteVInt(out, 65) // bitsPerStartPointer=65 (invalid)
+	_ = out.WriteVLong(0) // startPointer
+	_ = out.WriteVLong(0) // avgChunkSize
+	_ = out.WriteVInt(65) // bitsPerStartPointer=65 (invalid)
 	_ = out.Close()
 
 	in, _ := dir.OpenInput("bad2.dat", store.IOContext{})

@@ -53,7 +53,7 @@ func TestMultiPhraseQueryNode(t *testing.T) {
 	}
 }
 
-func TestDeletedQueryNode(t *testing.T) {
+func TestDeletedQueryNode_QueryNodeHierarchy(t *testing.T) {
 	node := NewDeletedQueryNode()
 	esc := NewEscapeQuerySyntaxImpl()
 	if got := node.ToQueryString(esc); got != "[DELETEDCHILD]" {
@@ -61,12 +61,12 @@ func TestDeletedQueryNode(t *testing.T) {
 	}
 }
 
-func TestAnyQueryNode(t *testing.T) {
+func TestAnyQueryNode_QueryNodeHierarchy(t *testing.T) {
 	children := []QueryNode{
 		NewFieldQueryNode("f1", "t1", 1, 3),
 		NewFieldQueryNode("f1", "t2", 4, 6),
 	}
-	node := NewAnyQueryNode(children, 1)
+	node := NewAnyQueryNode(children, "", 1)
 	if node.GetMinimumMatchingElements() != 1 {
 		t.Errorf("expected min 1, got %d", node.GetMinimumMatchingElements())
 	}
@@ -78,7 +78,7 @@ func TestAnyQueryNode(t *testing.T) {
 	}
 }
 
-func TestNoTokenFoundQueryNode(t *testing.T) {
+func TestNoTokenFoundQueryNode_QueryNodeHierarchy(t *testing.T) {
 	node := NewNoTokenFoundQueryNode()
 	esc := NewEscapeQuerySyntaxImpl()
 	if got := node.ToQueryString(esc); got != "[NTF]" {
@@ -86,7 +86,7 @@ func TestNoTokenFoundQueryNode(t *testing.T) {
 	}
 }
 
-func TestOpaqueQueryNode(t *testing.T) {
+func TestOpaqueQueryNode_QueryNodeHierarchy(t *testing.T) {
 	node := NewOpaqueQueryNode("xpath", "/book/1")
 	if node.GetSchema() != "xpath" {
 		t.Errorf("expected schema xpath, got %s", node.GetSchema())
@@ -102,7 +102,7 @@ func TestOpaqueQueryNode(t *testing.T) {
 	}
 }
 
-func TestPathQueryNode(t *testing.T) {
+func TestPathQueryNode_QueryNodeHierarchy(t *testing.T) {
 	elements := []PathQueryNodeText{
 		{"company", 1, 7},
 		{"USA", 9, 12},
@@ -121,7 +121,7 @@ func TestPathQueryNode(t *testing.T) {
 	}
 }
 
-func TestProximityQueryNode(t *testing.T) {
+func TestProximityQueryNode_QueryNodeHierarchy(t *testing.T) {
 	node := NewProximityQueryNode("field", "text", 5, ProximityWord, 1, 5)
 	esc := NewEscapeQuerySyntaxImpl()
 	expected := "field:text~WORD/5"
@@ -130,7 +130,7 @@ func TestProximityQueryNode(t *testing.T) {
 	}
 }
 
-func TestSlopQueryNode(t *testing.T) {
+func TestSlopQueryNode_QueryNodeHierarchy(t *testing.T) {
 	child := NewFieldQueryNode("field", "text", 1, 5)
 	node := NewSlopQueryNode(child, 3)
 	esc := NewEscapeQuerySyntaxImpl()
@@ -140,7 +140,7 @@ func TestSlopQueryNode(t *testing.T) {
 	}
 }
 
-func TestTokenizedPhraseQueryNode(t *testing.T) {
+func TestTokenizedPhraseQueryNode_QueryNodeHierarchy(t *testing.T) {
 	children := []QueryNode{
 		NewFieldQueryNode("f1", "t1", 1, 3),
 		NewFieldQueryNode("f1", "t2", 4, 6),

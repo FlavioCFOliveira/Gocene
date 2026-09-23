@@ -15,6 +15,12 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.document.StringField.
 type StringField struct {
 	*Field
+
+	// binaryValue and storedValue mirror the private fields of Lucene's
+	// StringField: the indexed term bytes and the stored value (nil when the
+	// field is not stored).
+	binaryValue []byte
+	storedValue *StoredValue
 }
 
 var (
@@ -77,7 +83,12 @@ func NewStringField(name string, value string, stored bool) (*StringField, error
 		return nil, err
 	}
 
-	return &StringField{Field: field}, nil
+	// Java: binaryValue = new BytesRef(value); storedValue = new StoredValue(value) when stored.
+	f := &StringField{Field: field, binaryValue: []byte(value)}
+	if stored {
+		f.storedValue = NewStoredValueString(value)
+	}
+	return f, nil
 }
 
 // NewStringFieldFromBytes creates a new StringField from a byte slice.
@@ -93,5 +104,45 @@ func NewStringFieldFromBytes(name string, value []byte, stored bool) (*StringFie
 		return nil, err
 	}
 
-	return &StringField{Field: field}, nil
+	// Java: binaryValue = value; storedValue = new StoredValue(value) when stored.
+	f := &StringField{Field: field, binaryValue: value}
+	if stored {
+		f.storedValue = NewStoredValueBinary(value)
+	}
+	return f, nil
+}
+
+// InvertableType mirrors StringField.invertableType(): the value is indexed
+// as a single BINARY term.
+func (f *StringField) InvertableType() InvertableType {
+	return InvertableTypeBinary
+}
+
+// BinaryValue mirrors StringField.binaryValue(): the term bytes, for a
+// String value as well as for a BytesRef value.
+func (f *StringField) BinaryValue() []byte {
+	return f.binaryValue
+}
+
+// SetStringValue mirrors StringField.setStringValue(String).
+func (f *StringField) SetStringValue(value string) {
+	f.Field.SetStringValue(value)
+	f.binaryValue = []byte(value)
+	if f.storedValue != nil {
+		f.storedValue.SetStringValue(value)
+	}
+}
+
+// SetBytesValue mirrors StringField.setBytesValue(BytesRef).
+func (f *StringField) SetBytesValue(value []byte) {
+	f.Field.SetBytesValue(value)
+	f.binaryValue = value
+	if f.storedValue != nil {
+		f.storedValue.SetBinaryValue(value)
+	}
+}
+
+// StoredValue mirrors StringField.storedValue().
+func (f *StringField) StoredValue() *StoredValue {
+	return f.storedValue
 }

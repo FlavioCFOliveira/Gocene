@@ -145,7 +145,7 @@ func DecodeInetAddress(encoded []byte) (net.IP, error) {
 func (p *InetAddressPoint) String() string {
 	addr, err := DecodeInetAddress(p.Field.BinaryValue())
 	if err != nil {
-		return fmt.Sprintf("InetAddressPoint <%s:error>", p.Field.Name)
+		return fmt.Sprintf("InetAddressPoint <%s:error>", p.Field.Name())
 	}
 
 	host := addr.String()
@@ -153,5 +153,5 @@ func (p *InetAddressPoint) String() string {
 		host = "[" + host + "]"
 	}
 
-	return fmt.Sprintf("InetAddressPoint <%s:%s>", p.Field.Name, host)
+	return fmt.Sprintf("InetAddressPoint <%s:%s>", p.Field.Name(), host)
 }

@@ -4,99 +4,199 @@
 
 package util
 
+// Port of lucene/core/src/test/org/apache/lucene/util/TestStringSorter.java
+// (Apache Lucene 10.5.0). The Java anonymous subclasses of StringSorter and
+// StableStringSorter are rendered as the implementation types below; the two
+// comparators are BytesRefComparator.NATURAL (NewStringSorter) and
+// Comparator.naturalOrder(), which is not a BytesRefComparator
+// (NewStringSorterFn with BytesRef.compareTo).
+
 import (
-	"bytes"
 	"math/rand"
-	"sort"
+	"slices"
 	"testing"
 )
 
-type stringSorterFixture struct {
-	keys [][]byte
+// stringSorterTestComparator is one of the two comparators of
+// TestStringSorter.test(BytesRef[], int).
+type stringSorterTestComparator struct {
+	natural bool // BytesRefComparator.NATURAL when true, Comparator.naturalOrder() otherwise
 }
 
-func (s *stringSorterFixture) Get(builder *BytesRefBuilder, result *BytesRef, i int) {
-	k := s.keys[i]
-	builder.GrowNoCopy(len(k))
-	copy(builder.Bytes(), k)
-	result.Bytes = builder.Bytes()
-	result.Offset = 0
-	result.Length = len(k)
+var (
+	stringSorterNatural      = stringSorterTestComparator{natural: true}
+	stringSorterNaturalOrder = stringSorterTestComparator{natural: false}
+)
+
+// bytesRefCompareTo renders BytesRef.compareTo, the naturalOrder comparator.
+func bytesRefCompareTo(o1, o2 *BytesRef) int {
+	return o1.BytesRefCompareTo(o2)
 }
 
-func (s *stringSorterFixture) Swap(i, j int) {
-	s.keys[i], s.keys[j] = s.keys[j], s.keys[i]
+// stringSorterRefs is the anonymous StringSorter subclass of test(...).
+type stringSorterRefs struct {
+	refs []*BytesRef
 }
 
-func TestStringSorter_NaturalComparator_Radix(t *testing.T) {
-	keys := [][]byte{
-		[]byte("delta"),
-		[]byte("alpha"),
-		[]byte("charlie"),
-		[]byte("alpha"),
-		[]byte("bravo"),
+func (s *stringSorterRefs) Get(builder *BytesRefBuilder, result *BytesRef, i int) {
+	ref := s.refs[i]
+	result.Offset = ref.Offset
+	result.Length = ref.Length
+	result.Bytes = ref.Bytes
+}
+
+func (s *stringSorterRefs) Swap(i, j int) {
+	s.refs[i], s.refs[j] = s.refs[j], s.refs[i]
+}
+
+// stableStringSorterOrds is the anonymous StableStringSorter subclass of
+// testStable(...).
+type stableStringSorterOrds struct {
+	refs []*BytesRef
+	ord  []int
+	tmp  []int
+}
+
+func (s *stableStringSorterOrds) Save(i, j int) {
+	s.tmp[j] = s.ord[i]
+}
+
+func (s *stableStringSorterOrds) Restore(i, j int) {
+	copy(s.ord[i:j], s.tmp[i:j])
+}
+
+func (s *stableStringSorterOrds) Get(builder *BytesRefBuilder, result *BytesRef, i int) {
+	ref := s.refs[s.ord[i]]
+	result.Offset = ref.Offset
+	result.Length = ref.Length
+	result.Bytes = ref.Bytes
+}
+
+func (s *stableStringSorterOrds) Swap(i, j int) {
+	s.ord[i], s.ord[j] = s.ord[j], s.ord[i]
+}
+
+func sortedBytesRefCopy(refs []*BytesRef, length int) []*BytesRef {
+	expected := slices.Clone(refs[:length])
+	// Arrays.sort(Object[]) is a stable merge sort over BytesRef.compareTo.
+	slices.SortStableFunc(expected, bytesRefCompareTo)
+	return expected
+}
+
+func testStringSorterAll(t *testing.T, refs []*BytesRef, length int) {
+	t.Helper()
+	testStringSorter(t, slices.Clone(refs[:length]), length, stringSorterNatural)
+	testStringSorter(t, slices.Clone(refs[:length]), length, stringSorterNaturalOrder)
+	testStableStringSorter(t, slices.Clone(refs[:length]), length, stringSorterNatural)
+	testStableStringSorter(t, slices.Clone(refs[:length]), length, stringSorterNaturalOrder)
+}
+
+func testStringSorter(t *testing.T, refs []*BytesRef, length int, comparator stringSorterTestComparator) {
+	t.Helper()
+	expected := sortedBytesRefCopy(refs, length)
+
+	impl := &stringSorterRefs{refs: refs}
+	if comparator.natural {
+		NewStringSorter(impl, NaturalBytesRefComparator).Sort(0, length)
+	} else {
+		NewStringSorterFn(impl, bytesRefCompareTo).Sort(0, length)
 	}
-	f := &stringSorterFixture{keys: keys}
-	cmp := NaturalBytesRefComparator
-	NewStringSorter(f, cmp).Sort(0, len(keys))
-
-	for i := 1; i < len(keys); i++ {
-		if bytes.Compare(keys[i-1], keys[i]) > 0 {
-			t.Fatalf("not sorted at %d: %q > %q", i, keys[i-1], keys[i])
+	actual := refs[:length]
+	for i := range expected {
+		if !BytesRefEquals(expected[i], actual[i]) {
+			t.Fatalf("arrays first differed at element [%d]; expected:<%v> but was:<%v>", i, expected[i], actual[i])
 		}
 	}
 }
 
-func TestStringSorter_FallbackComparator(t *testing.T) {
-	keys := [][]byte{[]byte("c"), []byte("a"), []byte("b")}
-	f := &stringSorterFixture{keys: keys}
-	NewStringSorterFn(f, func(o1, o2 *BytesRef) int {
-		return bytes.Compare(o1.ValidBytes(), o2.ValidBytes())
-	}).Sort(0, len(keys))
-	for i, w := range []string{"a", "b", "c"} {
-		if string(keys[i]) != w {
-			t.Fatalf("pos %d: got %q want %q", i, keys[i], w)
+func testStableStringSorter(t *testing.T, refs []*BytesRef, length int, comparator stringSorterTestComparator) {
+	t.Helper()
+	expected := sortedBytesRefCopy(refs, length)
+
+	ord := make([]int, length)
+	for i := range ord {
+		ord[i] = i
+	}
+	impl := &stableStringSorterOrds{refs: refs, ord: ord, tmp: make([]int, length)}
+	if comparator.natural {
+		NewStableStringSorter(impl, NaturalBytesRefComparator).Sort(0, length)
+	} else {
+		NewStableStringSorterFn(impl, bytesRefCompareTo).Sort(0, length)
+	}
+
+	for i := 0; i < length; i++ {
+		if !BytesRefEquals(expected[i], refs[ord[i]]) {
+			t.Fatalf("at %d expected:<%v> but was:<%v>", i, expected[i], refs[ord[i]])
+		}
+		if i > 0 && BytesRefEquals(expected[i], expected[i-1]) {
+			if !(ord[i] > ord[i-1]) {
+				t.Fatalf("not stable: %d <= %d", ord[i], ord[i-1])
+			}
 		}
 	}
 }
 
-func TestStringSorter_RandomizedAgainstSortSlice(t *testing.T) {
-	rng := rand.New(rand.NewSource(123))
-	const n = 500
-	keys := make([][]byte, n)
-	for i := range keys {
-		l := rng.Intn(10) + 1
-		buf := make([]byte, l)
-		for j := range buf {
-			buf[j] = byte('a' + rng.Intn(5))
-		}
-		keys[i] = buf
-	}
-	wantKeys := make([][]byte, len(keys))
-	for i, k := range keys {
-		c := make([]byte, len(k))
-		copy(c, k)
-		wantKeys[i] = c
-	}
-	sort.Slice(wantKeys, func(i, j int) bool {
-		return bytes.Compare(wantKeys[i], wantKeys[j]) < 0
-	})
+func TestStringSorter_testEmpty(t *testing.T) {
+	r := newTestRandom(t)
+	testStringSorterAll(t, make([]*BytesRef, r.Intn(5)), 0)
+}
 
-	f := &stringSorterFixture{keys: keys}
-	NewStringSorter(f, NaturalBytesRefComparator).Sort(0, n)
+func TestStringSorter_testOneValue(t *testing.T) {
+	r := newTestRandom(t)
+	b := NewBytesRef([]byte(randomSimpleString(r)))
+	testStringSorterAll(t, []*BytesRef{b}, 1)
+}
 
-	for i := range wantKeys {
-		if !bytes.Equal(wantKeys[i], keys[i]) {
-			t.Fatalf("mismatch at %d: got %q want %q", i, keys[i], wantKeys[i])
-		}
+func TestStringSorter_testTwoValues(t *testing.T) {
+	r := newTestRandom(t)
+	bytes1 := NewBytesRef([]byte(randomSimpleString(r)))
+	bytes2 := NewBytesRef([]byte(randomSimpleString(r)))
+	testStringSorterAll(t, []*BytesRef{bytes1, bytes2}, 2)
+}
+
+func testStringSorterRandom(t *testing.T, r *rand.Rand, commonPrefixLen, maxLen int) {
+	t.Helper()
+	commonPrefix := make([]byte, commonPrefixLen)
+	r.Read(commonPrefix)
+	length := r.Intn(100000)
+	refs := make([]*BytesRef, length+r.Intn(50))
+	for i := 0; i < length; i++ {
+		b := make([]byte, commonPrefixLen+r.Intn(maxLen))
+		r.Read(b)
+		copy(b, commonPrefix)
+		refs[i] = NewBytesRef(b)
+	}
+	testStringSorterAll(t, refs, length)
+}
+
+func TestStringSorter_testRandom(t *testing.T) {
+	r := newTestRandom(t)
+	numIters := atLeast(r, 3)
+	for iter := 0; iter < numIters; iter++ {
+		testStringSorterRandom(t, r, 0, 10)
 	}
 }
 
-func TestStringSorter_EmptyAndSingleton(t *testing.T) {
-	NewStringSorter(&stringSorterFixture{keys: nil}, NaturalBytesRefComparator).Sort(0, 0)
-	f := &stringSorterFixture{keys: [][]byte{[]byte("solo")}}
-	NewStringSorter(f, NaturalBytesRefComparator).Sort(0, 1)
-	if string(f.keys[0]) != "solo" {
-		t.Fatalf("singleton corrupted: %q", f.keys[0])
+func TestStringSorter_testRandomWithLotsOfDuplicates(t *testing.T) {
+	r := newTestRandom(t)
+	numIters := atLeast(r, 3)
+	for iter := 0; iter < numIters; iter++ {
+		testStringSorterRandom(t, r, 0, 2)
+	}
+}
+
+func TestStringSorter_testRandomWithSharedPrefix(t *testing.T) {
+	r := newTestRandom(t)
+	numIters := atLeast(r, 3)
+	for iter := 0; iter < numIters; iter++ {
+		testStringSorterRandom(t, r, nextInt(r, 1, 30), 10)
+	}
+}
+
+func TestStringSorter_testRandomWithSharedPrefixAndLotsOfDuplicates(t *testing.T) {
+	r := newTestRandom(t)
+	numIters := atLeast(r, 3)
+	for iter := 0; iter < numIters; iter++ {
+		testStringSorterRandom(t, r, nextInt(r, 1, 30), 2)
 	}
 }

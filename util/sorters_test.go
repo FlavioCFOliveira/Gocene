@@ -45,7 +45,7 @@ func (s *testSortable) ComparePivot(j int) int {
 	return 0
 }
 
-func TestIntroSort(t *testing.T) {
+func TestIntroSorter(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    []int

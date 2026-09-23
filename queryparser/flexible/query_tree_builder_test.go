@@ -130,7 +130,7 @@ func TestBoostQueryNodeBuilder_Build(t *testing.T) {
 
 func TestFuzzyQueryNodeBuilder_Build(t *testing.T) {
 	builder := NewFuzzyQueryNodeBuilder()
-	node := NewFuzzyQueryNode("field", "value", 0.5, 0, 0, 10)
+	node := NewFuzzyQueryNode("field", "value", 0.5, 0, 10)
 
 	query, err := builder.Build(node)
 	if err != nil {
@@ -278,7 +278,7 @@ func TestGetNodeType(t *testing.T) {
 		{NewOrQueryNode(nil), "OrQueryNode"},
 		{NewModifierQueryNode(nil, ModifierNone), "ModifierQueryNode"},
 		{NewBoostQueryNode(nil, 1.0), "BoostQueryNode"},
-		{NewFuzzyQueryNode("", "", 0.5, 0, 0, 0), "FuzzyQueryNode"},
+		{NewFuzzyQueryNode("", "", 0.5, 0, 0), "FuzzyQueryNode"},
 		{NewRangeQueryNode("", "", "", BoundInclusive, BoundInclusive), "RangeQueryNode"},
 		{NewPhraseSlopQueryNode("", "", 0, 0, 0), "PhraseSlopQueryNode"},
 		{NewGroupQueryNode(nil), "GroupQueryNode"},

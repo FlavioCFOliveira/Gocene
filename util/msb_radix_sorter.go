@@ -12,12 +12,12 @@ package util
 //
 // This is a port of Apache Lucene's MSBRadixSorter class.
 type MSBRadixSorter struct {
-	maxLength int
-	histograms [][]int
-	endOffsets []int
+	maxLength    int
+	histograms   [][]int
+	endOffsets   []int
 	commonPrefix []int
 
-	reorderFn func(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int)
+	reorderFn        func(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int)
 	fallbackSorterFn func(rs RadixSortable, from, to, k int)
 }
 
@@ -76,12 +76,18 @@ func (s *MSBRadixSorter) sort(rs RadixSortable, from, to, k, l int) {
 	}
 
 	startOffsets := histogram
-	sumHistogram(histogram, s.endOffsets)
-	s.reorder(rs, from, to, startOffsets, s.endOffsets, k)
+	endOffsets := s.endOffsets
+	sumHistogram(histogram, endOffsets)
+	s.reorder(rs, from, to, startOffsets, endOffsets, k)
+	// After reorder the start offsets equal the end offsets. The recursion
+	// below reuses s.endOffsets, so, like Lucene, read the per-level array.
+	endOffsets = startOffsets
 
 	if k+1 < s.maxLength {
-		for prev, i := 0, 1; i < HistogramSize; i++ {
-			h := s.endOffsets[i]
+		// recurse on all but the first bucket since all keys are equals in this
+		// bucket (we already compared all bytes)
+		for prev, i := endOffsets[0], 1; i < HistogramSize; i++ {
+			h := endOffsets[i]
 			bucketLen := h - prev
 			if bucketLen > 1 {
 				s.sort(rs, from+prev, from+h, k+1, l+1)
@@ -172,10 +178,15 @@ func (s *MSBRadixSorter) getBucket(rs RadixSortable, i, k int) int {
 	return rs.ByteAt(i, k) + 1
 }
 
+// radixFallbackSorter is the anonymous IntroSorter returned by
+// MSBRadixSorter.getFallbackSorter(k): it compares values byte by byte from
+// the k-th byte on and keeps its pivot as the bytes of the pivot value from
+// the k-th byte on (Java: a BytesRefBuilder).
 type radixFallbackSorter struct {
 	s         RadixSortable
 	k         int
 	maxLength int
+	pivot     []byte
 }
 
 func (r *radixFallbackSorter) Compare(i, j int) int {
@@ -196,18 +207,28 @@ func (r *radixFallbackSorter) Swap(i, j int) {
 }
 
 func (r *radixFallbackSorter) SetPivot(i int) {
-	if p, ok := r.s.(Pivotable); ok {
-		p.SetPivot(i)
-	} else {
-		panic("RadixSortable must implement Pivotable for fallback IntroSort")
+	r.pivot = r.pivot[:0]
+	for o := r.k; o < r.maxLength; o++ {
+		b := r.s.ByteAt(i, o)
+		if b == -1 {
+			break
+		}
+		r.pivot = append(r.pivot, byte(b))
 	}
 }
 
 func (r *radixFallbackSorter) ComparePivot(j int) int {
-	if p, ok := r.s.(Pivotable); ok {
-		return p.ComparePivot(j)
+	for o := 0; o < len(r.pivot); o++ {
+		b1 := int(r.pivot[o]) & 0xff
+		b2 := r.s.ByteAt(j, r.k+o)
+		if b1 != b2 {
+			return b1 - b2
+		}
 	}
-	panic("RadixSortable must implement Pivotable for fallback IntroSort")
+	if r.k+len(r.pivot) == r.maxLength {
+		return 0
+	}
+	return -1 - r.s.ByteAt(j, r.k+len(r.pivot))
 }
 
 func (s *MSBRadixSorter) defaultFallback(rs RadixSortable, from, to, k int) {

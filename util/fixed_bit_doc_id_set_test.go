@@ -385,14 +385,21 @@ func TestBitDocIdSet_DocIDRunEnd(t *testing.T) {
 
 	// Advance to first run
 	iter.Advance(10)
-	runEnd := iter.DocIDRunEnd()
+	runEnd, err := iter.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iter.DocIDRunEnd: %v", err)
+	}
 	if runEnd != 15 {
 		t.Errorf("Expected run end 15, got %d", runEnd)
 	}
 
 	// Move to next doc
 	iter.NextDoc()
-	runEnd = iter.DocIDRunEnd()
+	v395, err := iter.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iter.DocIDRunEnd: %v", err)
+	}
+	runEnd = v395
 	if runEnd != 51 {
 		t.Errorf("Expected run end 51 for isolated bit, got %d", runEnd)
 	}

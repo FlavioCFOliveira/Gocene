@@ -796,6 +796,15 @@ func (w *IndexWriter) DeleteDocumentsQuery(queries []Query) (int64, error) {
 func (w *IndexWriter) doBeforeFlush() {}
 
 func (w *IndexWriter) doFlush(applyAllDeletes bool) (int64, error) {
+	return w.doFlushInternal(applyAllDeletes, false)
+}
+
+// doFlushInternal is the body of doFlush. fullFlushLockHeld reports that the
+// caller already holds fullFlushLock: Java guards the full flush with
+// synchronized (fullFlushLock), a reentrant monitor that getReader holds while
+// it flushes, whereas Gocene's fullFlushLock is a non-reentrant sync.Mutex,
+// so a holder must not take it again.
+func (w *IndexWriter) doFlushInternal(applyAllDeletes, fullFlushLockHeld bool) (int64, error) {
 	if err := w.maybeCloseOnTragicEvent(); err != nil {
 		return 0, err
 	}
@@ -805,8 +814,10 @@ func (w *IndexWriter) doFlush(applyAllDeletes bool) (int64, error) {
 	var seqNo int64
 
 	flushErr := func() error {
-		w.fullFlushLock.Lock()
-		defer w.fullFlushLock.Unlock()
+		if !fullFlushLockHeld {
+			w.fullFlushLock.Lock()
+			defer w.fullFlushLock.Unlock()
+		}
 
 		var err error
 		seqNo, err = w.docWriter.FlushAllThreads()
@@ -2224,7 +2235,7 @@ func (w *IndexWriter) GetReader(applyAllDeletes, writeAllDeletes bool) (*Standar
 
 	w.readerPool.EnableReaderPooling()
 
-	seqNo, err := w.doFlush(applyAllDeletes)
+	seqNo, err := w.doFlushInternal(applyAllDeletes, true)
 	if err != nil {
 		return nil, err
 	}

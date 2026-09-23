@@ -3,6 +3,8 @@ package hppc
 import (
 	"math"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 const (
@@ -24,6 +26,9 @@ func IterationIncrement(seed int32) int32 {
 }
 
 func NextBufferSize(arraySize, elements int, loadFactor float64) int {
+	if util.AssertsEnabled() && !checkPowerOfTwo(arraySize) {
+		panic(util.NewAssertionError(nil))
+	}
 	if arraySize == MaxHashArrayLength {
 		panic(NewBufferAllocationException("Maximum array size exceeded for this load factor (elements: %d, load factor: %f)", elements, loadFactor))
 	}
@@ -31,11 +36,27 @@ func NextBufferSize(arraySize, elements int, loadFactor float64) int {
 }
 
 func ExpandAtCount(arraySize int, loadFactor float64) int {
+	if util.AssertsEnabled() && !checkPowerOfTwo(arraySize) {
+		panic(util.NewAssertionError(nil))
+	}
 	res := int(math.Ceil(float64(arraySize) * loadFactor))
 	if res > arraySize-1 {
 		return arraySize - 1
 	}
 	return res
+}
+
+// checkPowerOfTwo asserts that arraySize is a power of two greater than one
+// and returns true. Mirrors HashContainers.checkPowerOfTwo(int) of Apache
+// Lucene 10.5.0: "These are internals, we can just assert without retrying."
+func checkPowerOfTwo(arraySize int) bool {
+	if util.AssertsEnabled() && !(arraySize > 1) {
+		panic(util.NewAssertionError(nil))
+	}
+	if util.AssertsEnabled() && !(util.NextHighestPowerOfTwo(arraySize) == arraySize) {
+		panic(util.NewAssertionError(nil))
+	}
+	return true
 }
 
 func MinBufferSize(elements int, loadFactor float64) int {

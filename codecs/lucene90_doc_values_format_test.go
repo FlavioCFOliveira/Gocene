@@ -2,1368 +2,491 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package codecs_test contains tests for Lucene90DocValuesFormat.
-//
-// Ported from Apache Lucene's org.apache.lucene.codecs.lucene90.TestLucene90DocValuesFormat
-// and BaseCompressingDocValuesFormatTestCase.java / LegacyBaseDocValuesFormatTestCase.java
-//
-// GC-199: Test Lucene90DocValuesFormat - SortedSet variable length, sparse doc values,
-// terms enum fixed/variable width, sorted set at block size boundaries
-//
-// Test Coverage:
-//   - SortedSet variable length big vs stored fields
-//   - SortedSet variable length many vs stored fields
-//   - Sorted variable length big vs stored fields
-//   - Sorted variable length many vs stored fields
-//   - TermsEnum fixed width
-//   - TermsEnum variable width
-//   - TermsEnum random many
-//   - TermsEnum long shared prefixes
-//   - Sparse doc values vs stored fields
-//   - SortedSet around block size boundaries
-//   - SortedNumeric around block size boundaries
-//   - SortedNumeric blocks of various bits per value
-//   - Sparse sorted numeric blocks of various bits per value
-//   - Numeric blocks of various bits per value
-//   - Sparse numeric blocks of various bits per value
-//   - Numeric field jump tables
-//   - Reseek after skip decompression
-//   - Large terms compression
-//   - Sorted terms dictionary lookup by ord
-//   - SortedSet terms dictionary lookup by ord
-//   - TermsEnum dictionary
-//   - TermsEnum consistency
-//
-// Byte-level compatibility verified against Apache Lucene 10.x
 package codecs_test
+
+// Port of
+// lucene/core/src/test/org/apache/lucene/codecs/lucene90/TestLucene90DocValuesFormat.java
+// (Apache Lucene 10.5.0). The @Nightly methods live in
+// lucene90_doc_values_format_monster_test.go (gocene_monsters tag).
+//
+// Every test method body is a function taking the running *testing.T so that
+// TestLucene90DocValuesFormatMergeInstance, which inherits all of them, runs
+// the same bodies (its only override, shouldTestMergeInstance(), is read by
+// the base-class helpers alone).
+//
+// Blockers:
+//   - the class extends org.apache.lucene.tests.index.BaseCompressingDocValuesFormatTestCase
+//     (not ported): the inherited methods, and the own methods that call its
+//     helpers doTestSortedSetVsStoredFields / doTestSortedVsStoredFields /
+//     assertDVIterate / doTestSortedSetEnumAdvanceIndependently, fail naming it;
+//   - spi.NumericDocValues lacks NumericDocValues.longValues (the bulk fetch);
+//   - spi.SortedDocValues / spi.SortedSetDocValues lack termsEnum() and the
+//     Lucene90DocValuesProducer overrides of termsEnum() and lookupTerm(BytesRef);
+//   - spi.DocValuesSkipper lacks advance(int), minDocID(int) and maxDocID(int).
+// BaseIndexFileFormatTestCase.setUp installs getCodec() (TestUtil.getDefaultCodec())
+// as the default codec; the ports rely on Gocene's default codec.
 
 import (
 	"fmt"
 	"math/rand"
-	"sort"
+	"slices"
+	"strconv"
 	"testing"
-	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
-// Utility functions
-
-// dvAtLeast returns at least n, or a larger value based on test mode
-func dvAtLeast(n int, t *testing.T) int {
-	if testing.Short() {
-		return n
-	}
-	// Return n multiplied by a factor for more thorough testing
-	return n * 2
-}
-
-// nextInt returns a random int in [min, max)
-func dvNextInt(rng *rand.Rand, min, max int) int {
-	if min >= max {
-		return min
-	}
-	return min + rng.Intn(max-min)
-}
-
-// Lucene90DocValuesFormat constants
 const (
-	// DirectMonotonicBlockShift is the block shift for direct monotonic blocks
-	DirectMonotonicBlockShift = 16
-
-	// NumericBlockShift is the block shift for numeric blocks
-	NumericBlockShift = 14
-
-	// NumericBlockSize is the size of numeric blocks
-	NumericBlockSize = 1 << NumericBlockShift // 16384
-
-	// TermsDictBlockLZ4Shift is the block shift for LZ4 compressed terms dictionary
-	TermsDictBlockLZ4Shift = 6
-
-	// TermsDictBlockLZ4Size is the size of LZ4 compressed terms dictionary blocks
-	TermsDictBlockLZ4Size = 1 << TermsDictBlockLZ4Shift // 64
+	lucene90DVBaseBlocker      = "requires org.apache.lucene.tests.index.BaseCompressingDocValuesFormatTestCase (not ported)"
+	lucene90DVTermsEnumBlocker = "requires SortedDocValues.termsEnum()/SortedSetDocValues.termsEnum() " +
+		"(missing from spi.SortedDocValues and spi.SortedSetDocValues) and the Lucene90DocValuesProducer " +
+		"termsEnum()/lookupTerm(BytesRef) overrides (not ported)"
 )
 
-// TestLucene90DocValuesFormat_SortedSetVariableLengthBigVsStoredFields tests
-// sorted set doc values with variable length big values against stored fields.
-//
-// Source: TestLucene90DocValuesFormat.testSortedSetVariableLengthBigVsStoredFields()
-// Purpose: Tests sorted set with variable length values (1-32766 bytes)
-func TestLucene90DocValuesFormat_SortedSetVariableLengthBigVsStoredFields(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
+func TestLucene90DocValuesFormat_BaseCompressingDocValuesFormatTestCase(t *testing.T) {
+	t.Fatal(lucene90DVBaseBlocker)
+}
 
-	for i := 0; i < iterations; i++ {
-		numDocs := 10
-		if !testing.Short() {
-			numDocs = 100
-		}
-		doTestSortedSetVsStoredFields(t, rng, numDocs, 1, 32766, 16, 100)
+// TODO: these big methods can easily blow up some of the other ram-hungry codecs...
+// for now just keep them here, as we want to test this for this format.
+
+func TestLucene90DocValuesFormat_testSortedSetVariableLengthBigVsStoredFields(t *testing.T) {
+	lucene90DVTestSortedSetVariableLengthBigVsStoredFields(t)
+}
+
+func lucene90DVTestSortedSetVariableLengthBigVsStoredFields(t *testing.T) {
+	// doTestSortedSetVsStoredFields(numDocs, 1, 32766, 16, 100)
+	t.Fatal(lucene90DVBaseBlocker + ": doTestSortedSetVsStoredFields")
+}
+
+func TestLucene90DocValuesFormat_testSortedVariableLengthBigVsStoredFields(t *testing.T) {
+	lucene90DVTestSortedVariableLengthBigVsStoredFields(t)
+}
+
+func lucene90DVTestSortedVariableLengthBigVsStoredFields(t *testing.T) {
+	// doTestSortedVsStoredFields(atLeast(100), 1d, 1, 32766)
+	t.Fatal(lucene90DVBaseBlocker + ": doTestSortedVsStoredFields")
+}
+
+func TestLucene90DocValuesFormat_testSparseDocValuesVsStoredFields(t *testing.T) {
+	lucene90DVTestSparseDocValuesVsStoredFields(t)
+}
+
+func lucene90DVTestSparseDocValuesVsStoredFields(t *testing.T) {
+	r := luceneRandom(t)
+	numIterations := luceneAtLeast(r, 1)
+	for i := 0; i < numIterations; i++ {
+		lucene90DVDoTestSparseDocValuesVsStoredFields(t, r)
 	}
 }
 
-// TestLucene90DocValuesFormat_SortedSetVariableLengthManyVsStoredFields tests
-// sorted set doc values with many variable length values against stored fields.
-//
-// Source: TestLucene90DocValuesFormat.testSortedSetVariableLengthManyVsStoredFields()
-// Purpose: Tests sorted set with many values per document
-func TestLucene90DocValuesFormat_SortedSetVariableLengthManyVsStoredFields(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1024, 2049)
-		doTestSortedSetVsStoredFields(t, rng, numDocs, 1, 500, 16, 100)
-	}
+func TestLucene90DocValuesFormat_testDenseNumericLongValuesBulkFetch(t *testing.T) {
+	lucene90DVTestDenseNumericLongValuesBulkFetch(t)
 }
 
-// TestLucene90DocValuesFormat_SortedVariableLengthBigVsStoredFields tests
-// sorted doc values with variable length big values against stored fields.
-//
-// Source: TestLucene90DocValuesFormat.testSortedVariableLengthBigVsStoredFields()
-// Purpose: Tests sorted values with variable length (1-32766 bytes)
-func TestLucene90DocValuesFormat_SortedVariableLengthBigVsStoredFields(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := 100
-		if !testing.Short() {
-			numDocs = dvAtLeast(100, t)
-		}
-		doTestSortedVsStoredFields(t, rng, numDocs, 1.0, 1, 32766)
-	}
+func lucene90DVTestDenseNumericLongValuesBulkFetch(t *testing.T) {
+	// doTestDenseNumericLongValuesBulkFetch(8..64) reads through
+	// NumericDocValues.longValues(int, int[], long[], long) and
+	// longValues(int, int[], int, long[], int, long).
+	t.Fatal("requires NumericDocValues.longValues bulk fetch (missing from spi.NumericDocValues)")
 }
 
-// TestLucene90DocValuesFormat_SortedVariableLengthManyVsStoredFields tests
-// sorted doc values with many variable length values against stored fields.
-//
-// Source: TestLucene90DocValuesFormat.testSortedVariableLengthManyVsStoredFields()
-// Purpose: Tests sorted values with many documents
-func TestLucene90DocValuesFormat_SortedVariableLengthManyVsStoredFields(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1024, 2049)
-		doTestSortedVsStoredFields(t, rng, numDocs, 1.0, 1, 500)
-	}
-}
-
-// TestLucene90DocValuesFormat_TermsEnumFixedWidth tests TermsEnum with fixed width terms.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumFixedWidth()
-// Purpose: Tests TermsEnum iteration with fixed-width terms (10 chars)
-func TestLucene90DocValuesFormat_TermsEnumFixedWidth(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1025, 5121)
-		valuesProducer := func() string {
-			return util.RandomSimpleString(rng, 10, 10)
-		}
-		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
-	}
-}
-
-// TestLucene90DocValuesFormat_TermsEnumVariableWidth tests TermsEnum with variable width terms.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumVariableWidth()
-// Purpose: Tests TermsEnum iteration with variable-width terms (1-500 chars)
-func TestLucene90DocValuesFormat_TermsEnumVariableWidth(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1025, 5121)
-		valuesProducer := func() string {
-			return util.RandomSimpleString(rng, 1, 500)
-		}
-		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
-	}
-}
-
-// TestLucene90DocValuesFormat_TermsEnumRandomMany tests TermsEnum with many random terms.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumRandomMany()
-// Purpose: Tests TermsEnum iteration with many random terms
-func TestLucene90DocValuesFormat_TermsEnumRandomMany(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1025, 8121)
-		valuesProducer := func() string {
-			return util.RandomSimpleString(rng, 1, 500)
-		}
-		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
-	}
-}
-
-// TestLucene90DocValuesFormat_TermsEnumLongSharedPrefixes tests TermsEnum with terms
-// that have long shared prefixes.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumLongSharedPrefixes()
-// Purpose: Tests TermsEnum with terms sharing long prefixes (many 'a's with one 'b')
-func TestLucene90DocValuesFormat_TermsEnumLongSharedPrefixes(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		numDocs := dvNextInt(rng, 1025, 5121)
-		valuesProducer := func() string {
-			length := rng.Intn(500)
-			chars := make([]byte, length)
-			for j := range chars {
-				chars[j] = 'a'
-			}
-			if length > 0 {
-				chars[rng.Intn(length)] = 'b'
-			}
-			return string(chars)
-		}
-		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
-	}
-}
-
-// TestLucene90DocValuesFormat_SparseDocValuesVsStoredFields tests sparse doc values
-// against stored fields.
-//
-// Source: TestLucene90DocValuesFormat.testSparseDocValuesVsStoredFields()
-// Purpose: Tests sparse compression when less than 1% of docs have values
-func TestLucene90DocValuesFormat_SparseDocValuesVsStoredFields(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := dvAtLeast(1, t)
-
-	for i := 0; i < iterations; i++ {
-		doTestSparseDocValuesVsStoredFields(t, rng)
-	}
-}
-
-// TestLucene90DocValuesFormat_SortedSetAroundBlockSize tests sorted set doc values
-// at block size boundaries.
-//
-// Source: TestLucene90DocValuesFormat.testSortedSetAroundBlockSize()
-// Purpose: Tests sorted set at DIRECT_MONOTONIC_BLOCK_SHIFT boundaries
-func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	frontier := 1 << DirectMonotonicBlockShift
-	for maxDoc := frontier - 1; maxDoc <= frontier+1; maxDoc++ {
-		t.Run(fmt.Sprintf("maxDoc_%d", maxDoc), func(t *testing.T) {
-			dir := store.NewByteBuffersDirectory()
-			defer dir.Close()
-
-			// Create index writer
-			analyzer := analysis.NewWhitespaceAnalyzer()
-			config := index.NewIndexWriterConfig(analyzer)
-			writer, err := index.NewIndexWriter(dir, config)
-			if err != nil {
-				t.Fatalf("Failed to create IndexWriter: %v", err)
-			}
-
-			// Create document with two sorted set fields
-			doc := document.NewDocument()
-
-			// Create expected values buffer
-			type docValues struct {
-				values [][]byte
-			}
-			expectedValues := make([]docValues, maxDoc)
-
-			for i := 0; i < maxDoc; i++ {
-				s1 := []byte(util.RandomSimpleString(rng, 2, 2))
-				s2 := []byte(util.RandomSimpleString(rng, 2, 2))
-
-				// Create sorted set values (deduplicated and sorted)
-				valueSet := make(map[string]struct{})
-				valueSet[string(s1)] = struct{}{}
-				valueSet[string(s2)] = struct{}{}
-
-				var sortedValues [][]byte
-				for v := range valueSet {
-					sortedValues = append(sortedValues, []byte(v))
-				}
-				sort.Slice(sortedValues, func(a, b int) bool {
-					return string(sortedValues[a]) < string(sortedValues[b])
-				})
-
-				expectedValues[i] = docValues{values: sortedValues}
-
-				// Add fields to document
-				for _, v := range sortedValues {
-					dvField, _ := document.NewSortedSetDocValuesField("sset", [][]byte{v})
-					doc.Add(dvField)
-				}
-
-				_, err := writer.AddDocument(doc)
-				if err != nil {
-					t.Fatalf("Failed to add document: %v", err)
-				}
-				doc.Clear()
-			}
-
-			// Force merge to single segment
-			writer.ForceMerge(1)
-
-			// Open reader
-			reader, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("Failed to open reader: %v", err)
-			}
-			defer reader.Close()
-
-			writer.Close()
-
-			// Verify values
-			leaves, _ := reader.Leaves()
-			if len(leaves) != 1 {
-				t.Fatalf("Expected 1 leaf, got %d", len(leaves))
-			}
-
-			leafReader := leaves[0].Reader()
-			if leafReader.MaxDoc() != maxDoc {
-				t.Errorf("Expected maxDoc %d, got %d", maxDoc, leafReader.MaxDoc())
-			}
-
-			// TODO: Get SortedSetDocValues and verify
-			// This requires DocValuesFormat implementation
-		})
-	}
-}
-
-// TestLucene90DocValuesFormat_SortedNumericAroundBlockSize tests sorted numeric doc values
-// at block size boundaries.
-//
-// Source: TestLucene90DocValuesFormat.testSortedNumericAroundBlockSize()
-// Purpose: Tests sorted numeric at DIRECT_MONOTONIC_BLOCK_SHIFT boundaries
-func TestLucene90DocValuesFormat_SortedNumericAroundBlockSize(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	frontier := 1 << DirectMonotonicBlockShift
-	for maxDoc := frontier - 1; maxDoc <= frontier+1; maxDoc++ {
-		t.Run(fmt.Sprintf("maxDoc_%d", maxDoc), func(t *testing.T) {
-			dir := store.NewByteBuffersDirectory()
-			defer dir.Close()
-
-			// Create index writer
-			analyzer := analysis.NewWhitespaceAnalyzer()
-			config := index.NewIndexWriterConfig(analyzer)
-			writer, err := index.NewIndexWriter(dir, config)
-			if err != nil {
-				t.Fatalf("Failed to create IndexWriter: %v", err)
-			}
-
-			// Create expected values
-			type docValues struct {
-				v1, v2 int64
-			}
-			expectedValues := make([]docValues, maxDoc)
-
-			doc := document.NewDocument()
-
-			for i := 0; i < maxDoc; i++ {
-				s1 := int64(rng.Intn(100))
-				s2 := int64(rng.Intn(100))
-
-				expectedValues[i] = docValues{v1: s1, v2: s2}
-
-				// Add sorted numeric fields
-				dvField1, _ := document.NewSortedNumericDocValuesField("snum", []int64{s1})
-				dvField2, _ := document.NewSortedNumericDocValuesField("snum", []int64{s2})
-				doc.Add(dvField1)
-				doc.Add(dvField2)
-
-				_, err := writer.AddDocument(doc)
-				if err != nil {
-					t.Fatalf("Failed to add document: %v", err)
-				}
-				doc.Clear()
-			}
-
-			// Force merge to single segment
-			writer.ForceMerge(1)
-
-			// Open reader
-			reader, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("Failed to open reader: %v", err)
-			}
-			defer reader.Close()
-
-			writer.Close()
-
-			// Verify values
-			leaves, _ := reader.Leaves()
-			if len(leaves) != 1 {
-				t.Fatalf("Expected 1 leaf, got %d", len(leaves))
-			}
-
-			leafReader := leaves[0].Reader()
-			if leafReader.MaxDoc() != maxDoc {
-				t.Errorf("Expected maxDoc %d, got %d", maxDoc, leafReader.MaxDoc())
-			}
-
-			// TODO: Get SortedNumericDocValues and verify
-			// This requires DocValuesFormat implementation
-		})
-	}
-}
-
-// TestLucene90DocValuesFormat_SortedNumericBlocksOfVariousBitsPerValue tests sorted numeric
-// blocks with various bits per value.
-//
-// Source: TestLucene90DocValuesFormat.testSortedNumericBlocksOfVariousBitsPerValue()
-// Purpose: Tests sorted numeric with varying bits per value across blocks
-func TestLucene90DocValuesFormat_SortedNumericBlocksOfVariousBitsPerValue(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	counts := func() int64 {
-		return int64(dvNextInt(rng, 1, 3))
-	}
-	doTestSortedNumericBlocksOfVariousBitsPerValue(t, rng, counts)
-}
-
-// TestLucene90DocValuesFormat_SparseSortedNumericBlocksOfVariousBitsPerValue tests sparse
-// sorted numeric blocks with various bits per value.
-//
-// Source: TestLucene90DocValuesFormat.testSparseSortedNumericBlocksOfVariousBitsPerValue()
-// Purpose: Tests sparse sorted numeric with varying bits per value
-func TestLucene90DocValuesFormat_SparseSortedNumericBlocksOfVariousBitsPerValue(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	counts := func() int64 {
-		return int64(dvNextInt(rng, 0, 2))
-	}
-	doTestSortedNumericBlocksOfVariousBitsPerValue(t, rng, counts)
-}
-
-// TestLucene90DocValuesFormat_NumericBlocksOfVariousBitsPerValue tests numeric blocks
-// with various bits per value.
-//
-// Source: TestLucene90DocValuesFormat.testNumericBlocksOfVariousBitsPerValue()
-// Purpose: Tests numeric with varying bits per value across blocks
-func TestLucene90DocValuesFormat_NumericBlocksOfVariousBitsPerValue(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	doTestSparseNumericBlocksOfVariousBitsPerValue(t, rng, 1.0)
-}
-
-// TestLucene90DocValuesFormat_SparseNumericBlocksOfVariousBitsPerValue tests sparse numeric
-// blocks with various bits per value.
-//
-// Source: TestLucene90DocValuesFormat.testSparseNumericBlocksOfVariousBitsPerValue()
-// Purpose: Tests sparse numeric with varying bits per value
-func TestLucene90DocValuesFormat_SparseNumericBlocksOfVariousBitsPerValue(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	density := rng.Float64()
-	doTestSparseNumericBlocksOfVariousBitsPerValue(t, rng, density)
-}
-
-// TestLucene90DocValuesFormat_NumericFieldJumpTables tests numeric field jump tables
-// for O(1) skipping.
-//
-// Source: TestLucene90DocValuesFormat.testNumericFieldJumpTables()
-// Purpose: Tests LUCENE-8585 jump-tables for IndexedDISI block skipping
-func TestLucene90DocValuesFormat_NumericFieldJumpTables(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping nightly test in short mode")
-	}
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Need at least 5 blocks to trigger consecutive block skips
-	maxDoc := 5 * 65536
-	if testing.Short() {
-		maxDoc = 10000
-	}
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+func mustAdd(t *testing.T, doc *document.Document, f any, err error) {
+	t.Helper()
 	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
+		t.Fatal(err)
+	}
+	doc.Add(f.(document.IndexableField))
+}
+
+func lucene90DVDoTestSparseDocValuesVsStoredFields(t *testing.T, r *rand.Rand) {
+	t.Helper()
+	values := make([]int64, luceneNextInt(r, 1, 500))
+	for i := range values {
+		values[i] = int64(r.Uint64())
 	}
 
-	// Index documents with 10% skips to make DENSE blocks
-	for i := 0; i < maxDoc; i++ {
+	// newFSDirectory(createTempDir()): FSDirectory.open(path) wrapped in a MockDirectoryWrapper.
+	fsDir, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := store.NewMockDirectoryWrapper(fsDir)
+	conf := luceneNewIndexWriterConfig()
+	conf.SetMergeScheduler(index.NewSerialMergeScheduler())
+	writer, err := testindex.NewRandomIndexWriterWithConfig(r, dir, conf)
+	if err != nil {
+		t.Fatalf("new RandomIndexWriter: %v", err)
+	}
+
+	// sparse compression is only enabled if less than 1% of docs have a value
+	const avgGap = 100
+
+	numDocs := luceneAtLeast(r, 200)
+	for i := r.Intn(avgGap * 2); i >= 0; i-- {
+		if _, err := writer.AddDocument(document.NewDocument()); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	maxNumValuesPerDoc := 1
+	if r.Intn(2) != 0 {
+		maxNumValuesPerDoc = luceneNextInt(r, 2, 5)
+	}
+	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
 
-		// Add ID field
-		idField, _ := document.NewStringField("id", fmt.Sprintf("%b", i), false)
-		doc.Add(idField)
+		// single-valued
+		docValue := values[r.Intn(len(values))]
+		s := strconv.FormatInt(docValue, 10)
+		f1, err := document.NewNumericDocValuesField("numeric", docValue)
+		mustAdd(t, doc, f1, err)
+		f2, err := document.NewSortedDocValuesField("sorted", []byte(s))
+		mustAdd(t, doc, f2, err)
+		f3, err := document.NewBinaryDocValuesField("binary", []byte(s))
+		mustAdd(t, doc, f3, err)
+		f4, err := document.NewStoredFieldFromInt64("value", docValue)
+		mustAdd(t, doc, f4, err)
 
-		// Skip 10% of documents
-		if rng.Intn(100) > 10 {
-			value := rng.Intn(100000)
-			storedField, _ := document.NewStoredFieldFromInt64("stored", int64(value))
-			doc.Add(storedField)
-			dvField, _ := document.NewNumericDocValuesField("dv", int64(value))
-			doc.Add(dvField)
+		// multi-valued
+		numValues := luceneNextInt(r, 1, maxNumValuesPerDoc)
+		for j := 0; j < numValues; j++ {
+			docValue = values[r.Intn(len(values))]
+			s = strconv.FormatInt(docValue, 10)
+			g1, err := document.NewSortedNumericDocValuesField("sorted_numeric", []int64{docValue})
+			mustAdd(t, doc, g1, err)
+			g2, err := document.NewSortedSetDocValuesField("sorted_set", [][]byte{[]byte(s)})
+			mustAdd(t, doc, g2, err)
+			g3, err := document.NewStoredFieldFromInt64("values", docValue)
+			mustAdd(t, doc, g3, err)
 		}
 
-		_, err := writer.AddDocument(doc)
+		if _, err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+
+		// add a gap
+		for j := luceneNextInt(r, 0, avgGap*2); j >= 0; j-- {
+			if _, err := writer.AddDocument(document.NewDocument()); err != nil {
+				t.Fatalf("addDocument: %v", err)
+			}
+		}
+	}
+
+	if r.Intn(2) == 0 {
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("forceMerge: %v", err)
+		}
+	}
+
+	indexReader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	leaves, err := indexReader.Leaves()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, context := range leaves {
+		reader := context.LeafReader()
+		numeric, err := index.GetNumeric(reader, "numeric")
 		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
+			t.Fatal(err)
+		}
+		sorted, err := index.GetSorted(reader, "sorted")
+		if err != nil {
+			t.Fatal(err)
+		}
+		binary, err := index.GetBinary(reader, "binary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sortedNumeric, err := index.GetSortedNumeric(reader, "sorted_numeric")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sortedSet, err := index.GetSortedSet(reader, "sorted_set")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		storedFields, err := reader.StoredFields()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < reader.MaxDoc(); i++ {
+			doc := luceneStoredDocument(t, storedFields, i)
+			valueField := doc.Get("value")
+
+			if valueField == nil {
+				if !(numeric.DocID() < i) {
+					t.Fatalf("%d vs %d", numeric.DocID(), i)
+				}
+			} else {
+				value := luceneNumericValueInt64(t, valueField.NumericValue())
+				mustDocID(t, i, numeric.NextDoc)
+				mustDocID(t, i, binary.NextDoc)
+				mustDocID(t, i, sorted.NextDoc)
+				got, err := numeric.LongValue()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got != value {
+					t.Fatalf("numeric.longValue() = %d, want %d", got, value)
+				}
+				ord, err := sorted.OrdValue()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !(ord >= 0) {
+					t.Fatalf("sorted.ordValue() = %d", ord)
+				}
+				term, err := sorted.LookupOrd(ord)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(term) != strconv.FormatInt(value, 10) {
+					t.Fatalf("sorted.lookupOrd = %q, want %d", term, value)
+				}
+				bv, err := binary.BinaryValue()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(bv) != strconv.FormatInt(value, 10) {
+					t.Fatalf("binary.binaryValue = %q, want %d", bv, value)
+				}
+			}
+
+			valuesFields := doc.GetFieldsByName("values")
+			if len(valuesFields) == 0 {
+				if !(sortedNumeric.DocID() < i) {
+					t.Fatalf("%d vs %d", sortedNumeric.DocID(), i)
+				}
+			} else {
+				valueSet := make(map[int64]bool)
+				for _, sf := range valuesFields {
+					valueSet[luceneNumericValueInt64(t, sf.NumericValue())] = true
+				}
+
+				mustDocID(t, i, sortedNumeric.NextDoc)
+				count, err := sortedNumeric.DocValueCount()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if count != len(valuesFields) {
+					t.Fatalf("sortedNumeric.docValueCount() = %d, want %d", count, len(valuesFields))
+				}
+				for j := 0; j < count; j++ {
+					v, err := sortedNumeric.NextValue()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !valueSet[v] {
+						t.Fatalf("sortedNumeric value %d not in %v", v, valueSet)
+					}
+				}
+				mustDocID(t, i, sortedSet.NextDoc)
+
+				if sortedSet.DocValueCount() != len(valueSet) {
+					t.Fatalf("sortedSet.docValueCount() = %d, want %d", sortedSet.DocValueCount(), len(valueSet))
+				}
+				for j := 0; j < sortedSet.DocValueCount(); j++ {
+					ord, err := sortedSet.NextOrd()
+					if err != nil {
+						t.Fatal(err)
+					}
+					term, err := sortedSet.LookupOrd(ord)
+					if err != nil {
+						t.Fatal(err)
+					}
+					v, err := strconv.ParseInt(string(term), 10, 64)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !valueSet[v] {
+						t.Fatalf("sortedSet value %d not in %v", v, valueSet)
+					}
+				}
+			}
 		}
 	}
 
-	writer.ForceMerge(1)
-	writer.Commit()
-	writer.Close()
-
-	// Verify iteration
-	assertDVIterate(t, dir)
-
-	// Verify advance
-	jumpStep := 7
-	if !testing.Short() && rng.Intn(10) == 0 {
-		jumpStep = 1 // Heavy test rarely
+	if err := indexReader.Close(); err != nil {
+		t.Fatal(err)
 	}
-	assertDVAdvance(t, dir, jumpStep)
+	if err := dir.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
-// TestLucene90DocValuesFormat_ReseekAfterSkipDecompression tests re-seeking after
-// skip decompression.
-//
-// Source: TestLucene90DocValuesFormat.testReseekAfterSkipDecompression()
-// Purpose: Tests re-seek logic after skip decompression in terms dictionary
-func TestLucene90DocValuesFormat_ReseekAfterSkipDecompression(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	cardinality := (TermsDictBlockLZ4Size << 1) + 11
-	valueSet := make(map[string]struct{})
-	for len(valueSet) < cardinality {
-		valueSet[util.RandomSimpleString(rng, 64, 64)] = struct{}{}
-	}
-
-	values := make([]string, 0, len(valueSet))
-	for v := range valueSet {
-		values = append(values, v)
-	}
-	sort.Strings(values)
-
-	// Create non-existent value between block-1 and block-2
-	nonexistentValue := values[TermsDictBlockLZ4Size-1] + util.RandomSimpleString(rng, 64, 128)
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewStandardAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+func mustDocID(t *testing.T, want int, next func() (int, error)) {
+	t.Helper()
+	got, err := next()
 	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
+		t.Fatal(err)
 	}
-
-	// Index documents
-	for i := 0; i < 280; i++ {
-		doc := document.NewDocument()
-		idField, _ := document.NewStringField("id", fmt.Sprintf("Doc%d", i), false)
-		doc.Add(idField)
-		dvField, _ := document.NewSortedDocValuesField("sdv", []byte(values[i%len(values)]))
-		doc.Add(dvField)
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
+	if got != want {
+		t.Fatalf("nextDoc() = %d, want %d", got, want)
 	}
-
-	writer.Commit()
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	writer.Close()
-
-	// Verify values count
-	leaves, _ := reader.Leaves()
-	if len(leaves) != 1 {
-		t.Fatalf("Expected 1 leaf, got %d", len(leaves))
-	}
-
-	// TODO: Verify sorted doc values count and lookup
-	// This requires DocValuesFormat implementation
-	_ = nonexistentValue
 }
 
-// TestLucene90DocValuesFormat_LargeTermsCompression tests compression of large terms.
-//
-// Source: TestLucene90DocValuesFormat.testLargeTermsCompression()
-// Purpose: Tests LZ4 compression with large terms (512-1024 bytes)
-func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+func TestLucene90DocValuesFormat_testReseekAfterSkipDecompression(t *testing.T) {
+	lucene90DVTestReseekAfterSkipDecompression(t)
+}
 
-	cardinality := 64
-	valuesSet := make(map[string]struct{})
-	for len(valuesSet) < cardinality {
-		length := dvNextInt(rng, 512, 1024)
-		valuesSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
+func lucene90DVTestReseekAfterSkipDecompression(t *testing.T) {
+	// ssdvMulti.lookupTerm(BytesRef) must reach the Lucene90DocValuesProducer
+	// override, whose re-seek after skip-decompression the test exercises.
+	t.Fatal(lucene90DVTermsEnumBlocker)
+}
+
+func TestLucene90DocValuesFormat_testLargeTermsCompression(t *testing.T) {
+	lucene90DVTestLargeTermsCompression(t)
+}
+
+func lucene90DVTestLargeTermsCompression(t *testing.T) {
+	r := luceneRandom(t)
+	const cardinality = 64
+	valuesSet := make(map[string]bool)
+	for i := 0; i < cardinality; i++ {
+		length := luceneNextInt(r, 512, 1024)
+		valuesSet[luceneRandomSimpleString(r, 0, length)] = true
 	}
-
-	values := make([]string, 0, len(valuesSet))
+	valuesCount := len(valuesSet)
+	values := make([]string, 0, valuesCount)
 	for v := range valuesSet {
 		values = append(values, v)
 	}
+	slices.Sort(values) // new ArrayList<>(HashSet): the order only picks which value each doc gets
 
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewStandardAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+	directory := luceneNewDirectory()
+	defer func() {
+		if err := directory.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var analyzer analysis.Analyzer = analysis.NewStandardAnalyzer()
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
+	lucene90DVSetCodec(t, config)
+	config.SetUseCompoundFile(false)
+	writer, err := index.NewIndexWriter(directory, config)
 	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
+		t.Fatalf("new IndexWriter: %v", err)
 	}
-
-	// Index documents
 	for i := 0; i < 256; i++ {
 		doc := document.NewDocument()
-		idField, _ := document.NewStringField("id", fmt.Sprintf("Doc%d", i), false)
-		doc.Add(idField)
-		dvField, _ := document.NewSortedDocValuesField("sdv", []byte(values[i%len(values)]))
-		doc.Add(dvField)
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
+		f1, err := document.NewStringField("id", fmt.Sprintf("Doc%d", i), false)
+		mustAdd(t, doc, f1, err)
+		f2, err := document.NewSortedDocValuesField("sdv", []byte(values[i%valuesCount]))
+		mustAdd(t, doc, f2, err)
+		if _, err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
 		}
 	}
-
-	writer.Commit()
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
+	if _, err := writer.Commit(); err != nil {
+		t.Fatal(err)
 	}
-	defer reader.Close()
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatal(err)
+	}
+	ireader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	writer.Close()
+	reader := lucene90DVOnlyLeafReader(t, ireader)
+	// Check values count.
+	ssdvMulti, err := reader.GetSortedDocValues("sdv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ssdvMulti.GetValueCount() != valuesCount {
+		t.Fatalf("getValueCount() = %d, want %d", ssdvMulti.GetValueCount(), valuesCount)
+	}
+	if err := ireader.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	// Verify values count
-	leaves, _ := reader.Leaves()
+// lucene90DVSetCodec renders config.setCodec(getCodec()) with
+// getCodec() = TestUtil.getDefaultCodec().
+func lucene90DVSetCodec(t *testing.T, config *index.IndexWriterConfig) {
+	t.Helper()
+	codec, err := codecs.GetDefault()
+	if err != nil {
+		t.Fatalf("default codec: %v", err)
+	}
+	config.SetCodec(codec)
+}
+
+// lucene90DVOnlyLeafReader renders LuceneTestCase.getOnlyLeafReader(IndexReader).
+func lucene90DVOnlyLeafReader(t *testing.T, r *index.DirectoryReader) index.LeafReader {
+	t.Helper()
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(leaves) != 1 {
-		t.Fatalf("Expected 1 leaf, got %d", len(leaves))
+		t.Fatalf("reader has %d segments instead of exactly one", len(leaves))
 	}
-
-	// TODO: Verify sorted doc values count
-	// This requires DocValuesFormat implementation
+	return leaves[0].LeafReader()
 }
 
-// TestLucene90DocValuesFormat_SortedTermsDictLookupOrd tests sorted terms dictionary
-// lookup by ordinal.
-//
-// Source: TestLucene90DocValuesFormat.testSortedTermsDictLookupOrd()
-// Purpose: Tests lookupOrd and seekExact(ord) for sorted doc values
-func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	config := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	numDocs := dvAtLeast(TermsDictBlockLZ4Size+1, t)
-
-	for i := 0; i < numDocs; i++ {
-		dvField, _ := document.NewSortedDocValuesField("foo", []byte(fmt.Sprintf("%d", i)))
-		doc.Add(dvField)
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-		doc.Clear()
-	}
-
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	writer.Close()
-
-	// TODO: Get SortedDocValues and test termsEnum lookup
-	// This requires DocValuesFormat implementation
+func TestLucene90DocValuesFormat_testSortedTermsDictLookupOrd(t *testing.T) {
+	lucene90DVTestSortedTermsDictLookupOrd(t)
 }
 
-// TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd tests sorted set terms dictionary
-// lookup by ordinal.
-//
-// Source: TestLucene90DocValuesFormat.testSortedSetTermsDictLookupOrd()
-// Purpose: Tests lookupOrd and seekExact(ord) for sorted set doc values
-func TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	config := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	numDocs := dvAtLeast(2*TermsDictBlockLZ4Size+1, t)
-
-	for i := 0; i < numDocs; i++ {
-		dvField, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte(fmt.Sprintf("%d", i))})
-		doc.Add(dvField)
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-		doc.Clear()
-	}
-
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	writer.Close()
-
-	// TODO: Get SortedSetDocValues and test termsEnum lookup
-	// This requires DocValuesFormat implementation
+func lucene90DVTestSortedTermsDictLookupOrd(t *testing.T) {
+	t.Fatal(lucene90DVTermsEnumBlocker)
 }
 
-// TestLucene90DocValuesFormat_TermsEnumDictionary tests termsEnum dictionary
-// optimization for shared prefixes.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumDictionary()
-// Purpose: Tests dictionary optimization leveraging first term of block
-func TestLucene90DocValuesFormat_TermsEnumDictionary(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	config := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-
-	// Add documents with terms sharing long prefixes
-	terms := []string{"abc0defghijkl", "abc1defghijkl", "abc2defghijkl"}
-	for _, term := range terms {
-		dvField, _ := document.NewSortedDocValuesField("field", []byte(term))
-		doc.Add(dvField)
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-		doc.Clear()
-	}
-
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	writer.Close()
-
-	// TODO: Get SortedDocValues and verify termsEnum iteration
-	// This requires DocValuesFormat implementation
+func TestLucene90DocValuesFormat_testSortedSetTermsDictLookupOrd(t *testing.T) {
+	lucene90DVTestSortedSetTermsDictLookupOrd(t)
 }
 
-// TestLucene90DocValuesFormat_TermsEnumConsistency tests termsEnum consistency
-// after seekCeil operations.
-//
-// Source: TestLucene90DocValuesFormat.testTermsEnumConsistency()
-// Purpose: Tests consistency after seekCeil to non-existent term (LUCENE-12555)
-func TestLucene90DocValuesFormat_TermsEnumConsistency(t *testing.T) {
-	numTerms := TermsDictBlockLZ4Size + 10 // More than one block
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	config := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-
-	// Generate sorted unique terms
-	termA := 'A'
-	stringSupplier := func(n int) string {
-		if n >= 25*25 {
-			panic("n must be < 25*25")
-		}
-		chars := []byte{(byte(termA) + 1 + byte(n/25)), (byte(termA) + 1 + byte(n%25))}
-		return string(chars)
-	}
-
-	for i := 0; i < numTerms; i++ {
-		dvField, _ := document.NewSortedDocValuesField("field", []byte(stringSupplier(i)))
-		doc.Add(dvField)
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-		doc.Clear()
-	}
-
-	writer.ForceMerge(1)
-
-	// Open reader
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	writer.Close()
-
-	// TODO: Get SortedDocValues and test termsEnum consistency
-	// This requires DocValuesFormat implementation
+func lucene90DVTestSortedSetTermsDictLookupOrd(t *testing.T) {
+	t.Fatal(lucene90DVTermsEnumBlocker)
 }
 
-// Helper functions
-
-// doTestSortedSetVsStoredFields tests sorted set doc values against stored fields.
-func doTestSortedSetVsStoredFields(t *testing.T, rng *rand.Rand, numDocs, minLength, maxLength, maxValuesPerDoc, maxUniqueValues int) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Generate unique values
-	valueSet := make(map[string]struct{})
-	for i := 0; i < 10000 && len(valueSet) < maxUniqueValues; i++ {
-		length := dvNextInt(rng, minLength, maxLength)
-		valueSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
-	}
-	uniqueValues := make([]string, 0, len(valueSet))
-	for v := range valueSet {
-		uniqueValues = append(uniqueValues, v)
-	}
-
-	// Index documents
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-
-		// Add ID field
-		idField, _ := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		doc.Add(idField)
-
-		// Generate random set of values
-		numValues := dvNextInt(rng, 0, maxValuesPerDoc)
-		values := make(map[string]struct{})
-		for v := 0; v < numValues; v++ {
-			values[uniqueValues[rng.Intn(len(uniqueValues))]] = struct{}{}
-		}
-
-		// Add to stored field (sorted)
-		var sortedValues []string
-		for v := range values {
-			sortedValues = append(sortedValues, v)
-		}
-		sort.Strings(sortedValues)
-
-		for _, v := range sortedValues {
-			storedField, _ := document.NewStoredField("stored", v)
-			doc.Add(storedField)
-		}
-
-		// Add to doc values field (shuffled)
-		shuffled := make([]string, len(sortedValues))
-		copy(shuffled, sortedValues)
-		rng.Shuffle(len(shuffled), func(i, j int) {
-			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-		})
-
-		for _, v := range shuffled {
-			dvField, _ := document.NewSortedSetDocValuesField("dv", [][]byte{[]byte(v)})
-			doc.Add(dvField)
-		}
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Random commit
-		if rng.Intn(31) == 0 {
-			writer.Commit()
-		}
-	}
-
-	// Delete some documents
-	numDeletions := rng.Intn(numDocs / 10)
-	for i := 0; i < numDeletions; i++ {
-		id := rng.Intn(numDocs)
-		writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id)))
-	}
-
-	writer.Close()
-
-	// TODO: Verify doc values match stored values
-	// This requires DocValuesFormat implementation
+// Exercise the logic that leverages the first term of a block as a dictionary for suffixes of
+// other terms
+func TestLucene90DocValuesFormat_testTermsEnumDictionary(t *testing.T) {
+	lucene90DVTestTermsEnumDictionary(t)
 }
 
-// doTestSortedVsStoredFields tests sorted doc values against stored fields.
-func doTestSortedVsStoredFields(t *testing.T, rng *rand.Rand, numDocs int, density float64, minLength, maxLength int) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Index documents
-	for i := 0; i < numDocs; i++ {
-		if rng.Float64() > density {
-			// Add empty document
-			writer.AddDocument(document.NewDocument())
-			continue
-		}
-
-		doc := document.NewDocument()
-
-		// Add ID field
-		idField, _ := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		doc.Add(idField)
-
-		// Generate random value
-		length := dvNextInt(rng, minLength, maxLength)
-		value := make([]byte, length)
-		rng.Read(value)
-
-		// Add stored field
-		storedField, _ := document.NewStoredFieldFromBytes("stored", value)
-		doc.Add(storedField)
-
-		// Add doc values field
-		dvField, _ := document.NewSortedDocValuesField("dv", value)
-		doc.Add(dvField)
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Random commit
-		if rng.Intn(31) == 0 {
-			writer.Commit()
-		}
-	}
-
-	// Delete some documents
-	numDeletions := rng.Intn(numDocs / 10)
-	for i := 0; i < numDeletions; i++ {
-		id := rng.Intn(numDocs)
-		writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id)))
-	}
-
-	writer.Close()
-
-	// TODO: Verify doc values match stored values
-	// This requires DocValuesFormat implementation
+func lucene90DVTestTermsEnumDictionary(t *testing.T) {
+	t.Fatal(lucene90DVTermsEnumBlocker)
 }
 
-// doTestTermsEnumRandom tests TermsEnum with random values.
-func doTestTermsEnumRandom(t *testing.T, rng *rand.Rand, numDocs int, valuesProducer func() string) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Index documents
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-
-		// Add ID field
-		idField, _ := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		doc.Add(idField)
-
-		// Generate random values
-		numValues := rng.Intn(17)
-		values := make(map[string]struct{})
-		for v := 0; v < numValues; v++ {
-			values[valuesProducer()] = struct{}{}
-		}
-
-		// Add indexed field (sorted)
-		var sortedValues []string
-		for v := range values {
-			sortedValues = append(sortedValues, v)
-		}
-		sort.Strings(sortedValues)
-
-		for _, v := range sortedValues {
-			indexedField, _ := document.NewStringField("indexed", v, false)
-			doc.Add(indexedField)
-		}
-
-		// Add doc values field (shuffled)
-		shuffled := make([]string, len(sortedValues))
-		copy(shuffled, sortedValues)
-		rng.Shuffle(len(shuffled), func(i, j int) {
-			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-		})
-
-		for _, v := range shuffled {
-			dvField, _ := document.NewSortedSetDocValuesField("dv", [][]byte{[]byte(v)})
-			doc.Add(dvField)
-		}
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Random commit
-		if rng.Intn(31) == 0 {
-			writer.Commit()
-		}
-	}
-
-	// Delete some documents
-	numDeletions := rng.Intn(numDocs / 10)
-	for i := 0; i < numDeletions; i++ {
-		id := rng.Intn(numDocs)
-		writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id)))
-	}
-
-	writer.Close()
-
-	// TODO: Verify TermsEnum matches indexed terms
-	// This requires DocValuesFormat implementation
+// Testing termsEnum seekCeil edge case, where inconsistent internal state led to
+// IndexOutOfBoundsException
+// see https://github.com/apache/lucene/pull/12555 for details
+func TestLucene90DocValuesFormat_testTermsEnumConsistency(t *testing.T) {
+	lucene90DVTestTermsEnumConsistency(t)
 }
 
-// doTestSparseDocValuesVsStoredFields tests sparse doc values against stored fields.
-func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
-	// Generate random values
-	values := make([]int64, dvNextInt(rng, 1, 500))
-	for i := range values {
-		values[i] = rng.Int63()
-	}
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Sparse compression is only enabled if less than 1% of docs have a value
-	avgGap := 100
-	numDocs := dvAtLeast(200, t)
-
-	// Add initial gap
-	for i := 0; i < rng.Intn(avgGap*2); i++ {
-		writer.AddDocument(document.NewDocument())
-	}
-
-	maxNumValuesPerDoc := 1
-	if rng.Intn(2) == 0 {
-		maxNumValuesPerDoc = dvNextInt(rng, 2, 5)
-	}
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-
-		// Single-valued
-		docValue := values[rng.Intn(len(values))]
-		numericDV, _ := document.NewNumericDocValuesField("numeric", docValue)
-		doc.Add(numericDV)
-		sortedDV, _ := document.NewSortedDocValuesField("sorted", []byte(fmt.Sprintf("%d", docValue)))
-		doc.Add(sortedDV)
-		binaryDV, _ := document.NewBinaryDocValuesField("binary", []byte(fmt.Sprintf("%d", docValue)))
-		doc.Add(binaryDV)
-		storedField, _ := document.NewStoredFieldFromInt64("value", docValue)
-		doc.Add(storedField)
-
-		// Multi-valued
-		numValues := dvNextInt(rng, 1, maxNumValuesPerDoc)
-		for j := 0; j < numValues; j++ {
-			docValue = values[rng.Intn(len(values))]
-			sortedNumericDV, _ := document.NewSortedNumericDocValuesField("sorted_numeric", []int64{docValue})
-			doc.Add(sortedNumericDV)
-			sortedSetDV, _ := document.NewSortedSetDocValuesField("sorted_set", [][]byte{[]byte(fmt.Sprintf("%d", docValue))})
-			doc.Add(sortedSetDV)
-			valuesField, _ := document.NewStoredFieldFromInt64("values", docValue)
-			doc.Add(valuesField)
-		}
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Add gap
-		for j := 0; j < dvNextInt(rng, 0, avgGap*2); j++ {
-			writer.AddDocument(document.NewDocument())
-		}
-	}
-
-	if rng.Intn(2) == 0 {
-		writer.ForceMerge(1)
-	}
-
-	writer.Close()
-
-	// TODO: Verify doc values match stored values
-	// This requires DocValuesFormat implementation
+func lucene90DVTestTermsEnumConsistency(t *testing.T) {
+	t.Fatal(lucene90DVTermsEnumBlocker)
 }
 
-// doTestSortedNumericBlocksOfVariousBitsPerValue tests sorted numeric blocks
-// with various bits per value.
-func doTestSortedNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand, counts func() int64) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	numDocs := dvAtLeast(NumericBlockSize*3, t)
-	values := blocksOfVariousBPV(rng)
-
-	writeDocValues := make([][]int64, numDocs)
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-
-		valueCount := int(counts())
-		valueArray := make([]int64, valueCount)
-		for j := 0; j < valueCount; j++ {
-			value := values()
-			valueArray[j] = value
-			dvField, _ := document.NewSortedNumericDocValuesField("dv", []int64{value})
-			doc.Add(dvField)
-		}
-
-		sort.Slice(valueArray, func(a, b int) bool {
-			return valueArray[a] < valueArray[b]
-		})
-		writeDocValues[i] = valueArray
-
-		for _, v := range valueArray {
-			storedField, _ := document.NewStoredFieldFromInt64("stored", v)
-			doc.Add(storedField)
-		}
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		if rng.Intn(31) == 0 {
-			writer.Commit()
-		}
-	}
-
-	writer.ForceMerge(1)
-	writer.Close()
-
-	// TODO: Verify doc values match stored values
-	// This requires DocValuesFormat implementation
+func TestLucene90DocValuesFormat_testSkipIndexStoredSeparately(t *testing.T) {
+	lucene90DVTestSkipIndexStoredSeparately(t)
 }
 
-// doTestSparseNumericBlocksOfVariousBitsPerValue tests sparse numeric blocks
-// with various bits per value.
-func doTestSparseNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand, density float64) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	numDocs := dvAtLeast(NumericBlockSize*3, t)
-	values := blocksOfVariousBPV(rng)
-
-	for i := 0; i < numDocs; i++ {
-		if rng.Float64() > density {
-			writer.AddDocument(document.NewDocument())
-			continue
-		}
-
-		doc := document.NewDocument()
-		value := values()
-		storedField, _ := document.NewStoredFieldFromInt64("stored", value)
-		doc.Add(storedField)
-		dvField, _ := document.NewNumericDocValuesField("dv", value)
-		doc.Add(dvField)
-
-		_, err := writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.ForceMerge(1)
-	writer.Close()
-
-	// Verify iteration
-	assertDVIterate(t, dir)
-
-	// Verify advance
-	assertDVAdvance(t, dir, 1)
+func lucene90DVTestSkipIndexStoredSeparately(t *testing.T) {
+	// The test reads the skipper through DocValuesSkipper.docCount(), advance(int),
+	// minDocID(int), maxDocID(int), minValue() and maxValue().
+	t.Fatal("requires DocValuesSkipper.advance(int), minDocID(int) and maxDocID(int) " +
+		"(missing from spi.DocValuesSkipper)")
 }
-
-// blocksOfVariousBPV returns a function that generates values with varying
-// bits per value across blocks.
-func blocksOfVariousBPV(rng *rand.Rand) func() int64 {
-	mul := int64(dvNextInt(rng, 1, 100))
-	min := rng.Int63()
-
-	i := NumericBlockSize
-	maxDelta := 0
-
-	return func() int64 {
-		if i == NumericBlockSize {
-			// Change range on block boundaries
-			maxDelta = 1 << rng.Intn(5)
-			i = 0
-		}
-		i++
-		return min + mul*int64(rng.Intn(maxDelta))
-	}
-}
-
-// assertDVIterate asserts that iterating over doc values works correctly.
-func assertDVIterate(t *testing.T, dir store.Directory) {
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	// TODO: Iterate over doc values and verify
-	// This requires DocValuesFormat implementation
-}
-
-// assertDVAdvance asserts that advance operations on doc values work correctly.
-func assertDVAdvance(t *testing.T, dir store.Directory, jumpStep int) {
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	// TODO: Test advance operations on doc values
-	// This requires DocValuesFormat implementation
-}
-
-// Utility functions - these are defined in other test files in the same package:
-// - dvAtLeast(n int, t *testing.T) int
-// - dvNextInt(rng *rand.Rand, min, max int) int
-// - util.RandomSimpleString(rng *rand.Rand, min, max int) string

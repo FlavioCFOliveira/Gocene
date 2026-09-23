@@ -90,7 +90,7 @@ func (f *Lucene87StoredFieldsFormat) Name() string {
 func (f *Lucene87StoredFieldsFormat) FieldsReader(dir store.Directory, si *spi.SegmentInfo, fn *spi.FieldInfos, context store.IOContext) (spi.StoredFieldsReader, error) {
 	value := si.GetAttribute(ModeKey)
 	if value == "" {
-		return nil, fmt.Errorf("missing value for %s for segment: %s", ModeKey, si.Name)
+		return nil, fmt.Errorf("missing value for %s for segment: %s", ModeKey, si.Name())
 	}
 	mode, err := parseMode(value)
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 func TestPagedBytes_New(t *testing.T) {
 	// Test valid block bits
 	for blockBits := 1; blockBits <= 20; blockBits++ {
-		pb, err := NewPagedBytes(blockBits)
+		pb, err := store.NewPagedBytes(blockBits)
 		if err != nil {
 			t.Errorf("Failed to create PagedBytes with blockBits=%d: %v", blockBits, err)
 			continue
@@ -34,17 +34,17 @@ func TestPagedBytes_New(t *testing.T) {
 	}
 
 	// Test invalid block bits
-	_, err := NewPagedBytes(0)
+	_, err := store.NewPagedBytes(0)
 	if err == nil {
 		t.Error("Expected error for blockBits=0")
 	}
 
-	_, err = NewPagedBytes(32)
+	_, err = store.NewPagedBytes(32)
 	if err == nil {
 		t.Error("Expected error for blockBits=32")
 	}
 
-	_, err = NewPagedBytes(-1)
+	_, err = store.NewPagedBytes(-1)
 	if err == nil {
 		t.Error("Expected error for blockBits=-1")
 	}
@@ -63,7 +63,7 @@ func TestPagedBytes_DataInputOutput(t *testing.T) {
 		blockBits := rng.Intn(20) + 1 // 1 to 20
 		blockSize := 1 << blockBits
 
-		pb, err := NewPagedBytes(blockBits)
+		pb, err := store.NewPagedBytes(blockBits)
 		if err != nil {
 			t.Fatalf("Failed to create PagedBytes: %v", err)
 		}
@@ -94,7 +94,7 @@ func TestPagedBytes_DataInputOutput(t *testing.T) {
 				if chunk > numBytes-written {
 					chunk = numBytes - written
 				}
-				if err := out.WriteBytes(answer[written : written+chunk]); err != nil {
+				if err := out.WriteBytes(answer[written:written+chunk], 0, len(answer[written:written+chunk])); err != nil {
 					t.Fatalf("Failed to write bytes: %v", err)
 				}
 				written += chunk
@@ -146,7 +146,7 @@ func TestPagedBytes_DataInputOutput(t *testing.T) {
 					chunk = numBytes - read
 				}
 				buf := make([]byte, chunk)
-				if err := input2.ReadBytes(buf); err != nil {
+				if err := input2.ReadBytes(buf, 0, len(buf)); err != nil {
 					t.Fatalf("Failed to read bytes: %v", err)
 				}
 				copy(verify[read:], buf)
@@ -206,7 +206,7 @@ func TestPagedBytes_DataInputOutput2(t *testing.T) {
 		blockBits := rng.Intn(20) + 1 // 1 to 20
 		blockSize := 1 << blockBits
 
-		pb, err := NewPagedBytes(blockBits)
+		pb, err := store.NewPagedBytes(blockBits)
 		if err != nil {
 			t.Fatalf("Failed to create PagedBytes: %v", err)
 		}
@@ -233,7 +233,7 @@ func TestPagedBytes_DataInputOutput2(t *testing.T) {
 				if chunk > numBytes-written {
 					chunk = numBytes - written
 				}
-				if err := out.WriteBytes(answer[written : written+chunk]); err != nil {
+				if err := out.WriteBytes(answer[written:written+chunk], 0, len(answer[written:written+chunk])); err != nil {
 					t.Fatalf("Failed to write bytes: %v", err)
 				}
 				written += chunk
@@ -271,7 +271,7 @@ func TestPagedBytes_DataInputOutput2(t *testing.T) {
 					chunk = numBytes - read
 				}
 				buf := make([]byte, chunk)
-				if err := in.ReadBytes(buf); err != nil {
+				if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 					t.Fatalf("Failed to read bytes: %v", err)
 				}
 				copy(verify[read:], buf)
@@ -340,7 +340,7 @@ func TestPagedBytes_RamBytesUsed(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	blockBits := rng.Intn(19) + 4 // 4 to 22
-	pb, err := NewPagedBytes(blockBits)
+	pb, err := store.NewPagedBytes(blockBits)
 	if err != nil {
 		t.Fatalf("Failed to create PagedBytes: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestPagedBytes_RamBytesUsed(t *testing.T) {
 func TestPagedBytes_CopyBytesRef(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	pb, err := NewPagedBytes(10) // 1024 byte blocks
+	pb, err := store.NewPagedBytes(10) // 1024 byte blocks
 	if err != nil {
 		t.Fatalf("Failed to create PagedBytes: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestPagedBytes_CopyBytesRef(t *testing.T) {
 func TestPagedBytes_FillWithLengthPrefix(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	pb, err := NewPagedBytes(10) // 1024 byte blocks
+	pb, err := store.NewPagedBytes(10) // 1024 byte blocks
 	if err != nil {
 		t.Fatalf("Failed to create PagedBytes: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestPagedBytes_FillWithLengthPrefix(t *testing.T) {
 
 // TestPagedBytes_GetPointer tests the GetPointer method.
 func TestPagedBytes_GetPointer(t *testing.T) {
-	pb, err := NewPagedBytes(10) // 1024 byte blocks
+	pb, err := store.NewPagedBytes(10) // 1024 byte blocks
 	if err != nil {
 		t.Fatalf("Failed to create PagedBytes: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestPagedBytes_GetPointer(t *testing.T) {
 
 	// Write some data
 	data := make([]byte, 500)
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 
@@ -516,7 +516,7 @@ func TestPagedBytes_GetPointer(t *testing.T) {
 
 	// Write more data to cross block boundary
 	data2 := make([]byte, 600)
-	if err := out.WriteBytes(data2); err != nil {
+	if err := out.WriteBytes(data2, 0, len(data2)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 
@@ -528,9 +528,9 @@ func TestPagedBytes_GetPointer(t *testing.T) {
 // TestPagedBytes_FreezeErrors tests error conditions for Freeze.
 func TestPagedBytes_FreezeErrors(t *testing.T) {
 	// Test double freeze
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
-	out.WriteBytes([]byte("test"))
+	out.WriteBytes([]byte("test"), 0, len([]byte("test")))
 
 	_, err := pb.Freeze(true)
 	if err != nil {
@@ -543,7 +543,7 @@ func TestPagedBytes_FreezeErrors(t *testing.T) {
 	}
 
 	// Test freeze after CopyBytesRef with data crossing block boundary
-	pb2, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb2, _ := store.NewPagedBytes(10) // 1024 byte blocks
 	// First write fills the block partially
 	br1 := util.NewBytesRef(make([]byte, 1000))
 	outRef1 := util.NewBytesRefEmpty()
@@ -562,7 +562,7 @@ func TestPagedBytes_FreezeErrors(t *testing.T) {
 // TestPagedBytes_GetDataInputErrors tests error conditions for GetDataInput.
 func TestPagedBytes_GetDataInputErrors(t *testing.T) {
 	// Test GetDataInput before freeze
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	_, err := pb.GetDataInput()
 	if err == nil {
 		t.Error("Expected error when calling GetDataInput before freeze")
@@ -570,7 +570,7 @@ func TestPagedBytes_GetDataInputErrors(t *testing.T) {
 
 	// Test GetDataInput after freeze
 	out := pb.GetDataOutput()
-	out.WriteBytes([]byte("test"))
+	out.WriteBytes([]byte("test"), 0, len([]byte("test")))
 	pb.Freeze(true)
 
 	_, err = pb.GetDataInput()
@@ -583,13 +583,13 @@ func TestPagedBytes_GetDataInputErrors(t *testing.T) {
 func TestPagedBytes_ReaderGetByte(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	pb, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb, _ := store.NewPagedBytes(10) // 1024 byte blocks
 	out := pb.GetDataOutput()
 
 	// Write data that spans multiple blocks
 	data := make([]byte, 2500)
 	rng.Read(data)
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	reader, _ := pb.Freeze(true)
 
@@ -608,9 +608,9 @@ func TestPagedBytes_ReaderGetByte(t *testing.T) {
 
 // TestPagedBytes_FillSliceErrors tests error conditions for FillSlice.
 func TestPagedBytes_FillSliceErrors(t *testing.T) {
-	pb, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb, _ := store.NewPagedBytes(10) // 1024 byte blocks
 	out := pb.GetDataOutput()
-	out.WriteBytes(make([]byte, 100))
+	out.WriteBytes(make([]byte, 100), 0, len(make([]byte, 100)))
 
 	reader, _ := pb.Freeze(true)
 
@@ -630,9 +630,9 @@ func TestPagedBytes_FillSliceErrors(t *testing.T) {
 
 // TestPagedBytes_DataInputClone tests cloning PagedBytesDataInput.
 func TestPagedBytes_DataInputClone(t *testing.T) {
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
-	out.WriteBytes([]byte("Hello, World!"))
+	out.WriteBytes([]byte("Hello, World!"), 0, len([]byte("Hello, World!")))
 
 	pb.Freeze(true)
 
@@ -664,7 +664,7 @@ func TestPagedBytes_DataInputClone(t *testing.T) {
 
 // TestPagedBytes_DataInputSetPosition tests SetPosition.
 func TestPagedBytes_DataInputSetPosition(t *testing.T) {
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
 
 	// Write data
@@ -694,11 +694,11 @@ func TestPagedBytes_DataInputSetPosition(t *testing.T) {
 
 // TestPagedBytes_DataOutputErrors tests error conditions for DataOutput.
 func TestPagedBytes_DataOutputErrors(t *testing.T) {
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
 
 	// Write some data
-	out.WriteBytes([]byte("test"))
+	out.WriteBytes([]byte("test"), 0, len([]byte("test")))
 
 	// Freeze
 	pb.Freeze(true)
@@ -709,7 +709,7 @@ func TestPagedBytes_DataOutputErrors(t *testing.T) {
 		t.Error("Expected error when writing after freeze")
 	}
 
-	err = out.WriteBytes([]byte("test"))
+	err = out.WriteBytes([]byte("test"), 0, len([]byte("test")))
 	if err == nil {
 		t.Error("Expected error when writing bytes after freeze")
 	}
@@ -717,9 +717,9 @@ func TestPagedBytes_DataOutputErrors(t *testing.T) {
 
 // TestPagedBytes_SkipBytesErrors tests SkipBytes error conditions.
 func TestPagedBytes_SkipBytesErrors(t *testing.T) {
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
-	out.WriteBytes([]byte("Hello, World!"))
+	out.WriteBytes([]byte("Hello, World!"), 0, len([]byte("Hello, World!")))
 	pb.Freeze(true)
 
 	in, _ := pb.GetDataInput()
@@ -733,7 +733,7 @@ func TestPagedBytes_SkipBytesErrors(t *testing.T) {
 
 // TestPagedBytes_CopyUsingLengthPrefixErrors tests error conditions.
 func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
-	pb, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb, _ := store.NewPagedBytes(10) // 1024 byte blocks
 
 	// Test data too large
 	largeData := make([]byte, 40000) // Exceeds 32767 limit
@@ -744,8 +744,8 @@ func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
 	}
 
 	// Test data too large for block
-	pb2, _ := NewPagedBytes(5)     // 32 byte blocks
-	mediumData := make([]byte, 50) // Exceeds block size - 2
+	pb2, _ := store.NewPagedBytes(5) // 32 byte blocks
+	mediumData := make([]byte, 50)   // Exceeds block size - 2
 	br2 := util.NewBytesRef(mediumData)
 	_, err = pb2.CopyUsingLengthPrefix(br2)
 	if err == nil {
@@ -755,7 +755,7 @@ func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
 
 // TestPagedBytes_Empty tests empty PagedBytes.
 func TestPagedBytes_Empty(t *testing.T) {
-	pb, err := NewPagedBytes(10)
+	pb, err := store.NewPagedBytes(10)
 	if err != nil {
 		t.Fatalf("Failed to create PagedBytes: %v", err)
 	}
@@ -788,14 +788,14 @@ func TestPagedBytes_LargeData(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	pb, _ := NewPagedBytes(14) // 16384 byte blocks
+	pb, _ := store.NewPagedBytes(14) // 16384 byte blocks
 	out := pb.GetDataOutput()
 
 	// Write 1MB of data
 	data := make([]byte, 1024*1024)
 	rng.Read(data)
 
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("Failed to write large data: %v", err)
 	}
 
@@ -812,7 +812,7 @@ func TestPagedBytes_LargeData(t *testing.T) {
 	// Verify via DataInput
 	in, _ := pb.GetDataInput()
 	verify := make([]byte, len(data))
-	if err := in.ReadBytes(verify); err != nil {
+	if err := in.ReadBytes(verify, 0, len(verify)); err != nil {
 		t.Fatalf("Failed to read large data: %v", err)
 	}
 
@@ -823,7 +823,7 @@ func TestPagedBytes_LargeData(t *testing.T) {
 
 // TestPagedBytes_BlockBoundary tests behavior at block boundaries.
 func TestPagedBytes_BlockBoundary(t *testing.T) {
-	pb, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb, _ := store.NewPagedBytes(10) // 1024 byte blocks
 	out := pb.GetDataOutput()
 
 	// Write exactly one block
@@ -831,14 +831,14 @@ func TestPagedBytes_BlockBoundary(t *testing.T) {
 	for i := range data {
 		data[i] = byte(i % 256)
 	}
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	// Write partial second block
 	data2 := make([]byte, 500)
 	for i := range data2 {
 		data2[i] = byte((i + 100) % 256)
 	}
-	out.WriteBytes(data2)
+	out.WriteBytes(data2, 0, len(data2))
 
 	reader, _ := pb.Freeze(true)
 
@@ -871,7 +871,7 @@ func TestPagedBytes_BlockBoundary(t *testing.T) {
 
 // TestPagedBytes_DataOutputPosition tests DataOutput.GetPosition.
 func TestPagedBytes_DataOutputPosition(t *testing.T) {
-	pb, _ := NewPagedBytes(10)
+	pb, _ := store.NewPagedBytes(10)
 	out := pb.GetDataOutput()
 
 	if out.GetPosition() != 0 {
@@ -883,7 +883,7 @@ func TestPagedBytes_DataOutputPosition(t *testing.T) {
 		t.Errorf("Expected position 1, got %d", out.GetPosition())
 	}
 
-	out.WriteBytes(make([]byte, 100))
+	out.WriteBytes(make([]byte, 100), 0, len(make([]byte, 100)))
 	if out.GetPosition() != 101 {
 		t.Errorf("Expected position 101, got %d", out.GetPosition())
 	}
@@ -891,7 +891,7 @@ func TestPagedBytes_DataOutputPosition(t *testing.T) {
 
 // TestPagedBytes_CopyBytesRefLarge tests CopyBytesRef with large data.
 func TestPagedBytes_CopyBytesRefLarge(t *testing.T) {
-	pb, _ := NewPagedBytes(10) // 1024 byte blocks
+	pb, _ := store.NewPagedBytes(10) // 1024 byte blocks
 
 	// Test with data exactly at block size
 	data := make([]byte, 1024)
@@ -913,22 +913,22 @@ func TestPagedBytes_CopyBytesRefLarge(t *testing.T) {
 
 // BenchmarkPagedBytes_Write benchmarks writing to PagedBytes.
 func BenchmarkPagedBytes_Write(b *testing.B) {
-	pb, _ := NewPagedBytes(15) // 32768 byte blocks
+	pb, _ := store.NewPagedBytes(15) // 32768 byte blocks
 	out := pb.GetDataOutput()
 	data := make([]byte, 1024)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out.WriteBytes(data)
+		out.WriteBytes(data, 0, len(data))
 	}
 }
 
 // BenchmarkPagedBytes_Read benchmarks reading from PagedBytes.
 func BenchmarkPagedBytes_Read(b *testing.B) {
-	pb, _ := NewPagedBytes(15)
+	pb, _ := store.NewPagedBytes(15)
 	out := pb.GetDataOutput()
 	data := make([]byte, 1024*1024) // 1MB
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 	pb.Freeze(true)
 
 	buf := make([]byte, 1024)
@@ -938,17 +938,17 @@ func BenchmarkPagedBytes_Read(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		in.SetPosition(0)
 		for j := 0; j < 1024; j++ {
-			in.ReadBytes(buf)
+			in.ReadBytes(buf, 0, len(buf))
 		}
 	}
 }
 
 // BenchmarkPagedBytes_RandomAccess benchmarks random access via Reader.
 func BenchmarkPagedBytes_RandomAccess(b *testing.B) {
-	pb, _ := NewPagedBytes(15)
+	pb, _ := store.NewPagedBytes(15)
 	out := pb.GetDataOutput()
 	data := make([]byte, 1024*1024) // 1MB
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 	reader, _ := pb.Freeze(true)
 
 	rng := rand.New(rand.NewSource(42))

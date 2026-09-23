@@ -4,6 +4,18 @@
 
 package codecs_test
 
+// Port of
+// lucene/core/src/test/org/apache/lucene/codecs/lucene90/TestLucene90PointsFormat.java
+// (Apache Lucene 10.5.0).
+//
+// The class extends org.apache.lucene.tests.index.BasePointsFormatTestCase
+// (not ported): its inherited test methods, and testMergeStability, which
+// delegates to super.testMergeStability(), fail naming it. The Java
+// constructor runs once per test method and is rendered by
+// newLucene90PointsFormatTest. BaseIndexFileFormatTestCase.setUp installs
+// getCodec() as the default codec; Gocene has no settable default codec, so
+// the ported tests set the codec on their IndexWriterConfig explicitly.
+
 import (
 	"bytes"
 	"math"
@@ -11,1092 +23,363 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
-// GC-203: Port TestLucene90PointsFormat.java from Apache Lucene
-// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene90/TestLucene90PointsFormat.java
-// Also ports tests from BasePointsFormatTestCase.java
-//
-// Focus: KD-tree based spatial points storage, points format tests
-
-// IntersectVisitor is the Go equivalent of Lucene's PointValues.IntersectVisitor
-// It visits points that match a query range
-type IntersectVisitor interface {
-	// Visit is called for each matching point with its docID and packed value
-	Visit(docID int, packedValue []byte)
-	// Visit is called for documents with deleted points
-	VisitDoc(docID int)
-	// Compare returns the relation between the query range and cell bounds
-	Compare(minPackedValue, maxPackedValue []byte) index.Relation
-}
-
-// PointValuesStats holds statistics for point values
-type PointValuesStats struct {
-	Size           int64
-	DocCount       int
-	MinPackedValue []byte
-	MaxPackedValue []byte
-}
-
-// Lucene90PointsFormatTest provides testing for Lucene90PointsFormat
-// This tests the KD-tree based spatial points storage format
-type Lucene90PointsFormatTest struct {
+// lucene90PointsFormatTest holds the TestLucene90PointsFormat instance fields.
+type lucene90PointsFormatTest struct {
 	codec               codecs.Codec
+	isFilterCodec       bool
 	maxPointsInLeafNode int
 }
 
-// NewLucene90PointsFormatTest creates a new test instance
-func NewLucene90PointsFormatTest() *Lucene90PointsFormatTest {
-	test := &Lucene90PointsFormatTest{}
+// sneakyPointsCodec is the anonymous FilterCodec of the constructor ("sneaky
+// impersonation!"): it overrides pointsFormat().
+type sneakyPointsCodec struct {
+	*codecs.FilterCodec
+	pointsFormat codecs.PointsFormat
+}
 
-	// Randomize parameters like the Java test does
-	if rand.Float32() < 0.5 {
-		test.maxPointsInLeafNode = 50 + rand.Intn(450) // 50-500
-		// codec would be customized here with specific parameters
-		test.codec = nil // Placeholder - use default codec
+func (c *sneakyPointsCodec) PointsFormat() codecs.PointsFormat { return c.pointsFormat }
+
+// sneakyPointsFormat is the anonymous PointsFormat of the constructor.
+type sneakyPointsFormat struct {
+	maxPointsInLeafNode int
+	maxMBSortInHeap     float64
+}
+
+func (f *sneakyPointsFormat) Name() string { return codecs.NewLucene90PointsFormat().Name() }
+
+func (f *sneakyPointsFormat) FieldsWriter(writeState *codecs.SegmentWriteState) (codecs.PointsWriter, error) {
+	return lucene90.NewLucene90PointsWriterWithSortParams(writeState, f.maxPointsInLeafNode, f.maxMBSortInHeap)
+}
+
+func (f *sneakyPointsFormat) FieldsReader(readState *codecs.SegmentReadState) (codecs.PointsReader, error) {
+	return lucene90.NewLucene90PointsReader(readState)
+}
+
+// newLucene90PointsFormatTest renders the TestLucene90PointsFormat constructor.
+func newLucene90PointsFormatTest(t *testing.T, r *rand.Rand) *lucene90PointsFormatTest {
+	t.Helper()
+	// standard issue
+	defaultCodec, err := codecs.GetDefault()
+	if err != nil {
+		t.Fatalf("default codec: %v", err)
+	}
+	tc := &lucene90PointsFormatTest{}
+	if r.Intn(2) == 0 {
+		// randomize parameters
+		tc.maxPointsInLeafNode = luceneNextInt(r, 50, 500)
+		maxMBSortInHeap := 3.0 + (3 * r.Float64())
+		// sneaky impersonation!
+		tc.codec = &sneakyPointsCodec{
+			FilterCodec: codecs.NewFilterCodec(defaultCodec.Name(), defaultCodec),
+			pointsFormat: &sneakyPointsFormat{
+				maxPointsInLeafNode: tc.maxPointsInLeafNode,
+				maxMBSortInHeap:     maxMBSortInHeap,
+			},
+		}
+		tc.isFilterCodec = true
 	} else {
-		test.maxPointsInLeafNode = 512 // BKDConfig.DEFAULT_MAX_POINTS_IN_LEAF_NODE
-		test.codec = nil               // Placeholder - use default codec
+		// standard issue
+		tc.codec = defaultCodec
+		tc.maxPointsInLeafNode = bkd.DefaultMaxPointsInLeafNode
 	}
-
-	return test
+	return tc
 }
 
-// TestLucene90PointsFormat_Basic tests basic point indexing and retrieval
-// Source: BasePointsFormatTestCase.testBasic()
-func TestLucene90PointsFormat_Basic(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestLucene90PointsFormat_BasePointsFormatTestCase(t *testing.T) {
+	t.Fatal("requires org.apache.lucene.tests.index.BasePointsFormatTestCase (not ported)")
+}
 
-	// Create index writer
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
+func TestLucene90PointsFormat_testMergeStability(t *testing.T) {
+	// assumeFalse("TODO: mess with the parameters and test gets angry!", codec instanceof FilterCodec);
+	// super.testMergeStability();
+	t.Fatal("requires org.apache.lucene.tests.index.BasePointsFormatTestCase.testMergeStability (not ported)")
+}
 
-	// Add 20 documents with binary points
-	for i := 0; i < 20; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		// Encode int as sortable bytes
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("dim", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
+// allPointsVisitor, noPointsVisitor and onePointMatchVisitor render the
+// anonymous IntersectVisitor classes of the estimate tests.
+type estimateVisitor struct {
+	compare func(minPackedValue, maxPackedValue []byte) spi.Relation
+}
+
+func (v *estimateVisitor) Visit(docID int) error                                  { return nil }
+func (v *estimateVisitor) VisitByPackedValue(docID int, packedValue []byte) error { return nil }
+func (v *estimateVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+func (v *estimateVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	for i := ref.Offset; i < ref.Offset+ref.Length; i++ {
+		if err := v.Visit(int(ref.Ints[i])); err != nil {
+			return err
 		}
 	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge failed: %v", err)
+	return nil
+}
+func (v *estimateVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	for {
+		docID, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		if docID == spi.NO_MORE_DOCS {
+			return nil
+		}
+		if err := v.VisitByPackedValue(docID, packedValue); err != nil {
+			return err
+		}
 	}
-	writer.Close()
+}
+func (v *estimateVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
+	return v.compare(minPackedValue, maxPackedValue)
+}
+func (v *estimateVisitor) Grow(count int) {}
 
-	// Verify points can be read
-	reader, err := index.OpenDirectoryReader(dir)
+func constantRelationVisitor(rel spi.Relation) *estimateVisitor {
+	return &estimateVisitor{compare: func(_, _ []byte) spi.Relation { return rel }}
+}
+
+// estimateIndex indexes the documents of testEstimatePointCount* and returns
+// the point values of field "f" of the only leaf.
+func estimateOpenPoints(t *testing.T, tc *lucene90PointsFormatTest, addDocs func(w *index.IndexWriter)) (spi.PointValues, func()) {
+	t.Helper()
+	dir := luceneNewDirectory()
+	iwc := luceneNewIndexWriterConfig()
+	// Avoid mockRandomMP since it may cause non-optimal merges that make the
+	// number of points per leaf hard to predict: Gocene's newIndexWriterConfig
+	// never picks MockRandomMergePolicy.
+	iwc.SetCodec(tc.codec)
+	w, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
+		t.Fatalf("new IndexWriter: %v", err)
 	}
-	defer reader.Close()
-
-	if reader.NumDocs() != 20 {
-		t.Errorf("Expected 20 docs, got %d", reader.NumDocs())
+	addDocs(w)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	r, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("reader has %d segments instead of exactly one", len(leaves))
+	}
+	points, err := leaves[0].LeafReader().GetPointValues("f")
+	if err != nil {
+		t.Fatalf("getPointValues: %v", err)
+	}
+	return points, func() {
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := dir.Close(); err != nil {
+			t.Error(err)
+		}
 	}
 }
 
-// TestLucene90PointsFormat_MergeStability tests merge stability by adding
-// two indexes with points and verifying the merged result.
-// Source: TestLucene90PointsFormat.testMergeStability()
-func TestLucene90PointsFormat_MergeStability(t *testing.T) {
-	dir1 := store.NewByteBuffersDirectory()
-	defer dir1.Close()
-	dir2 := store.NewByteBuffersDirectory()
-	defer dir2.Close()
-	mergedDir := store.NewByteBuffersDirectory()
-	defer mergedDir.Close()
-
-	// Build first index with points
-	iwc1 := index.NewIndexWriterConfig(nil)
-	w1, _ := index.NewIndexWriter(dir1, iwc1)
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field", point)
-		doc.Add(bp)
-		w1.AddDocument(doc)
-	}
-	w1.Close()
-
-	// Build second index with points
-	iwc2 := index.NewIndexWriterConfig(nil)
-	w2, _ := index.NewIndexWriter(dir2, iwc2)
-	for i := 10; i < 20; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field", point)
-		doc.Add(bp)
-		w2.AddDocument(doc)
-	}
-	w2.Close()
-
-	// Merge into third index
-	iwc3 := index.NewIndexWriterConfig(nil)
-	w3, _ := index.NewIndexWriter(mergedDir, iwc3)
-	if err := w3.AddIndexes(dir1, dir2); err != nil {
-		t.Fatalf("AddIndexes failed: %v", err)
-	}
-	w3.ForceMerge(1)
-	w3.Close()
-
-	reader, err := index.OpenDirectoryReader(mergedDir)
+func mustEstimate(t *testing.T, estimate func(spi.IntersectVisitor) (int64, error), v spi.IntersectVisitor) int64 {
+	t.Helper()
+	n, err := estimate(v)
 	if err != nil {
-		t.Fatalf("Failed to open merged reader: %v", err)
+		t.Fatalf("estimate: %v", err)
 	}
-	defer reader.Close()
+	return n
+}
 
-	if reader.NumDocs() != 20 {
-		t.Errorf("Expected 20 docs after merge, got %d", reader.NumDocs())
+// checkEstimateDocCount renders the final docCount assertions of both
+// estimate tests, including Java's long divisions.
+func checkEstimateDocCount(t *testing.T, points spi.PointValues, multiValues bool, numDocs int, pointCount, docCount int64) {
+	t.Helper()
+	if multiValues {
+		size := points.Size()
+		want := int64(float64(docCount) * (1.0 - math.Pow(
+			float64((int64(numDocs)-pointCount)/size), float64(size/docCount))))
+		if docCount != want {
+			t.Fatalf("docCount %d != %d", docCount, want)
+		}
+	} else {
+		if want := min(pointCount, int64(numDocs)); want != docCount {
+			t.Fatalf("docCount = %d, want %d", docCount, want)
+		}
 	}
 }
 
-// TestLucene90PointsFormat_EstimatePointCount tests point count estimation
-// Source: TestLucene90PointsFormat.testEstimatePointCount()
-func TestLucene90PointsFormat_EstimatePointCount(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Generate unique point value
-	uniquePointValue := make([]byte, 3)
-	rand.Read(uniquePointValue)
-
+func TestLucene90PointsFormat_testEstimatePointCount(t *testing.T) {
+	r := luceneRandom(t)
+	tc := newLucene90PointsFormatTest(t, r)
 	pointValue := make([]byte, 3)
-	numDocs := 500
-	if testing.Short() {
-		numDocs = 100
-	}
-	multiValues := rand.Float32() < 0.5
+	uniquePointValue := make([]byte, 3)
+	r.Read(uniquePointValue)
+	numDocs := luceneAtLeast(r, 500) // at night, make sure we have several leaves
+	multiValues := r.Intn(2) == 0
 	totalValues := 0
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		if i == numDocs/2 {
-			totalValues++
-			bp, _ := document.NewBinaryPoint("f", uniquePointValue)
-			doc.Add(bp)
-		} else {
-			numValues := 1
-			if multiValues {
-				numValues = 2 + rand.Intn(98) // 2-100 values
-			}
-			for j := 0; j < numValues; j++ {
-				// Generate random point different from unique value
-				for {
-					rand.Read(pointValue)
-					if !bytes.Equal(pointValue, uniquePointValue) {
-						break
-					}
-				}
-				bp, _ := document.NewBinaryPoint("f", pointValue)
-				doc.Add(bp)
+	points, closeAll := estimateOpenPoints(t, tc, func(w *index.IndexWriter) {
+		for i := 0; i < numDocs; i++ {
+			doc := document.NewDocument()
+			if i == numDocs/2 {
 				totalValues++
-			}
-		}
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge failed: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	writer.Close()
-
-	// Get leaf reader and point values
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-
-	// Test point count estimation
-	// All points visitor should return totalValues
-	// No points visitor should return 0
-	// One point match visitor should return estimated count
-
-	_ = totalValues // Use the variable for estimation tests
-
-	reader.Close()
-}
-
-// TestLucene90PointsFormat_EstimatePointCount2Dims tests point count estimation in 2D
-// Source: TestLucene90PointsFormat.testEstimatePointCount2Dims()
-func TestLucene90PointsFormat_EstimatePointCount2Dims(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Generate unique 2D point value
-	uniquePointValue := make([][]byte, 2)
-	uniquePointValue[0] = make([]byte, 3)
-	uniquePointValue[1] = make([]byte, 3)
-	rand.Read(uniquePointValue[0])
-	rand.Read(uniquePointValue[1])
-
-	pointValue := make([][]byte, 2)
-	pointValue[0] = make([]byte, 3)
-	pointValue[1] = make([]byte, 3)
-
-	numDocs := 1000
-	if testing.Short() {
-		numDocs = 200
-	}
-	multiValues := rand.Float32() < 0.5
-	totalValues := 0
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		if i == numDocs/2 {
-			doc.Add(document.NewBinaryPointMulti("f", uniquePointValue))
-			totalValues++
-		} else {
-			numValues := 1
-			if multiValues {
-				numValues = 2 + rand.Intn(98)
-			}
-			for j := 0; j < numValues; j++ {
-				// Generate random point different from unique value
-				for {
-					rand.Read(pointValue[0])
-					rand.Read(pointValue[1])
-					if !bytes.Equal(pointValue[0], uniquePointValue[0]) ||
-						!bytes.Equal(pointValue[1], uniquePointValue[1]) {
-						break
-					}
-				}
-				doc.Add(document.NewBinaryPointMulti("f", pointValue))
-				totalValues++
-			}
-		}
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge failed: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	writer.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-
-	_ = totalValues
-	reader.Close()
-}
-
-// TestLucene90PointsFormat_Merge tests point merging
-// Source: BasePointsFormatTestCase.testMerge()
-func TestLucene90PointsFormat_Merge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Add 20 documents, commit at 10
-	for i := 0; i < 20; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("dim", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-		if i == 10 {
-			if err := writer.Commit(); err != nil {
-				t.Fatalf("Commit failed: %v", err)
-			}
-		}
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge failed: %v", err)
-	}
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != 20 {
-		t.Errorf("Expected 20 docs after merge, got %d", reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_MultiValued tests multi-valued points
-// Source: BasePointsFormatTestCase.testMultiValued()
-func TestLucene90PointsFormat_MultiValued(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	numDocs := 100
-	if testing.Short() {
-		numDocs = 20
-	}
-
-	for docID := 0; docID < numDocs; docID++ {
-		doc := document.NewDocument()
-		numValues := 1 + rand.Intn(5) // 1-5 values per doc
-		for i := 0; i < numValues; i++ {
-			point := make([]byte, 4)
-			rand.Read(point)
-			bp, _ := document.NewBinaryPoint("field", point)
-			doc.Add(bp)
-		}
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_AllEqual tests all points having the same value
-// Source: BasePointsFormatTestCase.testAllEqual()
-func TestLucene90PointsFormat_AllEqual(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	numDocs := 100
-	if testing.Short() {
-		numDocs = 20
-	}
-
-	// Generate one random point value
-	pointValue := make([]byte, 4)
-	rand.Read(pointValue)
-
-	for docID := 0; docID < numDocs; docID++ {
-		doc := document.NewDocument()
-		bp, _ := document.NewBinaryPoint("field", pointValue)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_OneDimEqual tests one dimension equal across points.
-// Source: BasePointsFormatTestCase.testOneDimEqual()
-func TestLucene90PointsFormat_OneDimEqual(t *testing.T) {
-	numBytesPerDim := 2 + rand.Intn(15) // 2..16
-	numDims := 1 + rand.Intn(4)         // 1..4
-	numDocs := 100
-	if !testing.Short() {
-		numDocs = 1000
-	}
-
-	theEqualDim := rand.Intn(numDims)
-	equalValue := make([]byte, numBytesPerDim)
-	rand.Read(equalValue)
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, _ := index.NewIndexWriter(dir, iwc)
-
-	for docID := 0; docID < numDocs; docID++ {
-		values := make([][]byte, numDims)
-		for dim := 0; dim < numDims; dim++ {
-			values[dim] = make([]byte, numBytesPerDim)
-			rand.Read(values[dim])
-		}
-		values[theEqualDim] = append([]byte(nil), equalValue...)
-		doc := document.NewDocument()
-		doc.Add(document.NewBinaryPointMulti("field", values))
-		writer.AddDocument(doc)
-	}
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-
-	// Verify point values exist and metadata is consistent.
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves error: %v", err)
-	}
-	for _, leaf := range leaves {
-		pvg, ok := leaf.Reader().(interface {
-			GetPointValues(string) (index.PointValues, error)
-		})
-		if !ok {
-			t.Fatalf("reader does not support GetPointValues: %T", leaf.Reader())
-		}
-		pv, err := pvg.GetPointValues("field")
-		if err != nil {
-			t.Fatalf("GetPointValues error: %v", err)
-		}
-		if pv == nil {
-			t.Fatal("PointValues is nil")
-		}
-		if pv.GetNumDimensions() != numDims {
-			t.Errorf("numDims=%d, want %d", pv.GetNumDimensions(), numDims)
-		}
-		if pv.GetBytesPerDimension() != numBytesPerDim {
-			t.Errorf("bytesPerDim=%d, want %d", pv.GetBytesPerDimension(), numBytesPerDim)
-		}
-	}
-}
-
-// TestLucene90PointsFormat_OneDimTwoValues tests run-length compression by
-// using only two distinct values for one dimension.
-// Source: BasePointsFormatTestCase.testOneDimTwoValues()
-func TestLucene90PointsFormat_OneDimTwoValues(t *testing.T) {
-	numBytesPerDim := 2 + rand.Intn(15)
-	numDims := 1 + rand.Intn(4)
-	numDocs := 100
-	if !testing.Short() {
-		numDocs = 1000
-	}
-
-	theDim := rand.Intn(numDims)
-	value1 := make([]byte, numBytesPerDim)
-	rand.Read(value1)
-	value2 := make([]byte, numBytesPerDim)
-	rand.Read(value2)
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, _ := index.NewIndexWriter(dir, iwc)
-
-	for docID := 0; docID < numDocs; docID++ {
-		values := make([][]byte, numDims)
-		for dim := 0; dim < numDims; dim++ {
-			if dim == theDim {
-				if rand.Intn(2) == 0 {
-					values[dim] = append([]byte(nil), value1...)
-				} else {
-					values[dim] = append([]byte(nil), value2...)
-				}
+				doc.Add(document.NewBinaryPoint("f", bytes.Clone(uniquePointValue)))
 			} else {
-				values[dim] = make([]byte, numBytesPerDim)
-				rand.Read(values[dim])
+				numValues := 1
+				if multiValues {
+					numValues = luceneNextInt(r, 2, 100)
+				}
+				for j := 0; j < numValues; j++ {
+					for {
+						r.Read(pointValue)
+						if !bytes.Equal(pointValue, uniquePointValue) {
+							break
+						}
+					}
+					doc.Add(document.NewBinaryPoint("f", bytes.Clone(pointValue)))
+					totalValues++
+				}
+			}
+			if _, err := w.AddDocument(doc); err != nil {
+				t.Fatalf("addDocument: %v", err)
 			}
 		}
-		doc := document.NewDocument()
-		doc.Add(document.NewBinaryPointMulti("field", values))
-		writer.AddDocument(doc)
-	}
-	writer.Close()
+	})
+	defer closeAll()
 
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
+	allPointsVisitor := constantRelationVisitor(spi.CellInsideQuery)
+	if got := mustEstimate(t, points.EstimatePointCount, allPointsVisitor); got != int64(totalValues) {
+		t.Fatalf("estimatePointCount(all) = %d, want %d", got, totalValues)
 	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
+	if got := mustEstimate(t, points.EstimateDocCount, allPointsVisitor); got != int64(numDocs) {
+		t.Fatalf("estimateDocCount(all) = %d, want %d", got, numDocs)
 	}
 
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves error: %v", err)
+	noPointsVisitor := constantRelationVisitor(spi.CellOutsideQuery)
+	// Return 0 if no points match
+	if got := mustEstimate(t, points.EstimatePointCount, noPointsVisitor); got != 0 {
+		t.Fatalf("estimatePointCount(none) = %d, want 0", got)
 	}
-	for _, leaf := range leaves {
-		pvg, ok := leaf.Reader().(interface {
-			GetPointValues(string) (index.PointValues, error)
-		})
-		if !ok {
-			t.Fatalf("reader does not support GetPointValues: %T", leaf.Reader())
-		}
-		pv, err := pvg.GetPointValues("field")
-		if err != nil {
-			t.Fatalf("GetPointValues error: %v", err)
-		}
-		if pv == nil {
-			t.Fatal("PointValues is nil")
-		}
-		if pv.GetNumDimensions() != numDims {
-			t.Errorf("numDims=%d, want %d", pv.GetNumDimensions(), numDims)
-		}
-		if pv.GetBytesPerDimension() != numBytesPerDim {
-			t.Errorf("bytesPerDim=%d, want %d", pv.GetBytesPerDimension(), numBytesPerDim)
-		}
+	if got := mustEstimate(t, points.EstimateDocCount, noPointsVisitor); got != 0 {
+		t.Fatalf("estimateDocCount(none) = %d, want 0", got)
 	}
+
+	onePointMatchVisitor := &estimateVisitor{compare: func(minPackedValue, maxPackedValue []byte) spi.Relation {
+		if bytes.Compare(uniquePointValue[0:3], maxPackedValue[0:3]) > 0 ||
+			bytes.Compare(uniquePointValue[0:3], minPackedValue[0:3]) < 0 {
+			return spi.CellOutsideQuery
+		}
+		return spi.CellCrossesQuery
+	}}
+
+	// If only one point matches, then the point count is (maxPointsInLeafNode + 1) / 2
+	// in general, or maybe 2x that if the point is a split value
+	pointCount := mustEstimate(t, points.EstimatePointCount, onePointMatchVisitor)
+	maxPoints := int64(tc.maxPointsInLeafNode)
+	lastNodePointCount := int64(totalValues) % maxPoints
+	if !(pointCount == (maxPoints+1)/2 || // common case
+		pointCount == (lastNodePointCount+1)/2 || // not fully populated leaf
+		pointCount == 2*((maxPoints+1)/2) || // if the point is a split value
+		pointCount == ((maxPoints+1)/2)+((lastNodePointCount+1)/2)) { // if the point is a split value and one leaf is not fully populated
+		t.Fatalf("%d", pointCount)
+	}
+
+	docCount := mustEstimate(t, points.EstimateDocCount, onePointMatchVisitor)
+	checkEstimateDocCount(t, points, multiValues, numDocs, pointCount, docCount)
 }
 
-// TestLucene90PointsFormat_BigIntNDims tests N-dimensional BigInteger points.
-// Source: BasePointsFormatTestCase.testBigIntNDims()
-func TestLucene90PointsFormat_BigIntNDims(t *testing.T) {
-	numBytesPerDim := 2 + rand.Intn(15)
-	numDims := 1 + rand.Intn(4)
-	numDocs := 50
-	if !testing.Short() {
-		numDocs = 200
-	}
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, _ := index.NewIndexWriter(dir, iwc)
-
-	for docID := 0; docID < numDocs; docID++ {
-		values := make([][]byte, numDims)
-		for dim := 0; dim < numDims; dim++ {
-			values[dim] = make([]byte, numBytesPerDim)
-			rand.Read(values[dim])
-		}
-		doc := document.NewDocument()
-		doc.Add(document.NewBinaryPointMulti("field", values))
-		writer.AddDocument(doc)
-	}
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves error: %v", err)
-	}
-	for _, leaf := range leaves {
-		pvg, ok := leaf.Reader().(interface {
-			GetPointValues(string) (index.PointValues, error)
-		})
-		if !ok {
-			t.Fatalf("reader does not support GetPointValues: %T", leaf.Reader())
-		}
-		pv, err := pvg.GetPointValues("field")
-		if err != nil {
-			t.Fatalf("GetPointValues error: %v", err)
-		}
-		if pv == nil {
-			t.Fatal("PointValues is nil")
-		}
-		if pv.GetNumDimensions() != numDims {
-			t.Errorf("numDims=%d, want %d", pv.GetNumDimensions(), numDims)
-		}
-		if pv.GetBytesPerDimension() != numBytesPerDim {
-			t.Errorf("bytesPerDim=%d, want %d", pv.GetBytesPerDimension(), numBytesPerDim)
-		}
-	}
-}
-
-// TestLucene90PointsFormat_RandomBinary tests random binary points
-// Source: BasePointsFormatTestCase.testRandomBinaryTiny/Medium/Big()
-func TestLucene90PointsFormat_RandomBinaryTiny(t *testing.T) {
-	testRandomBinaryPoints(t, 10)
-}
-
-func TestLucene90PointsFormat_RandomBinaryMedium(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping medium random test in short mode")
-	}
-	testRandomBinaryPoints(t, 100)
-}
-
-func TestLucene90PointsFormat_RandomBinaryBig(t *testing.T) {
-	if testing.Short() {
-		t.Fatal("Skipping big random test in short mode")
-	}
-	testRandomBinaryPoints(t, 1000)
-}
-
-func testRandomBinaryPoints(t *testing.T, numDocs int) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// A point field's dimension count and bytes-per-dimension are fixed for
-	// the whole field, so they are chosen once (not per document). Earlier the
-	// shape was randomised per document; that produced an invalid field whose
-	// values had inconsistent widths, which only round-tripped because the
-	// pre-rmp-#4769 build silently dropped point values. With points now
-	// persisted through the BKD writer, every value for the field must share
-	// the same shape.
-	numDims := 1 + rand.Intn(3)
-	bytesPerDim := 2 + rand.Intn(14)
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-
-		points := make([][]byte, numDims)
-		for d := 0; d < numDims; d++ {
-			points[d] = make([]byte, bytesPerDim)
-			rand.Read(points[d])
-		}
-
-		doc.Add(document.NewBinaryPointMulti("field", points))
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Failed to close writer: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_AddIndexes tests adding indexes
-// Source: BasePointsFormatTestCase.testAddIndexes()
-func TestLucene90PointsFormat_AddIndexes(t *testing.T) {
-	dir1 := store.NewByteBuffersDirectory()
-	defer dir1.Close()
-	dir2 := store.NewByteBuffersDirectory()
-	defer dir2.Close()
-
-	// Create first index with points
-	iwc1 := index.NewIndexWriterConfig(nil)
-	writer1, _ := index.NewIndexWriter(dir1, iwc1)
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field", point)
-		doc.Add(bp)
-		writer1.AddDocument(doc)
-	}
-	writer1.Close()
-
-	// Create second index
-	iwc2 := index.NewIndexWriterConfig(nil)
-	writer2, _ := index.NewIndexWriter(dir2, iwc2)
-
-	// Add indexes from first directory
-	if err := writer2.AddIndexes(dir1); err != nil {
-		t.Fatalf("Failed to add indexes: %v", err)
-	}
-	writer2.Close()
-
-	reader, err := index.OpenDirectoryReader(dir2)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != 10 {
-		t.Errorf("Expected 10 docs, got %d", reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_MergeMissing tests merging with missing values
-// Source: BasePointsFormatTestCase.testMergeMissing()
-func TestLucene90PointsFormat_MergeMissing(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Add docs with points
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	// Add docs without points
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		tf, _ := document.NewTextField("text", "value", true)
-		doc.Add(tf)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != 10 {
-		t.Errorf("Expected 10 docs, got %d", reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_DocCountEdgeCases tests document count edge cases
-// Source: BasePointsFormatTestCase.testDocCountEdgeCases()
-func TestLucene90PointsFormat_DocCountEdgeCases(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Test empty index
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-
-	if reader.NumDocs() != 0 {
-		t.Errorf("Expected 0 docs for empty index, got %d", reader.NumDocs())
-	}
-	reader.Close()
-}
-
-// TestLucene90PointsFormat_RandomDocCount tests random document counts
-// Source: BasePointsFormatTestCase.testRandomDocCount()
-func TestLucene90PointsFormat_RandomDocCount(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	numDocs := 100
-	if testing.Short() {
-		numDocs = 20
-	}
-
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		// Random number of point values per doc
-		numValues := rand.Intn(4) // 0-3 values
-		for j := 0; j < numValues; j++ {
-			point := make([]byte, 4)
-			rand.Read(point)
-			bp, _ := document.NewBinaryPoint("field", point)
-			doc.Add(bp)
-		}
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != numDocs {
-		t.Errorf("Expected %d docs, got %d", numDocs, reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_MismatchedFields tests mismatched field handling
-// Source: BasePointsFormatTestCase.testMismatchedFields()
-func TestLucene90PointsFormat_MismatchedFields(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Add docs with different point fields
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field1", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field2", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	if reader.NumDocs() != 10 {
-		t.Errorf("Expected 10 docs, got %d", reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_AllPointDocsDeleted tests deleted point docs
-// Source: BasePointsFormatTestCase.testAllPointDocsDeletedInSegment()
-func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Add docs with points
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("dim", point)
-		doc.Add(bp)
-		sf, _ := document.NewStringField("id", string(rune('0'+i)), true)
-		doc.Add(sf)
-		tf, _ := document.NewTextField("x", "x", true)
-		doc.Add(tf)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	// Add doc without points
-	doc := document.NewDocument()
-	tf, _ := document.NewTextField("other", "value", true)
-	doc.Add(tf)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("Failed to add document: %v", err)
-	}
-
-	// Delete docs with "x" field
-	writer.DeleteDocuments(index.NewTerm("x", "x"))
-	writer.Close()
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	// Should have 1 doc (the one without points)
-	if reader.NumDocs() != 1 {
-		t.Errorf("Expected 1 doc after deletion, got %d", reader.NumDocs())
-	}
-}
-
-// TestLucene90PointsFormat_WithExceptions tests that the points codec
-// does not panic when encountering truncated metadata.
-// Source: BasePointsFormatTestCase.testWithExceptions()
-func TestLucene90PointsFormat_WithExceptions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(nil)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Add docs with points
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		point := make([]byte, 4)
-		encodeInt32Sortable(i, point)
-		bp, _ := document.NewBinaryPoint("field", point)
-		doc.Add(bp)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-	writer.Close()
-
-	// Corrupt the metadata file by truncating it to a bare codec header.
-	files, _ := dir.ListAll()
-	for _, file := range files {
-		if len(file) > 4 && file[len(file)-4:] == ".kdm" {
-			if err := dir.DeleteFile(file); err != nil {
-				t.Fatalf("Failed to delete file: %v", err)
+// The tree is always balanced in the N dims case, and leaves are
+// not all full so things are a bit different
+func TestLucene90PointsFormat_testEstimatePointCount2Dims(t *testing.T) {
+	r := luceneRandom(t)
+	tc := newLucene90PointsFormatTest(t, r)
+	pointValue := [][]byte{make([]byte, 3), make([]byte, 3)}
+	uniquePointValue := [][]byte{make([]byte, 3), make([]byte, 3)}
+	r.Read(uniquePointValue[0])
+	r.Read(uniquePointValue[1])
+	numDocs := luceneAtLeast(r, 1000) // in nightly, make sure we have several leaves
+	multiValues := r.Intn(2) == 0
+	totalValues := 0
+	points, closeAll := estimateOpenPoints(t, tc, func(w *index.IndexWriter) {
+		for i := 0; i < numDocs; i++ {
+			doc := document.NewDocument()
+			if i == numDocs/2 {
+				doc.Add(document.NewBinaryPoint("f", bytes.Clone(uniquePointValue[0]), bytes.Clone(uniquePointValue[1])))
+				totalValues++
+			} else {
+				numValues := 1
+				if multiValues {
+					numValues = luceneNextInt(r, 2, 100)
+				}
+				for j := 0; j < numValues; j++ {
+					for {
+						r.Read(pointValue[0])
+						r.Read(pointValue[1])
+						if !(bytes.Equal(pointValue[0], uniquePointValue[0]) ||
+							bytes.Equal(pointValue[1], uniquePointValue[1])) {
+							break
+						}
+					}
+					doc.Add(document.NewBinaryPoint("f", bytes.Clone(pointValue[0]), bytes.Clone(pointValue[1])))
+					totalValues++
+				}
 			}
-			out, _ := dir.CreateOutput(file, store.IOContextDefault)
-			// Write just the codec magic (4 bytes) — not enough for a valid header.
-			out.WriteInt(int32(0x3FD76C17))
-			out.Close()
-		}
-	}
-
-	// The codec should not panic when opening a reader on truncated metadata.
-	// (It may or may not return an error depending on lazy-loading behaviour.)
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("Panicked on truncated points metadata: %v", r)
+			if _, err := w.AddDocument(doc); err != nil {
+				t.Fatalf("addDocument: %v", err)
 			}
-		}()
-		reader, _ := index.OpenDirectoryReader(dir)
-		if reader != nil {
-			reader.Close()
 		}
-	}()
-}
+	})
+	defer closeAll()
 
-// Helper functions
-
-// encodeInt32Sortable encodes an int32 to sortable bytes
-func encodeInt32Sortable(v int, buf []byte) {
-	if len(buf) >= 4 {
-		// Flip sign bit for sortable encoding
-		x := uint32(v) ^ 0x80000000
-		buf[0] = byte(x >> 24)
-		buf[1] = byte(x >> 16)
-		buf[2] = byte(x >> 8)
-		buf[3] = byte(x)
+	allPointsVisitor := constantRelationVisitor(spi.CellInsideQuery)
+	if got := mustEstimate(t, points.EstimatePointCount, allPointsVisitor); got != int64(totalValues) {
+		t.Fatalf("estimatePointCount(all) = %d, want %d", got, totalValues)
 	}
-}
-
-// decodeInt32Sortable decodes sortable bytes to int32
-func decodeInt32Sortable(buf []byte) int {
-	if len(buf) < 4 {
-		return 0
+	if got := mustEstimate(t, points.EstimateDocCount, allPointsVisitor); got != int64(numDocs) {
+		t.Fatalf("estimateDocCount(all) = %d, want %d", got, numDocs)
 	}
-	x := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
-	x ^= 0x80000000
-	return int(int32(x))
-}
 
-// estimatePointCount estimates the number of points matching a visitor
-// This is a simplified version for testing
-func estimatePointCount(totalPoints int64, visitor IntersectVisitor, minPacked, maxPacked []byte) int64 {
-	relation := visitor.Compare(minPacked, maxPacked)
-	switch relation {
-	case index.CellInsideQuery:
-		return totalPoints
-	case index.CellOutsideQuery:
-		return 0
-	case index.CellCrossesQuery:
-		// Estimate: half the points might match
-		return (totalPoints + 1) / 2
+	noPointsVisitor := constantRelationVisitor(spi.CellOutsideQuery)
+	// Return 0 if no points match
+	if got := mustEstimate(t, points.EstimatePointCount, noPointsVisitor); got != 0 {
+		t.Fatalf("estimatePointCount(none) = %d, want 0", got)
 	}
-	return 0
-}
-
-// estimateDocCount estimates the number of documents matching a visitor
-func estimateDocCount(totalDocs int, pointCount int64, totalPoints int64) int64 {
-	if totalPoints == 0 {
-		return 0
+	if got := mustEstimate(t, points.EstimateDocCount, noPointsVisitor); got != 0 {
+		t.Fatalf("estimateDocCount(none) = %d, want 0", got)
 	}
-	// Simplified estimation
-	return int64(math.Min(float64(pointCount), float64(totalDocs)))
-}
 
-// Use document.NewBinaryPointMulti for multi-dimensional binary points
+	onePointMatchVisitor := &estimateVisitor{compare: func(minPackedValue, maxPackedValue []byte) spi.Relation {
+		for dim := 0; dim < 2; dim++ {
+			if bytes.Compare(uniquePointValue[dim][0:3], maxPackedValue[dim*3:dim*3+3]) > 0 ||
+				bytes.Compare(uniquePointValue[dim][0:3], minPackedValue[dim*3:dim*3+3]) < 0 {
+				return spi.CellOutsideQuery
+			}
+		}
+		return spi.CellCrossesQuery
+	}}
+
+	pointCount := mustEstimate(t, points.EstimatePointCount, onePointMatchVisitor)
+	maxPoints := int64(tc.maxPointsInLeafNode)
+	lastNodePointCount := int64(totalValues) % maxPoints
+	if !(pointCount == (maxPoints+1)/2 || // common case
+		pointCount == (lastNodePointCount+1)/2 || // not fully populated leaf
+		pointCount == 2*((maxPoints+1)/2) || // if the point is a split value
+		pointCount == ((maxPoints+1)/2)+((lastNodePointCount+1)/2) ||
+		// in extreme cases, a point can be shared by 4 leaves
+		pointCount == 4*((maxPoints+1)/2) ||
+		pointCount == 3*((maxPoints+1)/2)+((lastNodePointCount+1)/2)) {
+		t.Fatalf("%d", pointCount)
+	}
+
+	docCount := mustEstimate(t, points.EstimateDocCount, onePointMatchVisitor)
+	checkEstimateDocCount(t, points, multiValues, numDocs, pointCount, docCount)
+}

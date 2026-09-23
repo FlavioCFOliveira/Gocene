@@ -5,12 +5,14 @@
 package codecs
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -305,6 +307,21 @@ func (p *SeedPostingsEnum) GetPayload() ([]byte, error) {
 
 func (p *SeedPostingsEnum) Cost() int64 {
 	return int64(len(p.postings))
+}
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *SeedPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *SeedPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *SeedTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("SeedTermsEnum.Impacts: unsupported operation")
 }
 
 // TestFull performs a comprehensive test of a PostingsFormat.

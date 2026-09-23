@@ -140,19 +140,24 @@ func (n *QueryNodeImpl) SetToQueryStringIgnoreFields(v bool) { n.toQueryStringIg
 func (n *QueryNodeImpl) IsRoot() bool { return n.GetParent() == nil }
 
 // GetTag returns the value associated with the given tag key.
+//
+// Like Lucene, tag names are case-insensitive: the key is lower-cased
+// (toLowerCase(Locale.ROOT)).
 func (n *QueryNodeImpl) GetTag(key string) interface{} {
 	if n.tags == nil {
 		return nil
 	}
-	return n.tags[key]
+	return n.tags[strings.ToLower(key)]
 }
 
 // SetTag sets a tag value for the given key.
+// Mirrors QueryNodeImpl.setTag(String, Object), which lower-cases the tag
+// name (toLowerCase(Locale.ROOT)).
 func (n *QueryNodeImpl) SetTag(key string, value interface{}) {
 	if n.tags == nil {
 		n.tags = make(map[string]interface{})
 	}
-	n.tags[key] = value
+	n.tags[strings.ToLower(key)] = value
 }
 
 // String returns a string representation of this node.
@@ -304,7 +309,7 @@ func (n *QueryNodeImpl) RemoveChild(child QueryNode) bool {
 	removed := false
 	kept := n.children[:0]
 	for _, c := range n.children {
-		if c == child {
+		if sameQueryNode(c, child) {
 			removed = true
 			continue
 		}
@@ -366,20 +371,42 @@ func (n *QueryNodeImpl) GetTagString(key string) string {
 	return fmt.Sprintf("%v", val)
 }
 
-// HasTag returns true if the tag exists.
+// HasTag returns true if the tag exists. Mirrors
+// QueryNodeImpl.containsTag(String), which lower-cases the tag name
+// (toLowerCase(Locale.ROOT)).
 func (n *QueryNodeImpl) HasTag(key string) bool {
 	if n.tags == nil {
 		return false
 	}
-	_, exists := n.tags[key]
+	_, exists := n.tags[strings.ToLower(key)]
 	return exists
 }
 
-// UnsetTag removes a tag.
+// UnsetTag removes a tag. Mirrors QueryNodeImpl.unsetTag(String), which
+// lower-cases the tag name (toLowerCase(Locale.ROOT)).
 func (n *QueryNodeImpl) UnsetTag(key string) {
 	if n.tags != nil {
-		delete(n.tags, key)
+		delete(n.tags, strings.ToLower(key))
 	}
+}
+
+// queryNodeImpl returns the QueryNodeImpl embedded in a concrete node; it is
+// promoted to every node type that embeds *QueryNodeImpl.
+func (n *QueryNodeImpl) queryNodeImpl() *QueryNodeImpl {
+	return n
+}
+
+// sameQueryNode renders Java object identity between two query nodes. A
+// concrete node embeds its *QueryNodeImpl, and QueryNodeImpl methods such as
+// RemoveFromParent pass the embedded value, so identity is decided on the
+// embedded QueryNodeImpl when both nodes carry one.
+func sameQueryNode(a, b QueryNode) bool {
+	if a == b {
+		return true
+	}
+	ai, aok := a.(interface{ queryNodeImpl() *QueryNodeImpl })
+	bi, bok := b.(interface{ queryNodeImpl() *QueryNodeImpl })
+	return aok && bok && ai.queryNodeImpl() == bi.queryNodeImpl()
 }
 
 // GetTagMap returns a copy of all tags attached to this query node.

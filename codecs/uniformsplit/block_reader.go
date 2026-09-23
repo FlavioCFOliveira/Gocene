@@ -75,6 +75,24 @@ type BlockReaderOverrides interface {
 	// spi.TermsEnum contract is answered by SeekExact(*spi.Term), which
 	// delegates to it.
 	SeekExactBytes(searchedTerm *util.BytesRef) (bool, error)
+
+	// CompareToMiddleAndJump mirrors the protected
+	// BlockReader.compareToMiddleAndJump(BytesRef), which Java resolves
+	// virtually.
+	CompareToMiddleAndJump(searchedTerm *util.BytesRef) (int, error)
+
+	// ReadLineInBlock mirrors the protected BlockReader.readLineInBlock(),
+	// which Java resolves virtually.
+	ReadLineInBlock() (*BlockLine, error)
+
+	// InitializeHeader mirrors the protected
+	// BlockReader.initializeHeader(BytesRef, long), which Java resolves
+	// virtually.
+	InitializeHeader(searchedTerm *util.BytesRef, targetBlockStartFP int64) error
+
+	// ReadHeader mirrors the protected BlockReader.readHeader(), which Java
+	// resolves virtually.
+	ReadHeader() (*BlockHeader, error)
 }
 
 // Mirrors org.apache.lucene.codecs.uniformsplit.BlockReader from Apache Lucene
@@ -266,7 +284,7 @@ func (r *BlockReader) IsBeyondLastTerm(searchedTerm *util.BytesRef, blockStartFP
 // Mirrors the overload BlockReader.seekInBlock(BytesRef, long)
 // (BlockReader.java:202).
 func (r *BlockReader) SeekInBlockAt(searchedTerm *util.BytesRef, blockStartFP int64) (spi.SeekStatus, error) {
-	if err := r.InitializeHeader(searchedTerm, blockStartFP); err != nil {
+	if err := r.Overrides.InitializeHeader(searchedTerm, blockStartFP); err != nil {
 		return spi.SeekStatusEnd, err
 	}
 	if r.BlockHeader == nil {
@@ -289,7 +307,7 @@ func (r *BlockReader) SeekInBlockAt(searchedTerm *util.BytesRef, blockStartFP in
 // Mirrors the overload BlockReader.seekInBlock(BytesRef)
 // (BlockReader.java:222).
 func (r *BlockReader) SeekInBlock(searchedTerm *util.BytesRef) (spi.SeekStatus, error) {
-	compare, err := r.CompareToMiddleAndJump(searchedTerm)
+	compare, err := r.Overrides.CompareToMiddleAndJump(searchedTerm)
 	if err != nil {
 		return spi.SeekStatusEnd, err
 	}
@@ -298,7 +316,7 @@ func (r *BlockReader) SeekInBlock(searchedTerm *util.BytesRef) (spi.SeekStatus, 
 	}
 	comparisonOffset := 0
 	for {
-		line, err := r.ReadLineInBlock()
+		line, err := r.Overrides.ReadLineInBlock()
 		if err != nil {
 			return spi.SeekStatusEnd, err
 		}
@@ -351,7 +369,7 @@ func (r *BlockReader) CompareToMiddleAndJump(searchedTerm *util.BytesRef) (int, 
 		return 0, err
 	}
 	r.LineIndexInBlock = r.BlockHeader.MiddleLineIndex()
-	if _, err := r.ReadLineInBlock(); err != nil {
+	if _, err := r.Overrides.ReadLineInBlock(); err != nil {
 		return 0, err
 	}
 	if r.BlockLine == nil {
@@ -395,7 +413,7 @@ func (r *BlockReader) ReadLineInBlock() (*BlockLine, error) {
 func (r *BlockReader) NextTerm() (*util.BytesRef, error) {
 	if r.BlockHeader == nil {
 		// Read the first block for the field.
-		if err := r.InitializeHeader(nil, r.FieldMetadata.GetFirstBlockStartFP()); err != nil {
+		if err := r.Overrides.InitializeHeader(nil, r.FieldMetadata.GetFirstBlockStartFP()); err != nil {
 			return nil, err
 		}
 		if r.BlockHeader == nil {
@@ -403,21 +421,21 @@ func (r *BlockReader) NextTerm() (*util.BytesRef, error) {
 			return nil, r.NewCorruptIndexError("Illegal absence of first block", &firstBlockStartFP)
 		}
 	}
-	line, err := r.ReadLineInBlock()
+	line, err := r.Overrides.ReadLineInBlock()
 	if err != nil {
 		return nil, err
 	}
 	if line == nil {
 		// No more line in the current block.
 		// Read the next block starting at the current file pointer in the block file.
-		if err := r.InitializeHeader(nil, r.BlockInput.GetFilePointer()); err != nil {
+		if err := r.Overrides.InitializeHeader(nil, r.BlockInput.GetFilePointer()); err != nil {
 			return nil, err
 		}
 		if r.BlockHeader == nil {
 			// No more block for the field.
 			return nil, nil
 		}
-		if _, err := r.ReadLineInBlock(); err != nil {
+		if _, err := r.Overrides.ReadLineInBlock(); err != nil {
 			return nil, err
 		}
 	}
@@ -455,7 +473,7 @@ func (r *BlockReader) InitializeHeader(searchedTerm *util.BytesRef, targetBlockS
 			return err
 		}
 		r.BlockStartFP = targetBlockStartFP
-		if _, err := r.ReadHeader(); err != nil {
+		if _, err := r.Overrides.ReadHeader(); err != nil {
 			return err
 		}
 		r.BlockFirstLineStart = r.BlockReadBuffer.GetPosition()
@@ -643,14 +661,14 @@ func (r *BlockReader) NewCorruptIndexError(msg string, fp *int64) error {
 func (r *BlockReader) Next() (*spi.Term, error) {
 	if r.TermStateForced {
 		blockFilePointer := codecs.BaseState(r.CurrentTermState).BlockFilePointer
-		if err := r.InitializeHeader(r.ForcedTerm.Get(), blockFilePointer); err != nil {
+		if err := r.Overrides.InitializeHeader(r.ForcedTerm.Get(), blockFilePointer); err != nil {
 			return nil, err
 		}
 		if r.BlockHeader == nil {
 			return nil, r.NewCorruptIndexError("Illegal absence of block for TermState", &blockFilePointer)
 		}
 		for i := r.LineIndexInBlock; i < int32(codecs.BaseState(r.CurrentTermState).TermBlockOrd); i++ {
-			if _, err := r.ReadLineInBlock(); err != nil {
+			if _, err := r.Overrides.ReadLineInBlock(); err != nil {
 				return nil, err
 			}
 		}

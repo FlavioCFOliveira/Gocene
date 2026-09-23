@@ -73,7 +73,7 @@ func TestCompressionAlgorithm_Read_NoCompression(t *testing.T) {
 func TestCompressionAlgorithm_Read_LowercaseASCII(t *testing.T) {
 	t.Parallel()
 	in := []byte("hello.world.example.com.with.many.dots")
-	w := store.NewByteArrayDataOutput(64)
+	w := store.NewByteBuffersDataOutput()
 	tmp := make([]byte, len(in))
 	ok, err := compress.Compress(in, len(in), tmp, w)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestCompressionAlgorithm_Read_LowercaseASCII(t *testing.T) {
 	if !ok {
 		t.Fatal("Compress refused all-lowercase input")
 	}
-	src := store.NewByteArrayDataInput(w.GetBytes())
+	src := store.NewByteArrayDataInput(w.ToArrayCopy())
 	out := make([]byte, len(in))
 	if err := CompressionLowercaseASCII.Read(src, out, len(in)); err != nil {
 		t.Fatalf("Read: %v", err)
@@ -95,11 +95,11 @@ func TestCompressionAlgorithm_Read_LowercaseASCII(t *testing.T) {
 func TestCompressionAlgorithm_Read_LZ4(t *testing.T) {
 	t.Parallel()
 	in := bytes.Repeat([]byte("AaBbCcDdEeFfGg-"), 32)
-	w := store.NewByteArrayDataOutput(len(in) + 64)
+	w := store.NewByteBuffersDataOutput()
 	if err := compress.LZ4Compress(in, 0, len(in), w, compress.NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	src := store.NewByteArrayDataInput(w.GetBytes())
+	src := store.NewByteArrayDataInput(w.ToArrayCopy())
 	out := make([]byte, len(in))
 	if err := CompressionLZ4.Read(src, out, len(in)); err != nil {
 		t.Fatalf("Read: %v", err)

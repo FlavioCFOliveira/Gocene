@@ -41,7 +41,7 @@ type mockFunctionValues struct {
 	strings []string
 }
 
-func (m *mockFunctionValues) ByteVal(doc int) (int8, error) { return 0, ErrUnsupportedValue }
+func (m *mockFunctionValues) ByteVal(doc int) (int8, error)   { return 0, ErrUnsupportedValue }
 func (m *mockFunctionValues) ShortVal(doc int) (int16, error) { return 0, ErrUnsupportedValue }
 func (m *mockFunctionValues) FloatVal(doc int) (float32, error) {
 	if doc >= len(m.floats) {
@@ -55,7 +55,7 @@ func (m *mockFunctionValues) IntVal(doc int) (int32, error) {
 	}
 	return m.ints[doc], nil
 }
-func (m *mockFunctionValues) LongVal(doc int) (int64, error) { return 0, ErrUnsupportedValue }
+func (m *mockFunctionValues) LongVal(doc int) (int64, error)     { return 0, ErrUnsupportedValue }
 func (m *mockFunctionValues) DoubleVal(doc int) (float64, error) { return 0, ErrUnsupportedValue }
 func (m *mockFunctionValues) StrVal(doc int) (string, error) {
 	if doc >= len(m.strings) {
@@ -69,26 +69,30 @@ func (m *mockFunctionValues) BoolVal(doc int) (bool, error) {
 	}
 	return m.bools[doc], nil
 }
-func (m *mockFunctionValues) FloatVectorVal(_ int) ([]float32, error) { return nil, ErrUnsupportedValue }
+func (m *mockFunctionValues) FloatVectorVal(_ int) ([]float32, error) {
+	return nil, ErrUnsupportedValue
+}
 func (m *mockFunctionValues) ByteVectorVal(_ int) ([]byte, error) { return nil, ErrUnsupportedValue }
-func (m *mockFunctionValues) BytesVal(_ int, _ *[]byte) (bool, error) { return false, ErrUnsupportedValue }
+func (m *mockFunctionValues) BytesVal(_ int, _ *[]byte) (bool, error) {
+	return false, ErrUnsupportedValue
+}
 func (m *mockFunctionValues) ObjectVal(_ int) (any, error) { return nil, ErrUnsupportedValue }
-func (m *mockFunctionValues) Exists(_ int) (bool, error) { return true, nil }
-func (m *mockFunctionValues) OrdVal(_ int) (int, error) { return 0, ErrUnsupportedValue }
-func (m *mockFunctionValues) NumOrd() (int, error) { return 0, nil }
-func (m *mockFunctionValues) Cost() float32 { return 100 }
+func (m *mockFunctionValues) Exists(_ int) (bool, error)   { return true, nil }
+func (m *mockFunctionValues) OrdVal(_ int) (int, error)    { return 0, ErrUnsupportedValue }
+func (m *mockFunctionValues) NumOrd() (int, error)         { return 0, nil }
+func (m *mockFunctionValues) Cost() float32                { return 100 }
 func (m *mockFunctionValues) ToString(doc int) (string, error) {
 	return "mock", nil
 }
-func (m *mockFunctionValues) GetValueFiller() ValueFiller { return nil }
-func (m *mockFunctionValues) ByteValMulti(_ int, _ []int8) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) ShortValMulti(_ int, _ []int16) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) FloatValMulti(_ int, _ []float32) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) IntValMulti(_ int, _ []int32) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) LongValMulti(_ int, _ []int64) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) DoubleValMulti(_ int, _ []float64) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) StrValMulti(_ int, _ []string) error { return ErrUnsupportedValue }
-func (m *mockFunctionValues) Explain(_ int) (string, error) { return "mock", nil }
+func (m *mockFunctionValues) GetValueFiller() ValueFiller                            { return nil }
+func (m *mockFunctionValues) ByteValMulti(_ int, _ []int8) error                     { return ErrUnsupportedValue }
+func (m *mockFunctionValues) ShortValMulti(_ int, _ []int16) error                   { return ErrUnsupportedValue }
+func (m *mockFunctionValues) FloatValMulti(_ int, _ []float32) error                 { return ErrUnsupportedValue }
+func (m *mockFunctionValues) IntValMulti(_ int, _ []int32) error                     { return ErrUnsupportedValue }
+func (m *mockFunctionValues) LongValMulti(_ int, _ []int64) error                    { return ErrUnsupportedValue }
+func (m *mockFunctionValues) DoubleValMulti(_ int, _ []float64) error                { return ErrUnsupportedValue }
+func (m *mockFunctionValues) StrValMulti(_ int, _ []string) error                    { return ErrUnsupportedValue }
+func (m *mockFunctionValues) Explain(_ int) (string, error)                          { return "mock", nil }
 func (m *mockFunctionValues) GetScorer(_ *index.LeafReaderContext) ValueSourceScorer { return nil }
 func (m *mockFunctionValues) GetRangeScorer(_ *index.LeafReaderContext, _, _ string, _, _ bool) (ValueSourceScorer, error) {
 	return nil, ErrUnsupportedValue
@@ -104,7 +108,7 @@ func TestIfFunction(t *testing.T) {
 	trueSrc := &mockValueSource{
 		description: "true",
 		vals: mockFunctionValues{
-			floats: []float32{1.1, 1.2, 1.3},
+			floats:  []float32{1.1, 1.2, 1.3},
 			ints:    []int32{10, 11, 12},
 			strings: []string{"t1", "t2", "t3"},
 		},
@@ -112,7 +116,7 @@ func TestIfFunction(t *testing.T) {
 	falseSrc := &mockValueSource{
 		description: "false",
 		vals: mockFunctionValues{
-			floats: []float32{2.1, 2.2, 2.3},
+			floats:  []float32{2.1, 2.2, 2.3},
 			ints:    []int32{20, 21, 22},
 			strings: []string{"f1", "f2", "f3"},
 		},
@@ -125,7 +129,7 @@ func TestIfFunction(t *testing.T) {
 	}
 
 	tests := []struct {
-		doc      int
+		doc       int
 		wantFloat float32
 		wantInt   int32
 		wantStr   string
@@ -142,7 +146,7 @@ func TestIfFunction(t *testing.T) {
 		}
 		i, err := vals.IntVal(tt.doc)
 		if err != nil || i != tt.wantInt {
-			t.Errorf("doc %d IntVal = %d, want %d (err: %v)", tt.doc, i, tt.wantInt, err, err)
+			t.Errorf("doc %d IntVal = %d, want %d (err: %v)", tt.doc, i, tt.wantInt, err)
 		}
 		s, err := vals.StrVal(tt.doc)
 		if err != nil || s != tt.wantStr {

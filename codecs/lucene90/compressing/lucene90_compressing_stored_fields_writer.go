@@ -83,10 +83,14 @@ const (
 )
 
 // negativezeroFloat32 is the bit pattern for -0f, used in ZFloat encoding.
-var negativezeroFloat32 = math.Float32bits(-0.0)
+// Mirrors NEGATIVE_ZERO_FLOAT = Float.floatToIntBits(-0f). The Go constant
+// expression -0.0 is +0, so the negative zero is built with math.Copysign.
+var negativezeroFloat32 = math.Float32bits(float32(math.Copysign(0, -1)))
 
 // negativezeroFloat64 is the bit pattern for -0d, used in ZDouble encoding.
-var negativezeroFloat64 = math.Float64bits(-0.0)
+// Mirrors NEGATIVE_ZERO_DOUBLE = Double.doubleToLongBits(-0d); see
+// negativezeroFloat32 for why math.Copysign is used.
+var negativezeroFloat64 = math.Float64bits(math.Copysign(0, -1))
 
 // ---------------------------------------------------------------------------
 // Lucene90CompressingStoredFieldsFormat – the StoredFieldsFormat

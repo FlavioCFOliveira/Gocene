@@ -5,9 +5,11 @@
 package codecs
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -368,6 +370,46 @@ func (t *varyingFreqTerms) GetPostingsReader(termText string, _ int) (index.Post
 		return nil, nil
 	}
 	return &varyingFreqPostingsEnum{numDocs: t.numDocs, docIdx: -1}, nil
+}
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (e *largePosPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (e *largePosPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// Size is abstract in Lucene's Terms; this double does not support it.
+func (t *largePosTerms) Size() int64 {
+	panic("largePosTerms.Size: unsupported operation")
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *largePosTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("largePosTermsEnum.Impacts: unsupported operation")
+}
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (e *varyingFreqPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (e *varyingFreqPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// Size is abstract in Lucene's Terms; this double does not support it.
+func (t *varyingFreqTerms) Size() int64 {
+	panic("varyingFreqTerms.Size: unsupported operation")
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *varyingFreqTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("varyingFreqTermsEnum.Impacts: unsupported operation")
 }
 
 // varyingFreqFields wraps varyingFreqTerms as index.Fields.

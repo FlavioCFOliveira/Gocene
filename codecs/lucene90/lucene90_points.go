@@ -66,6 +66,12 @@ type pointsReader struct {
 
 // newPointsReader opens the points trio for the segment and builds a BKDReader
 // per indexed field. Installed as the codecs Lucene90 points reader hook.
+// NewLucene90PointsReader renders the public constructor
+// Lucene90PointsReader(SegmentReadState).
+func NewLucene90PointsReader(readState *codecs.SegmentReadState) (codecs.PointsReader, error) {
+	return newPointsReader(readState)
+}
+
 func newPointsReader(state *codecs.SegmentReadState) (codecs.PointsReader, error) {
 	files := codecs.Lucene90PointFileList(state.SegmentInfo.Name(), state.SegmentSuffix)
 	dataEntry, indexEntry, metaEntry := files[0], files[1], files[2]

@@ -40,14 +40,14 @@ func doTestLucene104IntegerOverflow(t *testing.T, size int) {
 	const delta int32 = 1 << 30
 	docDeltaBuffer[0] = delta
 
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	if err := writeLucene104VIntBlock(out, docDeltaBuffer, freqBuffer, size, true); err != nil {
 		t.Fatalf("writeVIntBlock: %v", err)
 	}
 
 	restoredDocs := make([]int32, size)
 	restoredFreqs := make([]int32, size)
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	if err := readLucene104VIntBlock(in, restoredDocs, restoredFreqs, size, true, true); err != nil {
 		t.Fatalf("readVIntBlock: %v", err)
 	}
@@ -66,13 +66,13 @@ func TestLucene104PostingsUtil_RoundTripFreqs(t *testing.T) {
 	docBuf := append([]int32(nil), docs...)
 	freqBuf := append([]int32(nil), freqs...)
 
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	if err := writeLucene104VIntBlock(out, docBuf, freqBuf, num, true); err != nil {
 		t.Fatalf("writeVIntBlock: %v", err)
 	}
 	gotDocs := make([]int32, num)
 	gotFreqs := make([]int32, num)
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	if err := readLucene104VIntBlock(in, gotDocs, gotFreqs, num, true, true); err != nil {
 		t.Fatalf("readVIntBlock: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestLucene104PostingsUtil_RoundTripFreqs(t *testing.T) {
 	}
 
 	// decodeFreq=false must still strip the low bit from each doc.
-	in2 := store.NewByteArrayDataInput(out.GetBytes())
+	in2 := store.NewByteArrayDataInput(out.ToArrayCopy())
 	gotDocs2 := make([]int32, num)
 	if err := readLucene104VIntBlock(in2, gotDocs2, nil, num, true, false); err != nil {
 		t.Fatalf("readVIntBlock decodeFreq=false: %v", err)
@@ -106,12 +106,12 @@ func TestLucene104PostingsUtil_NoFreqs(t *testing.T) {
 	num := len(docs)
 	docBuf := append([]int32(nil), docs...)
 
-	out := store.NewByteArrayDataOutput(32)
+	out := store.NewByteBuffersDataOutput()
 	if err := writeLucene104VIntBlock(out, docBuf, nil, num, false); err != nil {
 		t.Fatalf("writeVIntBlock: %v", err)
 	}
 	gotDocs := make([]int32, num)
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	if err := readLucene104VIntBlock(in, gotDocs, nil, num, false, false); err != nil {
 		t.Fatalf("readVIntBlock: %v", err)
 	}

@@ -4,38 +4,33 @@
 
 package compressing
 
-import (
-	"testing"
-)
+// Port of
+// lucene/backward-codecs/src/test/org/apache/lucene/backward_codecs/compressing/TestFastCompressionMode.java
+// (Apache Lucene 10.5.0): setUp() sets mode = CompressionMode.FAST and the
+// test methods are inherited from AbstractTestCompressionMode.
 
-// TestNewCompressor verifies that NewCompressor builds a Compressor with the
-// expected name and version fields.
-func TestNewCompressor(t *testing.T) {
-	c := NewCompressor("1.0")
-	if c.Name != "Compressor" {
-		t.Errorf("Name: got %q want %q", c.Name, "Compressor")
-	}
-	if c.Version != "1.0" {
-		t.Errorf("Version: got %q want %q", c.Version, "1.0")
-	}
+import "testing"
+
+func TestFastCompressionMode_testDecompress(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testDecompress()
 }
 
-// TestCompressor_VersionVariants verifies Version preservation.
-func TestCompressor_VersionVariants(t *testing.T) {
-	versions := []string{"", "0.9", "1.0", "2.0.0"}
-	for _, v := range versions {
-		c := NewCompressor(v)
-		if c.Version != v {
-			t.Errorf("Version: got %q want %q", c.Version, v)
-		}
-	}
+func TestFastCompressionMode_testPartialDecompress(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testPartialDecompress()
 }
 
-// TestCompressor_UniqueInstances verifies each call returns a distinct pointer.
-func TestCompressor_UniqueInstances(t *testing.T) {
-	a := NewCompressor("1.0")
-	b := NewCompressor("1.0")
-	if a == b {
-		t.Error("NewCompressor must return a new instance on each call")
-	}
+func TestFastCompressionMode_testEmptySequence(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testEmptySequence()
+}
+
+func TestFastCompressionMode_testShortSequence(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testShortSequence()
+}
+
+func TestFastCompressionMode_testIncompressible(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testIncompressible()
+}
+
+func TestFastCompressionMode_testConstant(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST).testConstant()
 }

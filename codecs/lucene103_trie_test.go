@@ -432,7 +432,7 @@ func assertTrieLookupResult(t *testing.T, reader *TrieReader, term []byte, expec
 	if err != nil {
 		t.Fatalf("FloorData(term %x): %v", term, err)
 	}
-	if err := in.ReadBytes(got); err != nil {
+	if err := in.ReadBytes(got, 0, len(got)); err != nil {
 		t.Fatalf("ReadBytes(floorData term %x): %v", term, err)
 	}
 	want := util.BytesRefDeepCopyOf(expected.FloorData).Bytes

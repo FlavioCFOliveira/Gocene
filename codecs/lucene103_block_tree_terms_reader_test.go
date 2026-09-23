@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -103,6 +104,8 @@ func (f *fakePostingsReader) Close() error          { return nil }
 // fakeTermsEnum wraps a sorted slice of (term, docFreq) and exposes the
 // minimum TermsEnum surface BlockTreeTermsWriter requires.
 type fakeTermsEnum struct {
+	spi.TermsEnumBase
+
 	terms   []fakeTermEntry
 	idx     int
 	current *index.Term
@@ -157,6 +160,21 @@ func (p *fakePostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (p *fakePostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
 func (p *fakePostingsEnum) Cost() int64                 { return 0 }
 
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *fakePostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *fakePostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *fakeTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("fakeTermsEnum.Impacts: unsupported operation")
+}
+
 // fakeTerms is the index.Terms wrapper passed to BlockTreeTermsWriter.
 type fakeTerms struct {
 	*index.TermsBase
@@ -201,8 +219,8 @@ func buildSegment(t *testing.T, segmentName string, fieldName string, opts index
 	}
 	fi := index.NewFieldInfo(fieldName, 0, index.FieldInfoOptions{IndexOptions: opts})
 	infos := index.NewFieldInfos()
-	if err := infos.Add(fi); err != nil {
-		t.Fatalf("infos.Add: %v", err)
+	if added := infos.Add(fi); added == nil {
+		t.Fatalf("infos.Add: nil")
 	}
 	state := &SegmentWriteState{
 		Directory:     dir,

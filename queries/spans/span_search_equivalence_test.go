@@ -58,9 +58,9 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 	t.Run("span_term_as_boolean_should", func(t *testing.T) {
 		t.Parallel()
 		stq := NewSpanTermQuery(index.NewTerm("f", "a"))
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(stq, search.SHOULD)
-		if bq == nil {
+		if bq.Build() == nil {
 			t.Fatal("expected non-nil BooleanQuery")
 		}
 	})
@@ -69,10 +69,10 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 		t.Parallel()
 		stq1 := NewSpanTermQuery(index.NewTerm("f", "a"))
 		stq2 := NewSpanTermQuery(index.NewTerm("f", "b"))
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(stq1, search.SHOULD)
 		bq.Add(stq2, search.SHOULD)
-		if bq == nil {
+		if bq.Build() == nil {
 			t.Fatal("expected non-nil BooleanQuery")
 		}
 	})
@@ -86,9 +86,9 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpanOrQuery: %v", err)
 		}
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(orQ, search.MUST)
-		if bq == nil {
+		if bq.Build() == nil {
 			t.Fatal("expected non-nil BooleanQuery")
 		}
 	})
@@ -102,22 +102,19 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewSpanNotQuery: %v", err)
 		}
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(snQ, search.FILTER)
-		if bq == nil {
+		if bq.Build() == nil {
 			t.Fatal("expected non-nil BooleanQuery")
 		}
 	})
 
 	t.Run("disjunction_max_with_span_term", func(t *testing.T) {
 		t.Parallel()
-		dmq := search.NewDisjunctionMaxQueryWithTieBreaker(
-			[]search.Query{
-				NewSpanTermQuery(index.NewTerm("f", "a")),
-				NewSpanTermQuery(index.NewTerm("f", "b")),
-			},
-			1.0,
-		)
+		dmq := search.NewDisjunctionMaxQuery([]search.Query{
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
+		}, 1.0)
 		if dmq == nil {
 			t.Fatal("expected non-nil DisjunctionMaxQuery")
 		}

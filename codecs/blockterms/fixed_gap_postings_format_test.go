@@ -4,69 +4,19 @@
 
 package blockterms_test
 
-import (
-	"testing"
+// Port of
+// lucene/codecs/src/test/org/apache/lucene/codecs/blockterms/TestFixedGapPostingsFormat.java
+// (Apache Lucene 10.5.0). Basic tests of a PF using FixedGap terms dictionary.
+//
+// The class only builds its codec with
+// TestUtil.alwaysPostingsFormat(new LuceneFixedGap(...)) and inherits every test method
+// from org.apache.lucene.tests.index.BasePostingsFormatTestCase; neither the
+// test-framework postings format org.apache.lucene.tests.codecs.blockterms.LuceneFixedGap
+// nor the base test case is ported.
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/blockterms"
-)
+import "testing"
 
-// TestFixedGapPostingsFormat validates the fixed-gap terms index
-// reader/writer and the BlockTerms reader/writer infrastructure.
-// Port of org.apache.lucene.codecs.blockterms.TestFixedGapPostingsFormat.
-func TestFixedGapPostingsFormat(t *testing.T) {
-	baseR := blockterms.NewTermsIndexReaderBase("/idx/fixedgap")
-	baseW := blockterms.NewTermsIndexWriterBase("/idx/fixedgap")
-
-	t.Run("reader base", func(t *testing.T) {
-		if baseR.Path != "/idx/fixedgap" {
-			t.Errorf("TermsIndexReaderBase.Path = %q, want /idx/fixedgap", baseR.Path)
-		}
-	})
-
-	t.Run("writer base", func(t *testing.T) {
-		if baseW.Path != "/idx/fixedgap" {
-			t.Errorf("TermsIndexWriterBase.Path = %q, want /idx/fixedgap", baseW.Path)
-		}
-	})
-
-	t.Run("fixed gap reader default", func(t *testing.T) {
-		r := blockterms.NewFixedGapTermsIndexReader(baseR, 0)
-		if r.Gap != 32 {
-			t.Errorf("default gap = %d, want 32", r.Gap)
-		}
-		if r.Base != baseR {
-			t.Error("Base not set on reader")
-		}
-	})
-
-	t.Run("fixed gap reader explicit", func(t *testing.T) {
-		r := blockterms.NewFixedGapTermsIndexReader(baseR, 64)
-		if r.Gap != 64 {
-			t.Errorf("gap = %d, want 64", r.Gap)
-		}
-	})
-
-	t.Run("fixed gap writer", func(t *testing.T) {
-		w := blockterms.NewFixedGapTermsIndexWriter(baseW, 128)
-		if w.Gap != 128 {
-			t.Errorf("gap = %d, want 128", w.Gap)
-		}
-		if w.Base != baseW {
-			t.Error("Base not set on writer")
-		}
-	})
-
-	t.Run("block terms reader", func(t *testing.T) {
-		r := blockterms.NewBlockTermsReader(baseR)
-		if r.Base != baseR {
-			t.Error("Base not set on BlockTermsReader")
-		}
-	})
-
-	t.Run("block terms writer", func(t *testing.T) {
-		w := blockterms.NewBlockTermsWriter(baseW)
-		if w.Base != baseW {
-			t.Error("Base not set on BlockTermsWriter")
-		}
-	})
+func TestFixedGapPostingsFormat_BasePostingsFormatTestCase(t *testing.T) {
+	t.Fatal("requires org.apache.lucene.tests.index.BasePostingsFormatTestCase and " +
+		"org.apache.lucene.tests.codecs.blockterms.LuceneFixedGap (not ported)")
 }

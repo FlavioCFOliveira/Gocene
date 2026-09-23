@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestAnyQueryNode(t *testing.T) {
+func TestAnyQueryNode_QueryNodePort(t *testing.T) {
 	clauses := []QueryNode{
 		NewFieldQueryNode("field1", "term1", 0, 5),
 		NewFieldQueryNode("field1", "term2", 6, 11),
@@ -29,7 +29,7 @@ func TestAnyQueryNode(t *testing.T) {
 	}
 }
 
-func TestQuotedFieldQueryNode(t *testing.T) {
+func TestQuotedFieldQueryNode_QueryNodePort(t *testing.T) {
 	node := NewQuotedFieldQueryNode("field1", "life is great", 0, 13)
 	expectedStr := "<quotedfield start=0 end=13 field=field1 term=life is great>"
 	if node.String() != expectedStr {

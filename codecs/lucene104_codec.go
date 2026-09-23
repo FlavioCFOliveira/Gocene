@@ -93,7 +93,9 @@ func NewLucene104CodecWithMode(mode Lucene104CodecMode) *Lucene104Codec {
 	case Lucene104CodecBestCompression:
 		sf = Lucene90StoredFieldsFormatForMode(StoredFieldsBestCompression)
 	default:
-		sf = NewLucene104StoredFieldsFormat()
+		// Java: Objects.requireNonNull(mode) throws NullPointerException; an
+		// out-of-range Mode is the Go rendering of the null Mode.
+		panic("Lucene104Codec: mode must not be null")
 	}
 	return newLucene104CodecDefaults(mode, sf)
 }

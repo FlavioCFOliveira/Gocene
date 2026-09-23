@@ -140,8 +140,8 @@ func TestBitSetIterator_DocIDRunEnd(t *testing.T) {
 	}
 	it := NewBitSetIterator(fbs, 4)
 	it.NextDoc() // at 3
-	if got := it.DocIDRunEnd(); got != 7 {
-		t.Errorf("DocIDRunEnd = %d, want 7", got)
+	if got, err := it.DocIDRunEnd(); err != nil || got != 7 {
+		t.Errorf("DocIDRunEnd = %d, want 7 (err: %v)", got, err)
 	}
 	if it.DocID() != 6 {
 		t.Errorf("after DocIDRunEnd, DocID = %d, want 6", it.DocID())

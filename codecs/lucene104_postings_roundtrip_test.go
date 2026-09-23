@@ -39,8 +39,8 @@ func rtFieldInfos(t *testing.T, fields ...struct {
 		fi := index.NewFieldInfo(f.name, i, index.FieldInfoOptions{
 			IndexOptions: f.opts,
 		})
-		if err := fis.Add(fi); err != nil {
-			t.Fatalf("FieldInfos.Add(%s): %v", f.name, err)
+		if added := fis.Add(fi); added == nil {
+			t.Fatalf("FieldInfos.Add(%s): nil", f.name)
 		}
 	}
 	return fis

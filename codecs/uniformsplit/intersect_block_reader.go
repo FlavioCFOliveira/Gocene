@@ -248,7 +248,7 @@ func (r *IntersectBlockReader) seekFirstBlock() (bool, error) {
 	} else if r.Overrides.IsBeyondLastTerm(r.seekTerm, blockStartFP) {
 		return false, nil
 	}
-	if err := r.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
+	if err := r.Overrides.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
 		return false, err
 	}
 	return r.BlockHeader != nil, nil
@@ -264,7 +264,7 @@ func (r *IntersectBlockReader) seekFirstBlock() (bool, error) {
 // (IntersectBlockReader.java:205).
 func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error) {
 	if r.seekTerm == nil {
-		line, err := r.ReadLineInBlock()
+		line, err := r.Overrides.ReadLineInBlock()
 		if err != nil {
 			return nil, err
 		}
@@ -344,7 +344,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 			// It is worthwhile to jump to a block away if the next term
 			// accepted is after the next term in the block. Actually the block
 			// away may be the current block, but this is a good heuristic.
-			if _, err := r.ReadLineInBlock(); err != nil {
+			if _, err := r.Overrides.ReadLineInBlock(); err != nil {
 				return nil, err
 			}
 			if util.BytesRefCompare(r.seekTerm, r.BlockLine.GetTermBytes().GetTerm()) > 0 {
@@ -358,7 +358,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 			// anymore for the current block.
 			r.numConsecutivelyRejectedTerms = math.MinInt32
 		} else {
-			line, err := r.ReadLineInBlock()
+			line, err := r.Overrides.ReadLineInBlock()
 			if err != nil {
 				return nil, err
 			}
@@ -425,7 +425,7 @@ func (r *IntersectBlockReader) nextBlock() (bool, error) {
 	}
 	r.numMatchedBytes = 0
 	r.numConsecutivelyRejectedTerms = 0
-	if err := r.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
+	if err := r.Overrides.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
 		return false, err
 	}
 	return r.BlockHeader != nil, nil

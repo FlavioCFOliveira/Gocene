@@ -28,9 +28,9 @@ func TestDenseLiveDocs_WithDeletedCount_Agrees(t *testing.T) {
 	liveBits := newDenseTestBits(t, maxDoc, []int{0, 2, 4, 6}) // 4 live, 4 deleted
 	d, err := NewDenseLiveDocsBuilder(liveBits, maxDoc).
 		WithDeletedCount(4).
-		BuildE()
+		Build()
 	if err != nil {
-		t.Fatalf("BuildE: %v", err)
+		t.Fatalf("Build: %v", err)
 	}
 	if d.DeletedCount() != 4 {
 		t.Errorf("DeletedCount = %d, want 4", d.DeletedCount())
@@ -47,7 +47,7 @@ func TestDenseLiveDocs_WithDeletedCount_Mismatch(t *testing.T) {
 	liveBits := newDenseTestBits(t, maxDoc, []int{0, 2, 4, 6}) // actual deleted = 4
 	_, err := NewDenseLiveDocsBuilder(liveBits, maxDoc).
 		WithDeletedCount(99).
-		BuildE()
+		Build()
 	if err == nil {
 		t.Fatalf("expected mismatch error, got nil")
 	}
@@ -64,7 +64,7 @@ func TestDenseLiveDocs_WithDeletedCount_MismatchInRange(t *testing.T) {
 	liveBits := newDenseTestBits(t, maxDoc, []int{0, 2, 4, 6}) // actual deleted = 4
 	_, err := NewDenseLiveDocsBuilder(liveBits, maxDoc).
 		WithDeletedCount(2).
-		BuildE()
+		Build()
 	if err == nil {
 		t.Fatalf("expected cardinality mismatch error, got nil")
 	}
@@ -78,7 +78,7 @@ func TestDenseLiveDocs_WithDeletedCount_NegativeRejected(t *testing.T) {
 
 	d := NewDenseLiveDocsBuilder(newDenseTestBits(t, 4, []int{0, 1, 2, 3}), 4).
 		WithDeletedCount(-1)
-	if _, err := d.BuildE(); err == nil {
+	if _, err := d.Build(); err == nil {
 		t.Errorf("expected error for negative deletedCount")
 	}
 }
@@ -88,7 +88,10 @@ func TestDenseLiveDocs_Build_DefaultsToCardinality(t *testing.T) {
 
 	const maxDoc = 6
 	liveBits := newDenseTestBits(t, maxDoc, []int{0, 5}) // 2 live, 4 deleted
-	d := NewDenseLiveDocsBuilder(liveBits, maxDoc).Build()
+	d, err := NewDenseLiveDocsBuilder(liveBits, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	if d.DeletedCount() != 4 {
 		t.Errorf("DeletedCount = %d, want 4", d.DeletedCount())
 	}
@@ -102,7 +105,10 @@ func TestDenseLiveDocs_MustBuild_PanicsOnError(t *testing.T) {
 			t.Errorf("MustBuild should panic on invalid deletedCount")
 		}
 	}()
-	NewDenseLiveDocsBuilder(newDenseTestBits(t, 4, []int{0}), 4).
+	// MustBuild was Build followed by a panic on error.
+	if _, err := NewDenseLiveDocsBuilder(newDenseTestBits(t, 4, []int{0}), 4).
 		WithDeletedCount(99).
-		MustBuild()
+		Build(); err != nil {
+		panic(err)
+	}
 }

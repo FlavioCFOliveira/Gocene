@@ -75,7 +75,10 @@ func TestDenseLiveDocsBasic(t *testing.T) {
 	fixedSet.Clear(100)
 
 	// WHEN
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// THEN
 	if liveDocs.DeletedCount() != 3 {
@@ -146,7 +149,10 @@ func TestDenseLiveDocsIterator(t *testing.T) {
 	for _, doc := range deletedDocs {
 		fixedSet.Clear(doc)
 	}
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	it := liveDocs.DeletedDocsIterator()
@@ -190,7 +196,10 @@ func TestSparseDenseEquivalence(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseIt := sparse.DeletedDocsIterator()
 	denseIt := dense.DeletedDocsIterator()
 
@@ -240,7 +249,10 @@ func TestEmptyIterator(t *testing.T) {
 	}
 	fixedSet.SetAll()
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	sparseIt := sparse.DeletedDocsIterator()
@@ -275,7 +287,10 @@ func TestIteratorAdvance(t *testing.T) {
 	for i := 10; i <= 50; i += 10 {
 		fixedSet.Clear(i)
 	}
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	it := liveDocs.DeletedDocsIterator()
@@ -341,7 +356,10 @@ func TestRandomDeletions(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseDeleted, err := collectDocs(sparse.DeletedDocsIterator())
 	if err != nil {
 		t.Fatalf("Failed to collect sparse docs: %v", err)
@@ -411,7 +429,10 @@ func TestMemoryUsage(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseBytes := sparse.RamBytesUsed()
 	denseBytes := dense.RamBytesUsed()
 
@@ -448,7 +469,10 @@ func TestWrappingExistingBitSets(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseDeleted, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(liveSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(liveSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// THEN
 	if sparse.DeletedCount() != 3 {
@@ -534,7 +558,10 @@ func TestDenseLiveDocsLiveIterator(t *testing.T) {
 	for _, doc := range deletedDocs {
 		fixedSet.Clear(doc)
 	}
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	it := liveDocs.LiveDocsIterator()
@@ -584,7 +611,10 @@ func TestLiveIteratorEquivalence(t *testing.T) {
 		fixedSet.Clear(doc)
 	}
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	sparseIt := sparse.LiveDocsIterator()
@@ -623,7 +653,10 @@ func TestLiveIteratorFullIteration(t *testing.T) {
 	}
 	fixedSet.SetAll()
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	sparseDocs, err := collectDocs(sparse.LiveDocsIterator())
@@ -664,7 +697,10 @@ func TestLiveIteratorAdvance(t *testing.T) {
 	for i := 10; i <= 50; i += 10 {
 		fixedSet.Clear(i)
 	}
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	// WHEN
 	it := liveDocs.LiveDocsIterator()
@@ -739,7 +775,10 @@ func TestRandomDeletionsLiveIterator(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseLive, err := collectDocs(sparse.LiveDocsIterator())
 	if err != nil {
 		t.Fatalf("Failed to collect sparse docs: %v", err)
@@ -784,7 +823,10 @@ func TestSingleDocumentSegment(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseDeleted, err := collectDocs(sparse.DeletedDocsIterator())
 	if err != nil {
 		t.Fatalf("Failed to collect sparse deleted: %v", err)
@@ -849,7 +891,10 @@ func TestAllDocumentsDeleted(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseDeleted, err := collectDocs(sparse.DeletedDocsIterator())
 	if err != nil {
 		t.Fatalf("Failed to collect sparse deleted: %v", err)
@@ -924,7 +969,10 @@ func TestLargeSegment(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseIt := sparse.DeletedDocsIterator()
 	sparseBytes := sparse.RamBytesUsed()
 	denseBytes := dense.RamBytesUsed()
@@ -983,7 +1031,10 @@ func TestFirstAndLastDocDeletion(t *testing.T) {
 
 	// WHEN
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	sparseDeleted, err := collectDocs(sparse.DeletedDocsIterator())
 	if err != nil {
 		t.Fatalf("Failed to collect sparse deleted: %v", err)
@@ -1048,7 +1099,10 @@ func TestLiveDocsLength(t *testing.T) {
 	fixedSet.SetAll()
 
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	if sparse.Length() != maxDoc {
 		t.Errorf("Expected sparse length %d, got %d", maxDoc, sparse.Length())
@@ -1072,7 +1126,10 @@ func TestLiveDocsLiveCount(t *testing.T) {
 	}
 
 	sparse := NewSparseLiveDocsBuilder(sparseSet, maxDoc).Build()
-	dense := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	dense, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	expectedLive := maxDoc - 5
 	if sparse.LiveCount() != expectedLive {
@@ -1090,7 +1147,10 @@ func TestDocIDMethod(t *testing.T) {
 	fixedSet.SetAll()
 	fixedSet.Clear(50)
 
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	it := liveDocs.DeletedDocsIterator()
 
 	// Initially should be -1
@@ -1116,7 +1176,10 @@ func TestAdvanceToCurrentDoc(t *testing.T) {
 	fixedSet.Clear(50)
 	fixedSet.Clear(60)
 
-	liveDocs := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	liveDocs, err := NewDenseLiveDocsBuilder(fixedSet, maxDoc).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 	it := liveDocs.DeletedDocsIterator()
 
 	// Move to first deleted doc
@@ -1174,7 +1237,10 @@ func TestDenseLiveDocs_AsBits(t *testing.T) {
 		live.Set(i)
 	}
 	live.Clear(42)
-	dld := NewDenseLiveDocsBuilder(live, 100).Build()
+	dld, err := NewDenseLiveDocsBuilder(live, 100).Build()
+	if err != nil {
+		t.Fatalf("NewDenseLiveDocsBuilder: %v", err)
+	}
 
 	var bits Bits = dld
 	if bits.Length() != 100 {

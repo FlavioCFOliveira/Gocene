@@ -79,7 +79,6 @@ func timSorterMinRun(length int) int {
 // into the in-place path because maxTempSlots == 0) and panic to match Lucene's
 // UnsupportedOperationException semantics.
 type bitArrayTimSorter struct {
-	Sorter
 	arr *bitArray
 }
 
@@ -219,5 +218,5 @@ func TestTimSorterWorstCase(t *testing.T) {
 		}
 	}
 	// (The original Java test only checks that Sort does not panic;
-// additional assertion is on the sorted order above.)
+	// additional assertion is on the sorted order above.)
 }

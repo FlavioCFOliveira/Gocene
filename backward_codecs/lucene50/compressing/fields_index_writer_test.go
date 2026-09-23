@@ -11,7 +11,7 @@ import (
 // TestLegacyFieldsIndex_CompileTimeAssertion verifies that *LegacyFieldsIndexReader
 // satisfies the LegacyFieldsIndex interface at compile time.
 func TestLegacyFieldsIndex_CompileTimeAssertion(t *testing.T) {
-	var _ LegacyFieldsIndex = (*LegacyFieldsIndexReader)(nil)
+	var _ FieldsIndex = (*LegacyFieldsIndexReader)(nil)
 }
 
 // TestLegacyFieldsIndexReader_Defaults verifies that a zero-value

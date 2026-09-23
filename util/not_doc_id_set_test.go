@@ -17,6 +17,11 @@ func (d *docIdSetFromInts) Iterator() DocIdSetIterator {
 	return &intsDocIdSetIter{docs: d.docs, idx: -1, doc: -1}
 }
 
+// RamBytesUsed is abstract in Lucene's DocIdSet; this double does not support it.
+func (d *docIdSetFromInts) RamBytesUsed() int64 {
+	panic("docIdSetFromInts.RamBytesUsed: unsupported operation")
+}
+
 type intsDocIdSetIter struct {
 	docs []int
 	idx  int

@@ -50,6 +50,11 @@ func (s *stableImpl) Restore(i, j int) {
 	}
 }
 
+// Compare is abstract in Lucene's MSBRadixSorterImpl; this double does not support it.
+func (s *stableImpl) Compare(i int, j int) int {
+	panic("stableImpl.Compare: unsupported operation")
+}
+
 func newStableImpl(entries []stableEntry) *stableImpl {
 	cp := make([]stableEntry, len(entries))
 	copy(cp, entries)
@@ -67,7 +72,7 @@ func TestStableMSBRadixSorter_PreservesOrderForEqualKeys(t *testing.T) {
 	}
 	si := newStableImpl(entries)
 	s := NewStableMSBRadixSorter(si, 16)
-	s.Sort(0, len(si.data))
+	s.Sort(si, 0, len(si.data))
 
 	// Verify sorted by key.
 	for i := 1; i < len(si.data); i++ {
@@ -107,7 +112,7 @@ func TestStableMSBRadixSorter_RandomLargeInput(t *testing.T) {
 	})
 
 	s := NewStableMSBRadixSorter(si, 16)
-	s.Sort(0, n)
+	s.Sort(si, 0, n)
 
 	for i := range wantOrder {
 		if !bytes.Equal(si.data[i].key, wantOrder[i].key) {
@@ -122,10 +127,10 @@ func TestStableMSBRadixSorter_RandomLargeInput(t *testing.T) {
 
 func TestStableMSBRadixSorter_EmptyAndSingleton(t *testing.T) {
 	si := newStableImpl(nil)
-	NewStableMSBRadixSorter(si, 4).Sort(0, 0)
+	NewStableMSBRadixSorter(si, 4).Sort(si, 0, 0)
 
 	si = newStableImpl([]stableEntry{{[]byte("solo"), 0}})
-	NewStableMSBRadixSorter(si, 4).Sort(0, 1)
+	NewStableMSBRadixSorter(si, 4).Sort(si, 0, 1)
 	if string(si.data[0].key) != "solo" {
 		t.Fatalf("singleton got mangled: %q", si.data[0].key)
 	}

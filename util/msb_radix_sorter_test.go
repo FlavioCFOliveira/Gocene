@@ -34,6 +34,11 @@ func (a *bytesArrayImpl) Swap(i, j int) {
 	a.refs[i], a.refs[j] = a.refs[j], a.refs[i]
 }
 
+// Compare is abstract in Lucene's RadixSortable; this double does not support it.
+func (a *bytesArrayImpl) Compare(i int, j int) int {
+	panic("bytesArrayImpl.Compare: unsupported operation")
+}
+
 // runMSBRadixCheck mirrors test(BytesRef[] refs, int len) in TestMSBRadixSorter.java.
 func runMSBRadixCheck(t *testing.T, rng *rand.Rand, refs []*BytesRef, length int) {
 	t.Helper()
@@ -62,7 +67,7 @@ func runMSBRadixCheck(t *testing.T, rng *rand.Rand, refs []*BytesRef, length int
 	}
 
 	impl := &bytesArrayImpl{refs: refs, maxLength: maxLength}
-	NewMSBRadixSorter(impl, maxLength).Sort(0, length)
+	NewMSBRadixSorter(maxLength).Sort(impl, 0, length)
 
 	for i := 0; i < length; i++ {
 		if !bytesRefEqualsContents(refs[i], expected[i]) {
@@ -173,7 +178,7 @@ func TestMSBRadixSorter_LargeMaxLengthBound(t *testing.T) {
 		refs[i] = randomSimpleBytes(rng, 64)
 	}
 	impl := &bytesArrayImpl{refs: refs, maxLength: math.MaxInt32}
-	NewMSBRadixSorter(impl, math.MaxInt32).Sort(0, len(refs))
+	NewMSBRadixSorter(math.MaxInt32).Sort(impl, 0, len(refs))
 	for i := 1; i < len(refs); i++ {
 		if bytes.Compare(refs[i-1].Bytes[:refs[i-1].Length], refs[i].Bytes[:refs[i].Length]) > 0 {
 			t.Fatalf("not sorted at %d", i)

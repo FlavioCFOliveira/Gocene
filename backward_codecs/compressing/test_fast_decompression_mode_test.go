@@ -4,38 +4,33 @@
 
 package compressing
 
-import (
-	"testing"
-)
+// Port of
+// lucene/backward-codecs/src/test/org/apache/lucene/backward_codecs/compressing/TestFastDecompressionMode.java
+// (Apache Lucene 10.5.0): setUp() sets mode = CompressionMode.FAST_DECOMPRESSION and the
+// test methods are inherited from AbstractTestCompressionMode.
 
-// TestNewDecompressor verifies that NewDecompressor builds a Decompressor with
-// the expected name and version fields.
-func TestNewDecompressor(t *testing.T) {
-	d := NewDecompressor("1.0")
-	if d.Name != "Decompressor" {
-		t.Errorf("Name: got %q want %q", d.Name, "Decompressor")
-	}
-	if d.Version != "1.0" {
-		t.Errorf("Version: got %q want %q", d.Version, "1.0")
-	}
+import "testing"
+
+func TestFastDecompressionMode_testDecompress(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testDecompress()
 }
 
-// TestDecompressor_VersionVariants verifies Version preservation.
-func TestDecompressor_VersionVariants(t *testing.T) {
-	versions := []string{"", "0.9", "1.0", "2.0.0"}
-	for _, v := range versions {
-		d := NewDecompressor(v)
-		if d.Version != v {
-			t.Errorf("Version: got %q want %q", d.Version, v)
-		}
-	}
+func TestFastDecompressionMode_testPartialDecompress(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testPartialDecompress()
 }
 
-// TestDecompressor_UniqueInstances verifies each call returns a distinct pointer.
-func TestDecompressor_UniqueInstances(t *testing.T) {
-	a := NewDecompressor("1.0")
-	b := NewDecompressor("1.0")
-	if a == b {
-		t.Error("NewDecompressor must return a new instance on each call")
-	}
+func TestFastDecompressionMode_testEmptySequence(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testEmptySequence()
+}
+
+func TestFastDecompressionMode_testShortSequence(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testShortSequence()
+}
+
+func TestFastDecompressionMode_testIncompressible(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testIncompressible()
+}
+
+func TestFastDecompressionMode_testConstant(t *testing.T) {
+	newAbstractTestCompressionMode(t, FAST_DECOMPRESSION).testConstant()
 }

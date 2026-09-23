@@ -37,19 +37,10 @@ type MSBRadixSorterImpl interface {
 	RadixSortable
 }
 
-// StringSorterImpl defines the interface for a data structure that can be
-// sorted using a string-aware sorter (radix or merge sort).
-type StringSorterImpl interface {
-	// Get resolves the value at slot i into a BytesRef.
-	Get(builder *BytesRefBuilder, out *BytesRef, i int)
-	// Swap values at slots i and j.
-	Swap(i, j int)
-	// Save writes the value at slot i into the j-th position in the
-	// caller's scratch storage.
-	Save(i, j int)
-	// Restore copies the scratch values back into slots [i, j) of the
-	// caller's primary storage.
-	Restore(i, j int)
+// Sorter is the public contract of org.apache.lucene.util.Sorter: sort the
+// slice of values between from inclusive and to exclusive.
+type Sorter interface {
+	Sort(from, to int)
 }
 
 const (
@@ -197,13 +188,26 @@ func BinarySortWithStart(s Sortable, from, to, i int) {
 }
 
 func binarySort(s Sortable, from, to, i int) {
+	// Sorter.setPivot/comparePivot: a Pivotable supplies its own pivot,
+	// otherwise the pivot is the slot index and comparePivot(j) is
+	// compare(pivotIndex, j).
+	p, pivotable := s.(Pivotable)
 	for ; i < to; i++ {
-		pivot := i
+		pivotIndex := i
+		if pivotable {
+			p.SetPivot(i)
+		}
 		l := from
 		h := i - 1
 		for l <= h {
-			mid := (l + h) >> 1
-			if s.Compare(mid, pivot) < 0 {
+			mid := int(uint(l+h) >> 1)
+			var cmp int
+			if pivotable {
+				cmp = p.ComparePivot(mid)
+			} else {
+				cmp = s.Compare(pivotIndex, mid)
+			}
+			if cmp < 0 {
 				h = mid - 1
 			} else {
 				l = mid + 1

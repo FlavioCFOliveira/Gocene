@@ -19,121 +19,117 @@
 
 package util
 
-// StableStringSorterImpl extends [StringSorterImpl] with the Save and
-// Restore hooks required to preserve the relative order of equal
-// inputs during the stable reorder and the stable merge-sort fallback.
-//
-// Mirrors the additional protected methods declared on
-// org.apache.lucene.util.StableStringSorter:
-//
-//   - save(int i, int j)    -> Save(i, j)
-//   - restore(int i, int j) -> Restore(i, j)
+// StableStringSorterImpl declares the abstract methods of
+// org.apache.lucene.util.StableStringSorter: those of [StringSorterImpl] plus
+// save and restore.
 type StableStringSorterImpl interface {
 	StringSorterImpl
-	// Save writes the value at slot i into the j-th position in the
-	// caller's scratch storage.
+	// Save saves the i-th value into the j-th position in temporary storage.
 	Save(i, j int)
-	// Restore copies the scratch values back into slots [i, j) of the
-	// caller's primary storage.
+	// Restore restores the values between the i-th and the j-th (excluded)
+	// positions of temporary storage into original storage.
 	Restore(i, j int)
 }
 
-// StableStringSorter is the stable variant of [StringSorter]:
-// equal-key entries preserve their input order. When the supplied
-// comparator is a [BytesRefComparator] the heavy lifting is delegated
-// to a [StableMSBRadixSorter]; otherwise the sort falls back to a
-// Save/Restore-aware merge sort that compares each candidate slot
-// through the configured comparator over materialized BytesRefs.
+// StableStringSorter is a [StringSorter] that keeps equal values in their
+// input order: its radix sorter is a [StableMSBRadixSorter] and its fallback
+// sorter is the StableMSBRadixSorter merge sort.
 //
-// Mirrors org.apache.lucene.util.StableStringSorter from Lucene 10.4.0.
-// Because Go has no virtual factory hooks, the dispatch normally
-// performed by overriding StringSorter.radixSorter / fallbackSorter
-// lives directly on StableStringSorter.Sort.
+// Port of the package-private abstract class
+// org.apache.lucene.util.StableStringSorter (Apache Lucene 10.5.0,
+// lucene/core/src/java/org/apache/lucene/util/StableStringSorter.java), which
+// extends StringSorter and overrides radixSorter and fallbackSorter. Go
+// renders the inheritance as embedding and the overrides as replacements of
+// the embedded sorter's factory fields.
 type StableStringSorter struct {
-	impl   StableStringSorterImpl
-	cmp    BytesRefComparator
-	natCmp func(o1, o2 *BytesRef) int
-
-	scratch1      *BytesRefBuilder
-	scratch2      *BytesRefBuilder
-	scratchBytes1 BytesRef
-	scratchBytes2 BytesRef
+	*StringSorter
+	stableImpl StableStringSorterImpl
 }
 
-// NewStableStringSorter returns a [StableStringSorter] that uses cmp
-// for the radix fast path. cmp must not be nil; for the
-// comparator-function fallback use [NewStableStringSorterFn].
+// NewStableStringSorter returns a StableStringSorter whose comparator is the
+// BytesRefComparator cmp, so Sort uses the stable radix sorter.
 func NewStableStringSorter(impl StableStringSorterImpl, cmp BytesRefComparator) *StableStringSorter {
-	if cmp == nil {
-		panic("util.NewStableStringSorter: cmp must not be nil")
-	}
-	return &StableStringSorter{
-		impl:     impl,
-		cmp:      cmp,
-		scratch1: NewBytesRefBuilder(),
-		scratch2: NewBytesRefBuilder(),
-	}
+	return newStableStringSorter(NewStringSorter(impl, cmp), impl)
 }
 
-// NewStableStringSorterFn returns a [StableStringSorter] that runs the
-// stable merge-sort fallback using the supplied comparator function.
-// Radix acceleration is unavailable on this path.
+// NewStableStringSorterFn returns a StableStringSorter whose comparator is not
+// a BytesRefComparator, so Sort uses the stable merge-sort fallback.
 func NewStableStringSorterFn(impl StableStringSorterImpl, cmp func(o1, o2 *BytesRef) int) *StableStringSorter {
-	if cmp == nil {
-		panic("util.NewStableStringSorterFn: cmp must not be nil")
-	}
-	return &StableStringSorter{
-		impl:     impl,
-		natCmp:   cmp,
-		scratch1: NewBytesRefBuilder(),
-		scratch2: NewBytesRefBuilder(),
-	}
+	return newStableStringSorter(NewStringSorterFn(impl, cmp), impl)
 }
 
-// Sort orders the slice [from, to) using a stable algorithm: equal-key
-// entries keep their input order. The radix path is preferred when a
-// [BytesRefComparator] is configured; otherwise the merge-sort
-// fallback is used directly.
-func (s *StableStringSorter) Sort(from, to int) {
-	if s.cmp != nil {
-		adapter := &stableStringRadixAdapter{owner: s}
-		NewStableMSBRadixSorter(adapter, s.cmp.ComparedBytesCount()).Sort(adapter, from, to)
-		return
-	}
-	(&stableStringMergeSorter{owner: s}).Sort(from, to)
+func newStableStringSorter(base *StringSorter, impl StableStringSorterImpl) *StableStringSorter {
+	s := &StableStringSorter{StringSorter: base, stableImpl: impl}
+	base.radixSorterFn = s.stableRadixSorter
+	base.fallbackSorterFn = s.stableFallbackSorter
+	return s
 }
 
-// stableStringRadixAdapter bridges StableStringSorter to
-// [StableMSBRadixSorter] by exposing ByteAt / Swap / Save / Restore on
-// the configured implementation. ByteAt resolves through the
-// configured BytesRefComparator's byte-stream view, matching the
-// override pattern in Lucene's StableStringSorter.radixSorter.
+// Save delegates to the implementation. Mirrors StableStringSorter.save.
+func (s *StableStringSorter) Save(i, j int) {
+	s.stableImpl.Save(i, j)
+}
+
+// Restore delegates to the implementation. Mirrors StableStringSorter.restore.
+func (s *StableStringSorter) Restore(i, j int) {
+	s.stableImpl.Restore(i, j)
+}
+
+// stableRadixSorter mirrors the StableStringSorter.radixSorter override: an
+// anonymous StableMSBRadixSorter whose save, restore, swap and byteAt reach
+// this sorter and whose fallback sorter is fallbackSorter comparing from the
+// k-th byte on.
+func (s *StableStringSorter) stableRadixSorter(cmp BytesRefComparator) Sorter {
+	adapter := &stableStringRadixAdapter{owner: s, cmp: cmp}
+	radix := NewStableMSBRadixSorter(adapter, cmp.ComparedBytesCount())
+	radix.MSBRadixSorter.fallbackSorterFn = func(_ RadixSortable, from, to, k int) {
+		s.FallbackSorter(func(o1, o2 *BytesRef) int { return cmp.CompareK(o1, o2, k) }).Sort(from, to)
+	}
+	adapter.radix = radix
+	return adapter
+}
+
+// stableFallbackSorter mirrors the StableStringSorter.fallbackSorter
+// override: a StableMSBRadixSorter.MergeSorter whose compare runs cmp over
+// the materialised values.
+func (s *StableStringSorter) stableFallbackSorter(cmp func(o1, o2 *BytesRef) int) Sorter {
+	return &stableStringMergeSorter{owner: s, cmp: cmp}
+}
+
+// stableStringRadixAdapter is the anonymous StableMSBRadixSorter subclass of
+// StableStringSorter.radixSorter.
 type stableStringRadixAdapter struct {
 	owner *StableStringSorter
+	cmp   BytesRefComparator
+	radix *StableMSBRadixSorter
+}
+
+func (a *stableStringRadixAdapter) Sort(from, to int) {
+	a.radix.Sort(a, from, to)
 }
 
 func (a *stableStringRadixAdapter) ByteAt(i, k int) int {
-	a.owner.impl.Get(a.owner.scratch1, &a.owner.scratchBytes1, i)
-	return a.owner.cmp.ByteAt(&a.owner.scratchBytes1, k)
+	o := a.owner.StringSorter
+	o.impl.Get(o.scratch1, o.scratchBytes1, i)
+	return a.cmp.ByteAt(o.scratchBytes1, k)
 }
 
+// Compare is the final MSBRadixSorter.compare, unsupported for a radix sort.
 func (a *stableStringRadixAdapter) Compare(i, j int) int {
-	a.owner.impl.Get(a.owner.scratch1, &a.owner.scratchBytes1, i)
-	a.owner.impl.Get(a.owner.scratch2, &a.owner.scratchBytes2, j)
-	return a.owner.cmp.Compare(&a.owner.scratchBytes1, &a.owner.scratchBytes2)
+	panic("unused: not a comparison-based sort")
 }
 
 func (a *stableStringRadixAdapter) Swap(i, j int)    { a.owner.impl.Swap(i, j) }
-func (a *stableStringRadixAdapter) Save(i, j int)    { a.owner.impl.Save(i, j) }
-func (a *stableStringRadixAdapter) Restore(i, j int) { a.owner.impl.Restore(i, j) }
+func (a *stableStringRadixAdapter) Save(i, j int)    { a.owner.Save(i, j) }
+func (a *stableStringRadixAdapter) Restore(i, j int) { a.owner.Restore(i, j) }
 
-// stableStringMergeSorter is the Save/Restore-aware merge sort used
-// as the StableStringSorter fallback path. It mirrors
-// StableMSBRadixSorter.MergeSorter with compare() overridden to invoke
-// the configured comparator over materialized BytesRef scratch values
-// (rather than the byte-stream view used inside the radix sort).
+// stableStringMergeSorter is the anonymous StableMSBRadixSorter.MergeSorter
+// subclass of StableStringSorter.fallbackSorter: a stable merge sort through
+// save and restore whose compare runs the comparator over the materialised
+// values.
 type stableStringMergeSorter struct {
 	owner *StableStringSorter
+	cmp   func(o1, o2 *BytesRef) int
 }
 
 // Sort dispatches between binary-sort for small ranges and recursive
@@ -156,14 +152,12 @@ func (m *stableStringMergeSorter) mergeSort(from, to int) {
 	m.merge(from, to, mid)
 }
 
-// compare runs the configured comparator over two materialized slots.
+// compare runs the comparator over two materialised slots.
 func (m *stableStringMergeSorter) compare(i, j int) int {
-	m.owner.impl.Get(m.owner.scratch1, &m.owner.scratchBytes1, i)
-	m.owner.impl.Get(m.owner.scratch2, &m.owner.scratchBytes2, j)
-	if m.owner.cmp != nil {
-		return m.owner.cmp.Compare(&m.owner.scratchBytes1, &m.owner.scratchBytes2)
-	}
-	return m.owner.natCmp(&m.owner.scratchBytes1, &m.owner.scratchBytes2)
+	o := m.owner.StringSorter
+	o.impl.Get(o.scratch1, o.scratchBytes1, i)
+	o.impl.Get(o.scratch2, o.scratchBytes2, j)
+	return m.cmp(o.scratchBytes1, o.scratchBytes2)
 }
 
 // binarySort is a stable insertion sort by binary-search probe.
@@ -194,7 +188,7 @@ func (m *stableStringMergeSorter) merge(from, to, mid int) {
 	left, right, index := from, mid, from
 	for {
 		if m.compare(left, right) <= 0 {
-			m.owner.impl.Save(left, index)
+			m.owner.Save(left, index)
 			left++
 			index++
 			if left == mid {
@@ -202,7 +196,7 @@ func (m *stableStringMergeSorter) merge(from, to, mid int) {
 				break
 			}
 		} else {
-			m.owner.impl.Save(right, index)
+			m.owner.Save(right, index)
 			right++
 			index++
 			if right == to {
@@ -211,11 +205,11 @@ func (m *stableStringMergeSorter) merge(from, to, mid int) {
 			}
 		}
 	}
-	m.owner.impl.Restore(from, to)
+	m.owner.Restore(from, to)
 }
 
 func (m *stableStringMergeSorter) bulkSave(from, tmpFrom, length int) {
 	for i := 0; i < length; i++ {
-		m.owner.impl.Save(from+i, tmpFrom+i)
+		m.owner.Save(from+i, tmpFrom+i)
 	}
 }

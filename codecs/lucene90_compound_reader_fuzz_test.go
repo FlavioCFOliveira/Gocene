@@ -64,7 +64,7 @@ func buildValidCFE(tb testing.TB) []byte {
 	defer in.Close()
 	n := in.Length()
 	buf := make([]byte, n)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		tb.Fatalf("read seed bytes: %v", err)
 	}
 	return buf
@@ -104,7 +104,7 @@ func FuzzLucene90CompoundEntriesRead(f *testing.F) {
 		if err != nil {
 			t.Fatalf("create fuzz output: %v", err)
 		}
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			t.Fatalf("write fuzz bytes: %v", err)
 		}
 		if err := out.Close(); err != nil {

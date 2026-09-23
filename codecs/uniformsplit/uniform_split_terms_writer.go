@@ -501,7 +501,12 @@ func (w *UniformSplitTermsWriter) WritePostingLine(
 	state := w.PostingsWriter.NewTermState()
 	base := codecs.BaseState(state)
 	base.DocFreq = docFreq
-	base.TotalTermFreq = totalTermFreq
+	// PushPostingsWriterBase.writeTerm: state.totalTermFreq = writeFreqs ? totalTermFreq : -1
+	if writeFreqs {
+		base.TotalTermFreq = totalTermFreq
+	} else {
+		base.TotalTermFreq = -1
+	}
 	if err := w.PostingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}

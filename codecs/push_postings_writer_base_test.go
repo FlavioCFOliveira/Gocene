@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // fakePushWriter records every push-API call so WriteTerm's traversal order
@@ -114,6 +115,16 @@ func (s *scriptedPostingsEnum) GetPayload() ([]byte, error) {
 	return s.payMat[s.docIdx], nil
 }
 func (s *scriptedPostingsEnum) Cost() int64 { return int64(len(s.docs) - 1) }
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (s *scriptedPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (s *scriptedPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
 
 func TestWriteTerm_DocsOnly(t *testing.T) {
 	t.Parallel()

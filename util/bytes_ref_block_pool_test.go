@@ -16,7 +16,7 @@ import (
 func TestBytesRefBlockPool_EncodingShortLength(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	term := []byte("lucene")
 	off, err := rp.AddBytesRef(NewBytesRef(term))
 	if err != nil {
@@ -41,7 +41,7 @@ func TestBytesRefBlockPool_EncodingShortLength(t *testing.T) {
 func TestBytesRefBlockPool_EncodingLongLength(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	term := bytes.Repeat([]byte{0x41}, 200) // 0xC8 > 127
 	off, err := rp.AddBytesRef(NewBytesRef(term))
 	if err != nil {
@@ -69,7 +69,7 @@ func TestBytesRefBlockPool_EncodingLongLength(t *testing.T) {
 func TestBytesRefBlockPool_RoundTrip(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	cases := []string{
 		"",
 		"a",
@@ -101,7 +101,7 @@ func TestBytesRefBlockPool_RoundTrip(t *testing.T) {
 func TestBytesRefBlockPool_Equals_AcrossLengths(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	for _, term := range []string{"x", strings.Repeat("q", 250)} {
 		off, err := rp.AddBytesRef(NewBytesRef([]byte(term)))
 		if err != nil {
@@ -122,7 +122,7 @@ func TestBytesRefBlockPool_Equals_AcrossLengths(t *testing.T) {
 func TestBytesRefBlockPool_Hash(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	seen := make(map[int]string)
 	for _, s := range []string{"abc", "xyz", "hello", "world", "lucene", "gocene"} {
 		off, err := rp.AddBytesRef(NewBytesRef([]byte(s)))
@@ -143,7 +143,7 @@ func TestBytesRefBlockPool_Hash(t *testing.T) {
 func TestBytesRefBlockPool_Reset(t *testing.T) {
 	bp := NewByteBlockPool(NewDirectAllocator())
 	bp.NextBuffer()
-	rp := NewBytesRefBlockPool(bp)
+	rp := NewBytesRefBlockPoolWithPool(bp)
 	_, _ = rp.AddBytesRef(NewBytesRef([]byte("first")))
 	rp.Reset()
 	bp.NextBuffer()

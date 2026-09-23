@@ -2,11 +2,13 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package util
+package util_test
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // Test2BPagedBytes is the Go port of Lucene's Test2BPagedBytes "monster" test
@@ -30,7 +32,7 @@ func Test2BPagedBytes(t *testing.T) {
 	// various block sizes without requiring multi-GiB allocations.
 	for _, blockBits := range []int{8, 12, 16} {
 		t.Run(fmt.Sprintf("blockBits=%d", blockBits), func(t *testing.T) {
-			pb, err := NewPagedBytes(blockBits)
+			pb, err := store.NewPagedBytes(blockBits)
 			if err != nil {
 				t.Fatalf("NewPagedBytes(%d): %v", blockBits, err)
 			}
@@ -42,7 +44,7 @@ func Test2BPagedBytes(t *testing.T) {
 			for i := range data {
 				data[i] = byte(i % 251) // non-repeating-ish pattern
 			}
-			if err := out.WriteBytes(data); err != nil {
+			if err := out.WriteBytes(data, 0, len(data)); err != nil {
 				t.Fatalf("WriteBytes: %v", err)
 			}
 			reader, err := pb.Freeze(true)

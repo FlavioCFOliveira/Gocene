@@ -182,10 +182,10 @@ func TestPerFieldPostingsFormat_Random(t *testing.T) {
 	allFields = append(allFields, slowFields...)
 
 	for i, name := range allFields {
-		if err := fis.Add(index.NewFieldInfo(name, i, index.FieldInfoOptions{
+		if added := fis.Add(index.NewFieldInfo(name, i, index.FieldInfoOptions{
 			IndexOptions: index.IndexOptionsDocs,
-		})); err != nil {
-			t.Fatalf("fis.Add(%q): %v", name, err)
+		})); added == nil {
+			t.Fatalf("fis.Add(%q): nil", name)
 		}
 	}
 

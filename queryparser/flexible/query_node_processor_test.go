@@ -312,7 +312,7 @@ func TestIsLeafNodeType(t *testing.T) {
 		expected bool
 	}{
 		{NewFieldQueryNode("", "", 0, 0), true},
-		{NewFuzzyQueryNode("", "", 0.5, 0, 0, 0), true},
+		{NewFuzzyQueryNode("", "", 0.5, 0, 0), true},
 		{NewPhraseSlopQueryNode("", "", 0, 0, 0), true},
 		{NewMatchAllDocsQueryNode(), true},
 		{NewMatchNoDocsQueryNode(), true},

@@ -6,7 +6,6 @@ package util
 
 import (
 	"bytes"
-	"sync/atomic"
 	"testing"
 )
 
@@ -104,18 +103,18 @@ func TestByteBlockPool_ZeroFill(t *testing.T) {
 }
 
 func TestDirectTrackingAllocator(t *testing.T) {
-	used := &atomic.Int64{}
+	used := NewCounter()
 	alloc := NewDirectTrackingAllocator(used)
 
 	block := alloc.GetByteBlock()
-	if used.Load() != int64(ByteBlockSize) {
-		t.Errorf("expected %d, got %d", ByteBlockSize, used.Load())
+	if used.Get() != int64(ByteBlockSize) {
+		t.Errorf("expected %d, got %d", ByteBlockSize, used.Get())
 	}
 
 	blocks := [][]byte{block}
 	alloc.RecycleByteBlocks(blocks, 0, 1)
-	if used.Load() != 0 {
-		t.Errorf("expected 0, got %d", used.Load())
+	if used.Get() != 0 {
+		t.Errorf("expected 0, got %d", used.Get())
 	}
 }
 
@@ -165,13 +164,17 @@ func TestByteBlockPool_SetBytesRefReal(t *testing.T) {
 
 	// Fill block 0 with 'A's
 	data0 := make([]byte, ByteBlockSize)
-	for i := range data0 { data0[i] = 'A' }
+	for i := range data0 {
+		data0[i] = 'A'
+	}
 	pool.AppendBytes(data0)
 
 	// No need to call NextBuffer() here because AppendBytes already did.
 	// Fill block 1 with 'B's
 	data1 := make([]byte, ByteBlockSize)
-	for i := range data1 { data1[i] = 'B' }
+	for i := range data1 {
+		data1[i] = 'B'
+	}
 	pool.AppendBytes(data1)
 
 	builder := NewBytesRefBuilder()

@@ -50,17 +50,46 @@ type pointsWriter struct {
 	finished bool
 }
 
-// newPointsWriter renders the constructor Lucene90PointsWriter(SegmentWriteState,
-// int maxPointsInLeafNode, double maxMBSortInHeap, int version) as reached from
-// Lucene90PointsFormat.fieldsWriter, with the defaults
-// BKDConfig.DEFAULT_MAX_POINTS_IN_LEAF_NODE and
+// newPointsWriter renders the package-private constructor
+// Lucene90PointsWriter(SegmentWriteState, int version) ("used for testing with
+// older versions") as reached from Lucene90PointsFormat.fieldsWriter, with the
+// defaults BKDConfig.DEFAULT_MAX_POINTS_IN_LEAF_NODE and
 // BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP. Installed as the codecs Lucene90
 // points writer hook.
 func newPointsWriter(writeState *codecs.SegmentWriteState, version int32) (codecs.PointsWriter, error) {
+	return NewLucene90PointsWriterWithSortParamsAndVersion(
+		writeState, bkd.DefaultMaxPointsInLeafNode, bkd.DefaultMaxMBSortInHeap, version)
+}
+
+// NewLucene90PointsWriter renders the public constructor
+// Lucene90PointsWriter(SegmentWriteState): it uses the default values for
+// maxPointsInLeafNode (512) and maxMBSortInHeap (16.0).
+func NewLucene90PointsWriter(writeState *codecs.SegmentWriteState) (codecs.PointsWriter, error) {
+	return NewLucene90PointsWriterWithSortParamsAndVersion(
+		writeState, bkd.DefaultMaxPointsInLeafNode, bkd.DefaultMaxMBSortInHeap, codecs.Lucene90PointsVersionCurrent)
+}
+
+// NewLucene90PointsWriterWithSortParams renders the public constructor
+// Lucene90PointsWriter(SegmentWriteState, int maxPointsInLeafNode, double
+// maxMBSortInHeap), which writes Lucene90PointsFormat.VERSION_CURRENT.
+func NewLucene90PointsWriterWithSortParams(writeState *codecs.SegmentWriteState, maxPointsInLeafNode int,
+	maxMBSortInHeap float64) (codecs.PointsWriter, error) {
+	return NewLucene90PointsWriterWithSortParamsAndVersion(
+		writeState, maxPointsInLeafNode, maxMBSortInHeap, codecs.Lucene90PointsVersionCurrent)
+}
+
+// NewLucene90PointsWriterWithSortParamsAndVersion renders the public
+// constructor Lucene90PointsWriter(SegmentWriteState, int maxPointsInLeafNode,
+// double maxMBSortInHeap, int version).
+func NewLucene90PointsWriterWithSortParamsAndVersion(writeState *codecs.SegmentWriteState,
+	maxPointsInLeafNode int, maxMBSortInHeap float64, version int32) (codecs.PointsWriter, error) {
+	if util.AssertsEnabled() && !writeState.FieldInfos.HasPointValues() {
+		panic(util.NewAssertionError(nil))
+	}
 	w := &pointsWriter{
 		writeState:          writeState,
-		maxPointsInLeafNode: bkd.DefaultMaxPointsInLeafNode,
-		maxMBSortInHeap:     bkd.DefaultMaxMBSortInHeap,
+		maxPointsInLeafNode: maxPointsInLeafNode,
+		maxMBSortInHeap:     maxMBSortInHeap,
 		version:             version,
 	}
 	w.BasePointsWriter = codecs.NewBasePointsWriter(w)

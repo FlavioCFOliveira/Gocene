@@ -443,7 +443,7 @@ func (r *Lucene104PostingsReader) Close() error {
 
 // readVInt15 reads an integer encoded with writeVInt15.
 // Mirror of Lucene104PostingsReader.readVInt15(DataInput).
-func readVInt15(in store.IndexInput) (int, error) {
+func readVInt15(in store.DataInput) (int, error) {
 	s, err := in.ReadShort()
 	if err != nil {
 		return 0, err
@@ -460,7 +460,7 @@ func readVInt15(in store.IndexInput) (int, error) {
 
 // readVLong15 reads a long encoded with writeVLong15.
 // Mirror of Lucene104PostingsReader.readVLong15(DataInput).
-func readVLong15(in store.IndexInput) (int64, error) {
+func readVLong15(in store.DataInput) (int64, error) {
 	s, err := in.ReadShort()
 	if err != nil {
 		return 0, err
