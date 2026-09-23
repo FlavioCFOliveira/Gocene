@@ -27,6 +27,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -85,6 +86,16 @@ func (d *skipperDocValues) LongValue() (int64, error) {
 }
 
 func (d *skipperDocValues) Cost() int64 { return 42 }
+
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (d *skipperDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(d)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (d *skipperDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
 
 // errUnsupportedAdvanceExact mirrors the UnsupportedOperationException the Java
 // fixture throws from advanceExact.

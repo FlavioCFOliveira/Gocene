@@ -47,6 +47,15 @@ func NewLatLonDocValuesField(name string, latitude, longitude float64) (*LatLonD
 	return &LatLonDocValuesField{Field: field}, nil
 }
 
+// SetLocationValue changes the values of the field. Mirrors
+// LatLonDocValuesField.setLocationValue(double, double) of Apache Lucene
+// 10.5.0: fieldsData becomes (latitudeEncoded << 32) | (longitudeEncoded &
+// 0xFFFFFFFFL); an out-of-range coordinate panics with the
+// IllegalArgumentException GeoEncodingUtils raises.
+func (f *LatLonDocValuesField) SetLocationValue(latitude, longitude float64) {
+	f.SetLongValue(EncodeLatLonAsLong(latitude, longitude))
+}
+
 // EncodeLatLonAsLong combines latitude and longitude into a single int64:
 // upper 32 bits = encoded latitude, lower 32 bits = encoded longitude.
 // Mirrors Lucene's setLocationValue bit layout.

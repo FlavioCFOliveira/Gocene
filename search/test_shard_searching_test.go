@@ -39,13 +39,12 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so postings are flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Register the production codec so postings are flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 const shardSearchingField = "body"
@@ -61,7 +60,7 @@ type shardSearchingNode struct {
 func buildShardSearchingNode(t *testing.T, bodies []string) *shardSearchingNode {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -76,7 +75,7 @@ func buildShardSearchingNode(t *testing.T, bodies []string) *shardSearchingNode 
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
 	}
-	if cerr := w.Commit(); cerr != nil {
+	if _, cerr := w.Commit(); cerr != nil {
 		t.Fatalf("Commit: %v", cerr)
 	}
 	if cerr := w.Close(); cerr != nil {

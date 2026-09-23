@@ -105,11 +105,11 @@ func newCdjTwoPhaseScorer(tpi *search.TwoPhaseIterator) *cdjTwoPhaseScorer {
 // interface used by addScorer/IntersectScorers.
 func (s *cdjTwoPhaseScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return s.tpi }
 
-func (s *cdjTwoPhaseScorer) DocID() int                   { return s.disi.DocID() }
-func (s *cdjTwoPhaseScorer) Cost() int64                  { return s.disi.Cost() }
-func (s *cdjTwoPhaseScorer) DocIDRunEnd() (int, error)    { return s.disi.DocID() + 1, nil }
-func (s *cdjTwoPhaseScorer) Score() float32               { return 1 }
-func (s *cdjTwoPhaseScorer) GetMaxScore(upTo int) float32 { return 1 }
+func (s *cdjTwoPhaseScorer) DocID() int                            { return s.disi.DocID() }
+func (s *cdjTwoPhaseScorer) Cost() int64                           { return s.disi.Cost() }
+func (s *cdjTwoPhaseScorer) DocIDRunEnd() (int, error)             { return s.disi.DocID() + 1, nil }
+func (s *cdjTwoPhaseScorer) Score() (float32, error)               { return 1, nil }
+func (s *cdjTwoPhaseScorer) GetMaxScore(upTo int) (float32, error) { return 1, nil }
 func (s *cdjTwoPhaseScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
@@ -123,11 +123,11 @@ func (s *cdjTwoPhaseScorer) Advance(target int) (int, error) {
 // cdjPlainScorer wraps any DISI as a Scorer with no two-phase view.
 type cdjPlainScorer struct{ inner util.DocIdSetIterator }
 
-func (s *cdjPlainScorer) DocID() int                   { return s.inner.DocID() }
-func (s *cdjPlainScorer) Cost() int64                  { return s.inner.Cost() }
-func (s *cdjPlainScorer) DocIDRunEnd() (int, error)    { return s.inner.DocID() + 1, nil }
-func (s *cdjPlainScorer) Score() float32               { return 1 }
-func (s *cdjPlainScorer) GetMaxScore(upTo int) float32 { return 1 }
+func (s *cdjPlainScorer) DocID() int                            { return s.inner.DocID() }
+func (s *cdjPlainScorer) Cost() int64                           { return s.inner.Cost() }
+func (s *cdjPlainScorer) DocIDRunEnd() (int, error)             { return s.inner.DocID() + 1, nil }
+func (s *cdjPlainScorer) Score() (float32, error)               { return 1, nil }
+func (s *cdjPlainScorer) GetMaxScore(upTo int) (float32, error) { return 1, nil }
 func (s *cdjPlainScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
@@ -429,4 +429,61 @@ func (s *cdjTwoPhaseScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offse
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *cdjPlainScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *cdjPlainScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
+func (s *cdjPlainScorer) Iterator() search.DocIdSetIterator {
+	return s
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *cdjPlainScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *cdjPlainScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *cdjPlainScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *cdjPlainScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *cdjTwoPhaseScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
+func (s *cdjTwoPhaseScorer) Iterator() search.DocIdSetIterator {
+	return s
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *cdjTwoPhaseScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *cdjTwoPhaseScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *cdjTwoPhaseScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
 }

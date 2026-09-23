@@ -78,7 +78,7 @@ type earlyTerminationLeafCollector struct {
 	terminated bool
 }
 
-func (lc *earlyTerminationLeafCollector) SetScorer(_ search.Scorer) error { return nil }
+func (lc *earlyTerminationLeafCollector) SetScorer(_ search.Scorable) error { return nil }
 
 func (lc *earlyTerminationLeafCollector) Collect(_ int) error {
 	if lc.terminated {
@@ -89,5 +89,30 @@ func (lc *earlyTerminationLeafCollector) Collect(_ int) error {
 		lc.terminated = true
 		return search.NewCollectionTerminatedException()
 	}
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *earlyTerminationCollector) SetWeight(weight search.Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (lc *earlyTerminationLeafCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(lc, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (lc *earlyTerminationLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(lc, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (lc *earlyTerminationLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (lc *earlyTerminationLeafCollector) Finish() error {
 	return nil
 }

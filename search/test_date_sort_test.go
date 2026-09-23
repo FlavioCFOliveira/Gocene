@@ -21,6 +21,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -62,7 +63,7 @@ func TestDateSort_TestDateSort(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestDateSort_TestDateSort(t *testing.T) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	defer func() { _ = w.Close() }()
@@ -96,10 +97,10 @@ func TestDateSort_TestDateSort(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Reverse STRING sort on the dateTime field → newest first.
-	sort := search.NewSort(search.NewSortFieldReverse(dateSortDateTimeField, search.SortFieldTypeString))
+	sort := search.NewSort(search.NewSortFieldWithReverse(dateSortDateTimeField, spi.SortFieldTypeString, true))
 	query := search.NewTermQuery(index.NewTerm(dateSortTextField, "document"))
 
-	top, err := searcher.SearchWithSort(query, 1000, sort)
+	top, err := searcher.SearchWithSort(query, 1000, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}

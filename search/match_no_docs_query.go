@@ -81,3 +81,9 @@ var _ Query = (*MatchNoDocsQuery)(nil)
 
 // Ensure matchNoDocsWeight implements Weight.
 var _ Weight = (*matchNoDocsWeight)(nil)
+
+// Rewrite renders the inherited Query.rewrite(IndexSearcher), which returns
+// this; MatchNoDocsQuery does not override it.
+func (q *MatchNoDocsQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q, nil
+}

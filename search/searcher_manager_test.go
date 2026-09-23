@@ -2,697 +2,862 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Source: lucene/core/src/test/org/apache/lucene/search/TestSearcherManager.java
-// Purpose: Tests for SearcherManager - NRT reopen, thread safety, lifecycle management
+// Port of lucene/core/src/test/org/apache/lucene/search/TestSearcherManager.java
+// (Apache Lucene 10.5.0).
+//
+// @SuppressCodecs({"SimpleText", "Direct"}): the default codec is used.
+//
+// Gocene's SearcherManager, SearcherFactory, ReferenceManager and
+// SearcherLifetimeManager do not render the Lucene API the test drives: the
+// members that have no Gocene counterpart are rendered as helpers that fail
+// the test naming the missing member, and the test body is kept complete.
 
 package search_test
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// TestSearcherManager_Basic tests that a SearcherManager can be created from a
-// directory, that Acquire/Release work, and that the acquired searcher can
-// search the committed index.
-func TestSearcherManager_Basic(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+const (
+	// threadedIndexingAndSearchingBlocker names the base class of TestSearcherManager.
+	threadedIndexingAndSearchingBlocker = "requires org.apache.lucene.tests.index.ThreadedIndexingAndSearchingTestCase (not ported)"
+	// searcherLifetimeManagerBlocker names the SearcherLifetimeManager members the test uses.
+	searcherLifetimeManagerBlocker = "requires org.apache.lucene.search.SearcherLifetimeManager() with record(IndexSearcher), " +
+		"acquire(long), prune(Pruner), close() and SearcherLifetimeManager.PruneByAge (Gocene's " +
+		"SearcherLifetimeManager(manager, maxAge, maxSearchers) is not the Lucene class)"
+	// searcherFactoryPreviousReaderBlocker names the overridable SearcherFactory member.
+	searcherFactoryPreviousReaderBlocker = "requires org.apache.lucene.search.SearcherFactory.newSearcher(IndexReader, " +
+		"IndexReader previousReader) (Gocene's SearcherFactory.NewSearcher(ctx, reader) drops previousReader)"
+	// maybeRefreshBlockingBlocker names ReferenceManager.maybeRefreshBlocking().
+	maybeRefreshBlockingBlocker = "requires org.apache.lucene.search.ReferenceManager.maybeRefreshBlocking() (not ported)"
+	// refreshListenerBlocker names ReferenceManager.addListener(RefreshListener).
+	refreshListenerBlocker = "requires org.apache.lucene.search.ReferenceManager.addListener(ReferenceManager.RefreshListener) " +
+		"with afterRefresh(boolean didRefresh) (Gocene's RefreshListener.AfterRefresh(generation) is not the Lucene interface)"
+	// newFSDirectoryBlocker names LuceneTestCase.newFSDirectory(Path) and createTempDir().
+	newFSDirectoryBlocker = "requires LuceneTestCase.newFSDirectory(Path) and LuceneTestCase.createTempDir() (not ported)"
+)
 
-	// Build a small committed index.
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+// smNewSearcherManager renders new SearcherManager(IndexWriter, SearcherFactory).
+func smNewSearcherManager(t *testing.T, w *index.IndexWriter, factory search.SearcherFactory) *search.SearcherManager {
+	t.Helper()
+	sm, err := search.NewSearcherManager(w, factory)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("new SearcherManager: %v", err)
 	}
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "hello world", true)
-		doc.Add(f)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	w.Close()
+	return sm
+}
 
-	// Create SearcherManager from directory, with an afterClose that closes the reader.
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
+// smNewSearcherManagerWithOptions renders new SearcherManager(IndexWriter,
+// boolean applyAllDeletes, boolean writeAllDeletes, SearcherFactory).
+func smNewSearcherManagerWithOptions(t *testing.T, w *index.IndexWriter, applyAllDeletes, writeAllDeletes bool, factory search.SearcherFactory) *search.SearcherManager {
+	t.Helper()
+	sm, err := search.NewSearcherManagerWithOptions(w, applyAllDeletes, writeAllDeletes, factory, nil)
 	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
+		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer sm.Close()
+	return sm
+}
 
-	searcher, err := sm.Acquire()
+// smNewSearcherManagerFromDir renders new SearcherManager(Directory, SearcherFactory).
+func smNewSearcherManagerFromDir(t *testing.T, dir store.Directory, factory search.SearcherFactory) *search.SearcherManager {
+	t.Helper()
+	sm, err := search.NewSearcherManagerFromDir(dir, factory)
 	if err != nil {
-		t.Fatalf("Acquire: %v", err)
+		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer sm.Release(searcher)
+	return sm
+}
 
-	topDocs, err := searcher.Search(search.NewMatchAllDocsQuery(), 10)
+// smAcquire renders ReferenceManager.acquire().
+func smAcquire(t *testing.T, sm *search.SearcherManager) *search.IndexSearcher {
+	t.Helper()
+	s, err := sm.Acquire()
 	if err != nil {
-		t.Fatalf("Search: %v", err)
+		t.Fatalf("acquire: %v", err)
 	}
-	if topDocs.TotalHits.Value != 5 {
-		t.Errorf("expected 5 hits, got %d", topDocs.TotalHits.Value)
+	return s
+}
+
+// smRelease renders ReferenceManager.release(G).
+func smRelease(t *testing.T, sm *search.SearcherManager, s *search.IndexSearcher) {
+	t.Helper()
+	if err := sm.Release(s); err != nil {
+		t.Fatalf("release: %v", err)
 	}
 }
 
-// TestSearcherManager_NRT tests NRT behavior: create a SearcherManager from a
-// directory, add documents via IndexWriter, commit, refresh, and verify the
-// searcher sees the new documents.
-func TestSearcherManager_NRT(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Build initial committed index.
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+// smMaybeRefresh renders ReferenceManager.maybeRefresh().
+func smMaybeRefresh(t *testing.T, sm *search.SearcherManager) bool {
+	t.Helper()
+	refreshed, err := sm.MaybeRefresh()
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("maybeRefresh: %v", err)
 	}
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "initial doc", true)
-	doc.Add(f)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	// Create SearcherManager from directory.
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-	defer sm.Close()
-
-	// Verify initial searcher sees 1 doc.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-	topDocs, err := searcher.Search(search.NewMatchAllDocsQuery(), 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if topDocs.TotalHits.Value != 1 {
-		t.Errorf("before refresh: expected 1 hit, got %d", topDocs.TotalHits.Value)
-	}
-	sm.Release(searcher)
-
-	// Add more docs and commit.
-	for i := 0; i < 3; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "new doc", true)
-		doc.Add(f)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	// Trigger refresh.
-	ctx := context.Background()
-	refreshed, err := sm.MaybeRefresh(ctx)
-	if err != nil {
-		t.Fatalf("MaybeRefresh: %v", err)
-	}
-	if !refreshed {
-		t.Error("expected refresh to return true after commit")
-	}
-
-	// Verify searcher now sees 4 docs.
-	searcher2, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire after refresh: %v", err)
-	}
-	defer sm.Release(searcher2)
-	topDocs2, err := searcher2.Search(search.NewMatchAllDocsQuery(), 10)
-	if err != nil {
-		t.Fatalf("Search after refresh: %v", err)
-	}
-	if topDocs2.TotalHits.Value != 4 {
-		t.Errorf("after refresh: expected 4 hits, got %d", topDocs2.TotalHits.Value)
-	}
-
-	w.Close()
+	return refreshed
 }
 
-// TestSearcherManager_IntermediateClose tests that the SearcherManager does
-// not deadlock or panic when Close is called during a concurrent Acquire.
-func TestSearcherManager_IntermediateClose(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// smMaybeRefreshBlocking renders ReferenceManager.maybeRefreshBlocking().
+func smMaybeRefreshBlocking(t *testing.T, sm *search.SearcherManager) {
+	t.Helper()
+	t.Fatal(maybeRefreshBlockingBlocker)
+}
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+// smIsSearcherCurrent renders SearcherManager.isSearcherCurrent().
+func smIsSearcherCurrent(t *testing.T, sm *search.SearcherManager) bool {
+	t.Helper()
+	current, err := sm.IsSearcherCurrent()
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("isSearcherCurrent: %v", err)
 	}
-	w.Close()
+	return current
+}
 
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-
-	// Acquire, then close, then verify release still works.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-
+// smClose renders ReferenceManager.close().
+func smClose(t *testing.T, sm *search.SearcherManager) {
+	t.Helper()
 	if err := sm.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !sm.IsClosed() {
-		t.Error("expected manager to be closed")
-	}
-
-	// Release should still work after close (the searcher was acquired before close).
-	if err := sm.Release(searcher); err != nil {
-		t.Errorf("Release after close: %v", err)
+		t.Fatalf("close: %v", err)
 	}
 }
 
-// TestSearcherManager_CloseTwice verifies that Close can be called multiple
-// times without error (per Closeable's contract).
-func TestSearcherManager_CloseTwice(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	w.Close()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, nil)
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-
-	if err := sm.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
-	if err := sm.Close(); err != nil {
-		t.Errorf("second Close: %v", err)
+// expectAlreadyClosed renders expectThrows(AlreadyClosedException.class, ...).
+func expectAlreadyClosed(t *testing.T, err error) {
+	t.Helper()
+	var ace *store.AlreadyClosedException
+	if !errors.As(err, &ace) {
+		t.Fatalf("expected AlreadyClosedException, got %v", err)
 	}
 }
 
-// TestSearcherManager_EnsureOpen verifies that Acquire and MaybeRefresh return
-// an error when called after Close.
-func TestSearcherManager_EnsureOpen(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	w.Close()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, nil)
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire before close: %v", err)
-	}
-	sm.Release(searcher)
-
-	if err := sm.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if _, err := sm.Acquire(); err == nil {
-		t.Error("expected error on Acquire after Close")
-	}
-
-	ctx := context.Background()
-	if _, err := sm.MaybeRefresh(ctx); err == nil {
-		t.Error("expected error on MaybeRefresh after Close")
-	}
+// smWarmingFactory renders the anonymous SearcherFactory of doAfterWriter.
+type smWarmingFactory struct {
+	t  *testing.T
+	tc *searcherManagerTestCase
+	es search.Executor
 }
 
-// TestSearcherManager_ListenerCalled tests that the afterClose callback is
-// invoked when a searcher is released.
-func TestSearcherManager_ListenerCalled(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// NewSearcher renders newSearcher(IndexReader r, IndexReader previous).
+func (f *smWarmingFactory) NewSearcher(ctx context.Context, r index.IndexReaderInterface) (*search.IndexSearcher, error) {
+	f.t.Fatal(searcherFactoryPreviousReaderBlocker)
+	s := search.NewIndexSearcherWithExecutor(r, f.es)
+	f.tc.warmCalled = true
+	if _, err := s.Search(search.NewTermQuery(index.NewTerm("body", "united")), 10); err != nil {
+		return nil, err
 	}
-	w.Close()
-
-	afterCloseCalled := false
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		afterCloseCalled = true
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-
-	// Acquire, release (ref goes to zero), then close.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-	sm.Release(searcher)
-
-	// afterClose won't be called until the searcher is swapped out or the
-	// manager closes and the ref count reaches zero.
-	sm.Close()
-
-	if !afterCloseCalled {
-		t.Error("expected afterClose callback to be invoked")
-	}
+	return s, nil
 }
 
-// TestSearcherManager_PreviousReaderPassed tests that the SearcherFactory is
-// called with the correct reader during refresh.
-func TestSearcherManager_PreviousReaderPassed(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// searcherManagerTestCase renders the fields and the overridden hooks of
+// TestSearcherManager as a ThreadedIndexingAndSearchingTestCase subclass.
+type searcherManagerTestCase struct {
+	t *testing.T
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
+	// ThreadedIndexingAndSearchingTestCase members the overrides use.
+	writer                     *index.IndexWriter
+	dir                        store.Directory
+	failed                     atomic.Bool
+	assertMergedSegmentsWarmed bool
 
-	// Add initial doc and commit.
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "initial", true)
-	doc.Add(f)
-	w.AddDocument(doc)
-	w.Commit()
-
-	called := 0
-	factory := &testSearcherFactory{
-		fn: func() {
-			called++
-		},
-	}
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, factory, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-	defer sm.Close()
-
-	if called != 0 {
-		t.Errorf("expected factory not yet called on init (initial searcher is created directly), got %d", called)
-	}
-
-	// Add more docs, commit, and refresh (factory is called during refresh).
-	for i := 0; i < 3; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "more", true)
-		doc.Add(f)
-		w.AddDocument(doc)
-	}
-	w.Commit()
-
-	ctx := context.Background()
-	refreshed, err := sm.MaybeRefresh(ctx)
-	if err != nil {
-		t.Fatalf("MaybeRefresh: %v", err)
-	}
-	if !refreshed {
-		t.Error("expected refresh to return true")
-	}
-
-	if called != 1 {
-		t.Errorf("expected factory called once (on refresh), got %d", called)
-	}
-
-	w.Close()
+	warmCalled    bool
+	mgr           *search.SearcherManager
+	pastSearchers []int64
+	pastMu        sync.Mutex
+	isNRT         bool
 }
 
-// testSearcherFactory is a simple SearcherFactory implementation for testing.
-type testSearcherFactory struct {
-	fn func()
+func TestSearcherManagerSearcherManager(t *testing.T) {
+	// pruner = new SearcherLifetimeManager.PruneByAge(TEST_NIGHTLY ? TestUtil.nextInt(random(), 1, 10) : 1);
+	t.Fatal(searcherLifetimeManagerBlocker)
+	smRunTest(t, &searcherManagerTestCase{t: t}, "TestSearcherManager")
 }
 
-func (f *testSearcherFactory) NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*search.IndexSearcher, error) {
-	if f.fn != nil {
-		f.fn()
-	}
-	return search.NewIndexSearcher(reader), nil
+// smRunTest renders ThreadedIndexingAndSearchingTestCase.runTest(String),
+// which drives the overridden hooks of tc.
+func smRunTest(t *testing.T, tc *searcherManagerTestCase, testName string) {
+	t.Helper()
+	t.Fatal(threadedIndexingAndSearchingBlocker)
 }
 
-// TestSearcherManager_MaybeRefreshBlockingLock tests that MaybeRefresh returns
-// false (no error) when the index hasn't changed.
-func TestSearcherManager_MaybeRefreshBlockingLock(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// getFinalSearcher renders the getFinalSearcher() override.
+func (tc *searcherManagerTestCase) getFinalSearcher() *search.IndexSearcher {
+	t := tc.t
+	if !tc.isNRT {
+		mustCommit(t, tc.writer)
 	}
-	w.Close()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
+	if !(smMaybeRefresh(t, tc.mgr) || smIsSearcherCurrent(t, tc.mgr)) {
+		t.Fatal("expected maybeRefresh() || isSearcherCurrent()")
 	}
-	defer sm.Close()
-
-	ctx := context.Background()
-	// First call to MaybeRefresh should return false (index unchanged).
-	refreshed, err := sm.MaybeRefresh(ctx)
-	if err != nil {
-		t.Fatalf("MaybeRefresh: %v", err)
-	}
-	if refreshed {
-		t.Log("MaybeRefresh returned true (acceptable if initial reader was not at latest)")
-	}
-
-	// Verify we can still acquire and use a searcher after MaybeRefresh.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire after MaybeRefresh: %v", err)
-	}
-	defer sm.Release(searcher)
+	return smAcquire(t, tc.mgr)
 }
 
-// TestSearcherManager_ConcurrentOperations tests concurrent Acquire/Release
-// calls to verify thread safety.
-func TestSearcherManager_ConcurrentOperations(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// doAfterWriter renders the doAfterWriter(ExecutorService) override.
+func (tc *searcherManagerTestCase) doAfterWriter(es search.Executor) {
+	t := tc.t
+	factory := &smWarmingFactory{t: t, tc: tc, es: es}
+	if random().Intn(2) == 0 {
+		// TODO: can we randomize the applyAllDeletes?  But
+		// somehow for final searcher we must apply
+		// deletes...
+		tc.mgr = smNewSearcherManager(t, tc.writer, factory)
+		tc.isNRT = true
+	} else {
+		// SearcherManager needs to see empty commit:
+		mustCommit(t, tc.writer)
+		tc.mgr = smNewSearcherManagerFromDir(t, tc.dir, factory)
+		tc.isNRT = false
+		tc.assertMergedSegmentsWarmed = false
 	}
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "hello", true)
-		doc.Add(f)
-		w.AddDocument(doc)
-	}
-	w.Commit()
-	w.Close()
 
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-	defer sm.Close()
+	// lifetimeMGR = new SearcherLifetimeManager();
+	t.Fatal(searcherLifetimeManagerBlocker)
+}
 
+// doSearching renders the doSearching(ExecutorService, int) override.
+func (tc *searcherManagerTestCase) doSearching(es search.Executor, maxIterations int) {
+	t := tc.t
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			searcher, err := sm.Acquire()
-			if err != nil {
+	wg.Add(1)
+	reopenThread := func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				tc.failed.Store(true)
+				panic(r)
+			}
+		}()
+		iterations := 0
+		for iterations++; iterations < maxIterations; iterations++ {
+			time.Sleep(time.Duration(nextInt(1, 100)) * time.Millisecond)
+			if _, err := tc.writer.Commit(); err != nil {
+				tc.failed.Store(true)
+				t.Errorf("commit: %v", err)
 				return
 			}
-			defer sm.Release(searcher)
-			searcher.Search(search.NewMatchAllDocsQuery(), 10)
-		}()
+			time.Sleep(time.Duration(nextInt(1, 5)) * time.Millisecond)
+			block := random().Intn(2) == 0
+			if block {
+				smMaybeRefreshBlocking(t, tc.mgr)
+				t.Error(searcherLifetimeManagerBlocker) // lifetimeMGR.prune(pruner)
+			} else if smMaybeRefresh(t, tc.mgr) {
+				t.Error(searcherLifetimeManagerBlocker) // lifetimeMGR.prune(pruner)
+			}
+		}
 	}
+	go reopenThread()
+
+	t.Fatal(threadedIndexingAndSearchingBlocker) // runSearchThreads(maxIterations)
+
 	wg.Wait()
 }
 
-// TestSearcherManager_IsSearcherCurrent verifies that IsCurrent on the
-// underlying reader reports correctly.
-func TestSearcherManager_IsSearcherCurrent(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "hello", true)
-	doc.Add(f)
-	w.AddDocument(doc)
-	w.Commit()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
-	}
-	defer sm.Close()
-
-	// Initially the searcher should be current.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-
-	reader := searcher.GetReader()
-	type currentChecker interface {
-		IsCurrent() (bool, error)
-	}
-	if cc, ok := reader.(currentChecker); ok {
-		isCurrent, err := cc.IsCurrent()
-		if err != nil {
-			t.Fatalf("IsCurrent: %v", err)
-		}
-		if !isCurrent {
-			t.Error("expected reader to be current initially")
+// getCurrentSearcher renders the getCurrentSearcher() override.
+func (tc *searcherManagerTestCase) getCurrentSearcher() *search.IndexSearcher {
+	t := tc.t
+	if random().Intn(10) == 7 {
+		// NOTE: not best practice to call maybeRefresh
+		// synchronous to your search threads, but still we
+		// test as apps will presumably do this for
+		// simplicity:
+		if smMaybeRefresh(t, tc.mgr) {
+			t.Fatal(searcherLifetimeManagerBlocker) // lifetimeMGR.prune(pruner)
 		}
 	}
-	sm.Release(searcher)
 
-	// Add more docs and commit (index is now newer).
-	doc2 := document.NewDocument()
-	f2, _ := document.NewTextField("content", "world", true)
-	doc2.Add(f2)
-	w.AddDocument(doc2)
-	w.Commit()
+	var s *search.IndexSearcher
 
-	// Old reader should now report not current.
-	searcher2, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire after commit: %v", err)
+	tc.pastMu.Lock()
+	for len(tc.pastSearchers) != 0 && random().Float64() < 0.25 {
+		// 1/4 of the time pull an old searcher, ie, simulate
+		// a user doing a follow-on action on a previous
+		// search (drilling down/up, clicking next/prev page,
+		// etc.)
+		// s = lifetimeMGR.acquire(token) — a nil result means the searcher was pruned
+		tc.pastMu.Unlock()
+		t.Fatal(searcherLifetimeManagerBlocker)
 	}
-	reader2 := searcher2.GetReader()
-	if cc, ok := reader2.(currentChecker); ok {
-		isCurrent, err := cc.IsCurrent()
-		if err != nil {
-			t.Fatalf("IsCurrent: %v", err)
+	tc.pastMu.Unlock()
+
+	if s == nil {
+		s = smAcquire(t, tc.mgr)
+		if s.GetIndexReader().NumDocs() != 0 {
+			// Long token = lifetimeMGR.record(s);
+			t.Fatal(searcherLifetimeManagerBlocker)
 		}
-		// The reader may or may not be current depending on whether the
-		// SearcherManager auto-refreshed. Check that the value is sensible.
-		_ = isCurrent
 	}
-	sm.Release(searcher2)
 
-	w.Close()
+	return s
 }
 
-// TestSearcherManager_ThreadSafety tests concurrent Acquire/Release/MaybeRefresh
-// from multiple goroutines.
-func TestSearcherManager_ThreadSafety(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// releaseSearcher renders the releaseSearcher(IndexSearcher) override.
+func (tc *searcherManagerTestCase) releaseSearcher(s *search.IndexSearcher) {
+	if err := s.GetIndexReader().DecRef(); err != nil {
+		tc.t.Fatalf("decRef: %v", err)
+	}
+}
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// doClose renders the doClose() override.
+func (tc *searcherManagerTestCase) doClose() {
+	t := tc.t
+	if !tc.warmCalled {
+		t.Fatal("expected warmCalled")
 	}
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "hello", true)
-		doc.Add(f)
-		w.AddDocument(doc)
+	if testing.Verbose() {
+		t.Log("TEST: now close SearcherManager")
 	}
-	w.Commit()
-	w.Close()
+	smClose(t, tc.mgr)
+	t.Fatal(searcherLifetimeManagerBlocker) // lifetimeMGR.close()
+}
 
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
+// smIntermediateCloseFactory renders the anonymous SearcherFactory of
+// testIntermediateClose.
+type smIntermediateCloseFactory struct {
+	t              *testing.T
+	triedReopen    *atomic.Bool
+	awaitEnterWarm *sync.WaitGroup
+	awaitClose     chan struct{}
+	es             search.Executor
+}
+
+// NewSearcher renders newSearcher(IndexReader r, IndexReader previous).
+func (f *smIntermediateCloseFactory) NewSearcher(ctx context.Context, r index.IndexReaderInterface) (*search.IndexSearcher, error) {
+	if f.triedReopen.Load() {
+		f.awaitEnterWarm.Done()
+		<-f.awaitClose
 	}
-	defer sm.Close()
+	return search.NewIndexSearcherWithExecutor(r, f.es), nil
+}
+
+func TestSearcherManagerIntermediateClose(t *testing.T) {
+	dir := newDirectory()
+	// Test can deadlock if we use SMS:
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	writer := mustNewIndexWriter(t, dir, iwc)
+	mustAddDocument(t, writer, document.NewDocument())
+	mustCommit(t, writer)
+	var awaitEnterWarm sync.WaitGroup
+	awaitEnterWarm.Add(1)
+	awaitClose := make(chan struct{})
+	var triedReopen atomic.Bool
+	var es *cachedThreadPool
+	var executor search.Executor
+	if random().Intn(2) != 0 {
+		es = newCachedThreadPool()
+		executor = es
+	}
+	factory := &smIntermediateCloseFactory{
+		t: t, triedReopen: &triedReopen, awaitEnterWarm: &awaitEnterWarm, awaitClose: awaitClose, es: executor,
+	}
+	var searcherManager *search.SearcherManager
+	if random().Intn(2) == 0 {
+		searcherManager = smNewSearcherManagerFromDir(t, dir, factory)
+	} else {
+		searcherManager = smNewSearcherManagerWithOptions(t, writer, random().Intn(2) == 0, false, factory)
+	}
+	if testing.Verbose() {
+		t.Log("sm created")
+	}
+	searcher := smAcquire(t, searcherManager)
+	func() {
+		defer smRelease(t, searcherManager, searcher)
+		assertIntEquals(t, 1, searcher.GetIndexReader().NumDocs())
+	}()
+	mustAddDocument(t, writer, document.NewDocument())
+	mustCommit(t, writer)
+	var success atomic.Bool
+	var exc error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		triedReopen.Store(true)
+		if testing.Verbose() {
+			t.Log("NOW call maybeRefresh")
+		}
+		_, err := searcherManager.MaybeRefresh()
+		var ace *store.AlreadyClosedException
+		switch {
+		case err == nil:
+			success.Store(true)
+		case errors.As(err, &ace):
+			// expected
+		default:
+			exc = err
+			// use success as the barrier here to make sure we see the write
+			success.Store(false)
+		}
+	}()
+	if testing.Verbose() {
+		t.Log("THREAD started")
+	}
+	awaitEnterWarm.Wait()
+	if testing.Verbose() {
+		t.Log("NOW call close")
+	}
+	smClose(t, searcherManager)
+	close(awaitClose)
+	<-done
+	_, err := searcherManager.Acquire()
+	expectAlreadyClosed(t, err)
+	if success.Load() {
+		t.Fatal("expected success == false")
+	}
+	if !triedReopen.Load() {
+		t.Fatal("expected triedReopen")
+	}
+	if exc != nil {
+		t.Fatalf("%v", exc)
+	}
+	mustClose(t, writer, dir)
+	if es != nil {
+		es.shutdownAndAwaitTermination()
+	}
+}
+
+func TestSearcherManagerCloseTwice(t *testing.T) {
+	// test that we can close SM twice (per Closeable's contract).
+	dir := newDirectory()
+	mustClose(t, mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(nil)))
+	sm := smNewSearcherManagerFromDir(t, dir, nil)
+	smClose(t, sm)
+	smClose(t, sm)
+	mustClose(t, dir)
+}
+
+func TestSearcherManagerReferenceDecrementIllegally(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	writer := mustNewIndexWriter(t, dir, iwc)
+	sm := smNewSearcherManagerWithOptions(t, writer, false, false, search.NewDefaultSearcherFactory())
+	mustAddDocument(t, writer, document.NewDocument())
+	mustCommit(t, writer)
+	smMaybeRefreshBlocking(t, sm)
+
+	acquire := smAcquire(t, sm)
+	acquire2 := smAcquire(t, sm)
+	smRelease(t, sm, acquire)
+	smRelease(t, sm, acquire2)
+
+	acquire = smAcquire(t, sm)
+	if err := acquire.GetIndexReader().DecRef(); err != nil {
+		t.Fatal(err)
+	}
+	smRelease(t, sm, acquire)
+	// expectThrows(IllegalStateException.class, sm::acquire)
+	if _, err := sm.Acquire(); err == nil {
+		t.Fatal("expected IllegalStateException")
+	}
+
+	// sm.close(); -- already closed
+	mustClose(t, writer, dir)
+}
+
+func TestSearcherManagerEnsureOpen(t *testing.T) {
+	dir := newDirectory()
+	mustClose(t, mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(nil)))
+	sm := smNewSearcherManagerFromDir(t, dir, nil)
+	s := smAcquire(t, sm)
+	smClose(t, sm)
+
+	// this should succeed;
+	smRelease(t, sm, s)
+
+	// this should fail
+	_, err := sm.Acquire()
+	expectAlreadyClosed(t, err)
+
+	// this should fail
+	_, err = sm.MaybeRefresh()
+	expectAlreadyClosed(t, err)
+
+	mustClose(t, dir)
+}
+
+func TestSearcherManagerListenerCalled(t *testing.T) {
+	dir := newDirectory()
+	iw := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(nil))
+	var afterRefreshCalled atomic.Bool
+	sm := smNewSearcherManagerWithOptions(t, iw, false, false, search.NewDefaultSearcherFactory())
+	// sm.addListener(new ReferenceManager.RefreshListener() {
+	//   beforeRefresh() {}
+	//   afterRefresh(boolean didRefresh) { if (didRefresh) afterRefreshCalled.set(true); }
+	// });
+	t.Fatal(refreshListenerBlocker)
+	mustAddDocument(t, iw, document.NewDocument())
+	mustCommit(t, iw)
+	if afterRefreshCalled.Load() {
+		t.Fatal("afterRefresh called before refresh")
+	}
+	smMaybeRefreshBlocking(t, sm)
+	if !afterRefreshCalled.Load() {
+		t.Fatal("afterRefresh not called")
+	}
+	smClose(t, sm)
+	mustClose(t, iw, dir)
+}
+
+// smEvilSearcherFactory renders theEvilOne of testEvilSearcherFactory.
+type smEvilSearcherFactory struct {
+	t     *testing.T
+	other index.IndexReaderInterface
+}
+
+// NewSearcher renders newSearcher(IndexReader ignored, IndexReader previous).
+func (f *smEvilSearcherFactory) NewSearcher(ctx context.Context, ignored index.IndexReaderInterface) (*search.IndexSearcher, error) {
+	return newSearcher(f.t, f.other), nil
+}
+
+func TestSearcherManagerEvilSearcherFactory(t *testing.T) {
+	r := random()
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	mustCommit(t, w)
+
+	other := mustOpenDirectoryReader(t, dir)
+
+	theEvilOne := &smEvilSearcherFactory{t: t, other: other}
+
+	// expectThrows(IllegalStateException.class, () -> new SearcherManager(dir, theEvilOne));
+	if _, err := search.NewSearcherManagerFromDir(dir, theEvilOne); err == nil {
+		t.Fatal("expected IllegalStateException")
+	}
+	// expectThrows(IllegalStateException.class,
+	//     () -> new SearcherManager(w.w, random.nextBoolean(), false, theEvilOne));
+	if _, err := search.NewSearcherManagerWithOptions(w.W, r.Intn(2) == 0, false, theEvilOne, nil); err == nil {
+		t.Fatal("expected IllegalStateException")
+	}
+	mustClose(t, w, other, dir)
+}
+
+func TestSearcherManagerMaybeRefreshBlockingLock(t *testing.T) {
+	// make sure that maybeRefreshBlocking releases the lock, otherwise other
+	// threads cannot obtain it.
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	mustClose(t, w)
+
+	sm := smNewSearcherManagerFromDir(t, dir, nil)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// this used to not release the lock, preventing other threads from obtaining it.
+		t.Error(maybeRefreshBlockingBlocker) // sm.maybeRefreshBlocking()
+	}()
+	<-done
+	if t.Failed() {
+		t.FailNow()
+	}
+
+	// if maybeRefreshBlocking didn't release the lock, this will fail.
+	if !smMaybeRefresh(t, sm) {
+		t.Fatal("failde to obtain the refreshLock!")
+	}
+
+	smClose(t, sm)
+	mustClose(t, dir)
+}
+
+// LUCENE-6087
+func TestSearcherManagerCustomDirectoryReader(t *testing.T) {
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	nrtReader := mustGetReader(t, w)
+
+	// FilterDirectoryReader reader = new MyFilterDirectoryReader(nrtReader);
+	t.Fatal(filterDirectoryReaderSubReaderWrapperBlocker)
+
+	mustClose(t, nrtReader, w, dir)
+}
+
+// smPreviousReaderFactory renders the local class MySearcherFactory of
+// testPreviousReaderIsPassed.
+type smPreviousReaderFactory struct {
+	t                  *testing.T
+	lastReader         index.IndexReaderInterface
+	lastPreviousReader index.IndexReaderInterface
+	called             int
+}
+
+// NewSearcher renders newSearcher(IndexReader reader, IndexReader previousReader).
+func (f *smPreviousReaderFactory) NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*search.IndexSearcher, error) {
+	f.t.Fatal(searcherFactoryPreviousReaderBlocker)
+	f.called++
+	f.lastReader = reader
+	return search.NewDefaultSearcherFactory().NewSearcher(ctx, reader)
+}
+
+func TestSearcherManagerPreviousReaderIsPassed(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+
+	factory := &smPreviousReaderFactory{t: t}
+	sm := smNewSearcherManagerWithOptions(t, w, random().Intn(2) == 0, false, factory)
+	assertIntEquals(t, 1, factory.called)
+	if factory.lastPreviousReader != nil {
+		t.Fatal("expected no previous reader")
+	}
+	if factory.lastReader == nil {
+		t.Fatal("expected a last reader")
+	}
+	acquire := smAcquire(t, sm)
+	if factory.lastReader != acquire.GetIndexReader() {
+		t.Fatal("expected same reader")
+	}
+	smRelease(t, sm, acquire)
+
+	lastReader := factory.lastReader
+	// refresh
+	mustAddDocument(t, w, document.NewDocument())
+	if !smMaybeRefresh(t, sm) {
+		t.Fatal("expected a refresh")
+	}
+
+	acquire = smAcquire(t, sm)
+	if factory.lastReader != acquire.GetIndexReader() {
+		t.Fatal("expected same reader")
+	}
+	smRelease(t, sm, acquire)
+	if factory.lastPreviousReader == nil {
+		t.Fatal("expected a previous reader")
+	}
+	if lastReader != factory.lastPreviousReader {
+		t.Fatal("expected previous reader to be the last reader")
+	}
+	if factory.lastReader == lastReader {
+		t.Fatal("expected a new reader")
+	}
+	assertIntEquals(t, 2, factory.called)
+	mustClose(t, w)
+	smClose(t, sm)
+	mustClose(t, dir)
+}
+
+func TestSearcherManagerConcurrentIndexCloseSearchAndRefresh(t *testing.T) {
+	// final Directory dir = newFSDirectory(createTempDir());
+	t.Fatal(newFSDirectoryBlocker)
+	dir := newDirectory()
+	var writerRef atomic.Pointer[index.IndexWriter]
+	analyzer := testanalysis.NewMockAnalyzerRandom(random())
+	analyzer.SetMaxTokenLength(index.MAX_TERM_LENGTH)
+	writerRef.Store(mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(analyzer)))
+
+	var mgrRef atomic.Pointer[search.SearcherManager]
+	mgrRef.Store(smNewSearcherManager(t, writerRef.Load(), nil))
+	var stop atomic.Bool
 
 	var wg sync.WaitGroup
+	wg.Add(4)
 
-	// Goroutines that acquire and release.
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 5; j++ {
-				searcher, err := sm.Acquire()
+	indexThread := func() {
+		defer wg.Done()
+		defer stop.Store(true)
+		numDocs := atLeast(200)
+		for i := 0; i < numDocs; i++ {
+			w := writerRef.Load()
+			doc := document.NewDocument()
+			doc.Add(newTextField(t, "field", randomAnalysisString(t, 256, false), true))
+			if _, err := w.AddDocument(doc); err != nil {
+				t.Errorf("addDocument: %v", err)
+				return
+			}
+			if random().Intn(1000) == 17 {
+				var err error
+				if random().Intn(2) == 0 {
+					err = w.Close()
+				} else {
+					err = w.Rollback()
+				}
 				if err != nil {
+					t.Errorf("close/rollback: %v", err)
 					return
 				}
-				searcher.Search(search.NewMatchAllDocsQuery(), 10)
-				sm.Release(searcher)
+				nw, err := index.NewIndexWriter(dir, newIndexWriterConfigWithAnalyzer(analyzer))
+				if err != nil {
+					t.Errorf("new IndexWriter: %v", err)
+					return
+				}
+				writerRef.Store(nw)
 			}
-		}()
+		}
+		if testing.Verbose() {
+			stats, _ := writerRef.Load().GetDocStats()
+			t.Logf("TEST: index count=%d", stats.MaxDoc)
+		}
 	}
+
+	searchThread := func() {
+		defer wg.Done()
+		totCount := 0
+		for !stop.Load() {
+			mgr := mgrRef.Load()
+			if mgr != nil {
+				searcher, err := mgr.Acquire()
+				if err != nil {
+					var ace *store.AlreadyClosedException
+					if errors.As(err, &ace) {
+						// ok
+						continue
+					}
+					t.Errorf("acquire: %v", err)
+					return
+				}
+				totCount += searcher.GetIndexReader().MaxDoc()
+				if err := mgr.Release(searcher); err != nil {
+					t.Errorf("release: %v", err)
+					return
+				}
+			}
+		}
+		if testing.Verbose() {
+			t.Logf("TEST: search totCount=%d", totCount)
+		}
+	}
+
+	refreshThread := func() {
+		defer wg.Done()
+		refreshCount := 0
+		aceCount := 0
+		for !stop.Load() {
+			mgr := mgrRef.Load()
+			if mgr != nil {
+				refreshCount++
+				t.Error(maybeRefreshBlockingBlocker) // mgr.maybeRefreshBlocking()
+				return
+			}
+		}
+		if testing.Verbose() {
+			t.Logf("TEST: refresh count=%d aceCount=%d", refreshCount, aceCount)
+		}
+	}
+
+	closeThread := func() {
+		defer wg.Done()
+		closeCount := 0
+		aceCount := 0
+		for !stop.Load() {
+			mgr := mgrRef.Load()
+			if mgr == nil {
+				panic("assert mgr != null")
+			}
+			if err := mgr.Close(); err != nil {
+				t.Errorf("close: %v", err)
+				return
+			}
+			closeCount++
+			for !stop.Load() {
+				nm, err := search.NewSearcherManager(writerRef.Load(), nil)
+				if err == nil {
+					mgrRef.Store(nm)
+					break
+				}
+				var ace *store.AlreadyClosedException
+				if !errors.As(err, &ace) {
+					t.Errorf("new SearcherManager: %v", err)
+					return
+				}
+				// ok
+				aceCount++
+			}
+		}
+		if testing.Verbose() {
+			t.Logf("TEST: close count=%d aceCount=%d", closeCount, aceCount)
+		}
+	}
+
+	go indexThread()
+	go searchThread()
+	go refreshThread()
+	go closeThread()
+
 	wg.Wait()
+
+	smClose(t, mgrRef.Load())
+	mustClose(t, writerRef.Load(), dir)
 }
 
-// TestSearcherManager_Lifecycle tests the full lifecycle: create, use searcher,
-// add docs, refresh, re-acquire, close.
-func TestSearcherManager_Lifecycle(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// nextCommitSelector renders the public static NextCommitSelector: it
+// returns the first commit with generation higher than current reader commit.
+type nextCommitSelector struct{}
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+// GetSearcherRefreshCommit renders getSearcherRefreshCommit(DirectoryReader).
+func (nextCommitSelector) GetSearcherRefreshCommit(reader *index.DirectoryReader) (*index.IndexCommit, error) {
+	commits, err := index.ListCommits(reader.GetDirectory())
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		return nil, err
 	}
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "hello", true)
-	doc.Add(f)
-	w.AddDocument(doc)
-	w.Commit()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
-	if err != nil {
-		t.Fatalf("NewSearcherManagerFromDirectory: %v", err)
+	current := reader.GetIndexCommit()
+	for i := 0; i < len(commits); i++ {
+		commit := commits[i]
+		if commit.GetGeneration() > current.GetGeneration() {
+			return commit, nil
+		}
 	}
-
-	// Phase 1: Acquire and search.
-	searcher, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire: %v", err)
-	}
-	topDocs, err := searcher.Search(search.NewMatchAllDocsQuery(), 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if topDocs.TotalHits.Value != 1 {
-		t.Errorf("expected 1 hit, got %d", topDocs.TotalHits.Value)
-	}
-	if err := sm.Release(searcher); err != nil {
-		t.Fatalf("Release: %v", err)
-	}
-
-	// Phase 2: Add more docs, commit, refresh.
-	for i := 0; i < 4; i++ {
-		d := document.NewDocument()
-		f, _ := document.NewTextField("content", "world", true)
-		d.Add(f)
-		w.AddDocument(d)
-	}
-	w.Commit()
-	ctx := context.Background()
-	refreshed, err := sm.MaybeRefresh(ctx)
-	if err != nil {
-		t.Fatalf("MaybeRefresh: %v", err)
-	}
-	if !refreshed {
-		t.Error("expected refresh after new commit")
-	}
-
-	// Phase 3: Acquire new searcher and verify.
-	searcher2, err := sm.Acquire()
-	if err != nil {
-		t.Fatalf("Acquire after refresh: %v", err)
-	}
-	topDocs2, err := searcher2.Search(search.NewMatchAllDocsQuery(), 10)
-	if err != nil {
-		t.Fatalf("Search after refresh: %v", err)
-	}
-	if topDocs2.TotalHits.Value != 5 {
-		t.Errorf("expected 5 hits, got %d", topDocs2.TotalHits.Value)
-	}
-	sm.Release(searcher2)
-
-	if err := sm.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if !sm.IsClosed() {
-		t.Error("expected manager to be closed")
-	}
-
-	w.Close()
+	// we're already on latest commit
+	return nil, nil
 }
 
-// BenchmarkSearcherManager_AcquireRelease benchmarks the Acquire/Release cycle.
-func BenchmarkSearcherManager_AcquireRelease(b *testing.B) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		b.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 10; i++ {
+func TestSearcherManagerStepWiseCommitRefresh(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
+	w := mustNewIndexWriter(t, dir, iwc)
+	docID := 0
+	// create initial commit
+	for i := 0; i < 20; i++ {
 		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "hello", true)
-		doc.Add(f)
-		w.AddDocument(doc)
+		doc.Add(newStringField(t, "docId", "doc-"+strconv.Itoa(docID), true))
+		docID++
+		mustAddDocument(t, w, doc)
 	}
-	w.Commit()
-	w.Close()
-
-	sm, err := search.NewSearcherManagerFromDirectory(dir, nil, func(s *search.IndexSearcher) {
-		s.Close()
-	})
+	mustCommit(t, w)
+	sm, err := search.NewSearcherManagerFromReader(mustOpenDirectoryReader(t, dir), nil, nextCommitSelector{})
 	if err != nil {
-		b.Fatalf("NewSearcherManagerFromDirectory: %v", err)
+		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer sm.Close()
+	const numCommits = 5
+	for i := 0; i < numCommits; i++ {
+		for j := 0; j < 20; j++ {
+			doc := document.NewDocument()
+			doc.Add(newStringField(t, "docId", "doc-"+strconv.Itoa(docID), true))
+			docID++
+			mustAddDocument(t, w, doc)
+		}
+		mustCommit(t, w)
+	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		searcher, err := sm.Acquire()
+	// maybeRefresh only refreshes on the next incremental commit
+	// so it takes us numCommits to get to latest
+	stepsToCurrent := 0
+	for !smIsSearcherCurrent(t, sm) {
+		oldGen, err := sm.GetSearcherCommitGeneration()
 		if err != nil {
-			b.Fatalf("Acquire: %v", err)
+			t.Fatal(err)
 		}
-		if err := sm.Release(searcher); err != nil {
-			b.Fatalf("Release: %v", err)
+		smMaybeRefreshBlocking(t, sm)
+		newGen, err := sm.GetSearcherCommitGeneration()
+		if err != nil {
+			t.Fatal(err)
 		}
+		if newGen != oldGen+1 {
+			t.Fatalf("newGen = %d, want %d", newGen, oldGen+1)
+		}
+		stepsToCurrent++
 	}
+	assertIntEquals(t, numCommits, stepsToCurrent)
+	smClose(t, sm)
+	mustClose(t, w, dir)
 }

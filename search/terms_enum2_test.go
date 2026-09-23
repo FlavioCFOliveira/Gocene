@@ -61,7 +61,7 @@ func TestTermsEnum2_Seeking(t *testing.T) {
 
 // TestTermsEnum2_SeekingAndNexting verifies MatchAllDocsQuery.
 func TestTermsEnum2_SeekingAndNexting(t *testing.T) {
-	q := search.NewMatchNoDocsQuery()
+	q := search.NewMatchNoDocsQuery("")
 	if q == nil {
 		t.Fatal("NewMatchNoDocsQuery returned nil")
 	}

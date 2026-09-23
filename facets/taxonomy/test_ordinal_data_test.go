@@ -108,7 +108,7 @@ func TestOrdinalData_DocValue(t *testing.T) {
 	defer taxoWriter.Close()
 
 	config := facets.NewFacetsConfig()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestOrdinalData_DocValue(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -170,7 +170,7 @@ func TestOrdinalData_SearchableField(t *testing.T) {
 	defer taxoWriter.Close()
 
 	config := facets.NewFacetsConfig()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestOrdinalData_SearchableField(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -235,7 +235,7 @@ func TestOrdinalData_SearchableField(t *testing.T) {
 		t.Fatal("nil result")
 	}
 	if result.Value != 10 {
-		t.Errorf("total value: want 10, got %d", result.Value)
+		t.Errorf("total value: want 10, got %v", result.Value)
 	}
 }
 
@@ -252,7 +252,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 	}
 
 	config := facets.NewFacetsConfig()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -286,7 +286,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 	}
 	defer taxoWriter2.Close()
 
-	writer2, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer2, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating second index writer: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 		}
 	}
 
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("second writer commit: %v", err)
 	}
 	if err := taxoWriter2.Commit(); err != nil {

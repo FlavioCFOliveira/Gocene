@@ -112,7 +112,7 @@ func runKnnEmptyIndex(t *testing.T, f knnVectorFixture) {
 
 	q := f.newQuery("field", []float32{1, 2}, 10, nil)
 	assertKnnMatches(t, s, q, 0)
-	rewritten, err := q.Rewrite(s.GetIndexReader())
+	rewritten, err := q.Rewrite(s)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}
@@ -327,7 +327,7 @@ func runKnnScoreEuclidean(t *testing.T, f knnVectorFixture) {
 	defer cleanup()
 
 	q := f.newQuery("field", []float32{2, 3}, 3, nil)
-	rewritten, err := q.Rewrite(s.GetIndexReader())
+	rewritten, err := q.Rewrite(s)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}
@@ -347,26 +347,29 @@ func runKnnScoreEuclidean(t *testing.T, f knnVectorFixture) {
 		t.Fatalf("initial docID = %d, want -1", scorer.DocID())
 	}
 	// 1 / (l2distance((2,3),(2,2))=1 + 1) = 0.5 is the maximum score in top 3.
-	if got := scorer.GetMaxScore(2); math.Abs(float64(got-0.5)) > 1e-6 {
-		t.Fatalf("getMaxScore(2) = %f, want 0.5", got)
+	if got, err := scorer.GetMaxScore(2); err != nil || math.Abs(float64(got-0.5)) > 1e-6 {
+		t.Fatalf("getMaxScore(2) = %f, want 0.5 (err: %v)", got, err)
 	}
-	if got := scorer.GetMaxScore(search.NO_MORE_DOCS); math.Abs(float64(got-0.5)) > 1e-6 {
-		t.Fatalf("getMaxScore(MAX) = %f, want 0.5", got)
+	if got, err := scorer.GetMaxScore(search.NO_MORE_DOCS); err != nil || math.Abs(float64(got-0.5)) > 1e-6 {
+		t.Fatalf("getMaxScore(MAX) = %f, want 0.5 (err: %v)", got, err)
 	}
-	if scorer.Cost() != 3 {
-		t.Fatalf("iterator cost = %d, want 3", scorer.Cost())
+	if scorer.Iterator().Cost() != 3 {
+		t.Fatalf("iterator cost = %d, want 3", scorer.Iterator().Cost())
 	}
 	// Walk the iterator and confirm every score is one of the expected
 	// Euclidean similarities {1/6, 1/2} for the top-3 of target (2,3).
-	doc, _ := scorer.NextDoc()
+	doc, _ := scorer.Iterator().NextDoc()
 	seen := 0
 	for doc != search.NO_MORE_DOCS {
-		score := scorer.Score()
+		score, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
 		if math.Abs(float64(score-1.0/6.0)) > 1e-5 && math.Abs(float64(score-0.5)) > 1e-5 {
 			t.Fatalf("doc %d score %f not in {1/6, 1/2}", doc, score)
 		}
 		seen++
-		doc, _ = scorer.NextDoc()
+		doc, _ = scorer.Iterator().NextDoc()
 	}
 	if seen != 3 {
 		t.Fatalf("iterated %d docs, want 3", seen)
@@ -653,7 +656,7 @@ func assertDescendingScores(t *testing.T, scoreDocs []*search.ScoreDoc) {
 		last = sd.Score
 	}
 
-// min3 returns the minimum of three integers.
+	// min3 returns the minimum of three integers.
 }
 func min3(a, b, c int) int {
 	m := a

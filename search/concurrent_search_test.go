@@ -12,7 +12,7 @@ import (
 func TestConcurrentSearch_MultipleReaders(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
 	writer, _ := index.NewIndexWriter(dir, iwc)
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
@@ -52,7 +52,7 @@ func TestConcurrentSearch_MultipleReaders(t *testing.T) {
 func TestConcurrentSearch_SameReaderMultipleGoroutines(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
 	writer, _ := index.NewIndexWriter(dir, iwc)
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
@@ -86,7 +86,7 @@ func TestConcurrentSearch_SameReaderMultipleGoroutines(t *testing.T) {
 func TestConcurrentSearch_CollectorsThreadSafe(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	iwc := index.NewIndexWriterConfig(nil)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
 	writer, _ := index.NewIndexWriter(dir, iwc)
 	doc := document.NewDocument()
 	f, _ := document.NewStringField("f", "x", true)

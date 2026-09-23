@@ -35,7 +35,7 @@ func makeBitSet(numBits int, setBits ...int) *util.FixedBitSet {
 func collectAll(t *testing.T, s search.DocIdStream) []int {
 	t.Helper()
 	var got []int
-	err := search.ForEachAll(s, func(docID int) error {
+	err := s.ForEach(func(docID int) error {
 		got = append(got, docID)
 		return nil
 	})
@@ -130,7 +130,7 @@ func TestBitSetDocIdStream_ForEachUpTo_Partial(t *testing.T) {
 	}
 
 	var second []int
-	if err := search.ForEachAll(s, func(d int) error {
+	if err := s.ForEach(func(d int) error {
 		second = append(second, d)
 		return nil
 	}); err != nil {
@@ -156,7 +156,7 @@ func TestBitSetDocIdStream_ForEachUpTo_LowerBoundIsNoop(t *testing.T) {
 func TestBitSetDocIdStream_ForEachUpTo_ErrorPropagated(t *testing.T) {
 	sentinel := errors.New("stop")
 	s := search.NewBitSetDocIdStream(makeBitSet(16, 2, 5, 8), 0)
-	err := search.ForEachAll(s, func(_ int) error { return sentinel })
+	err := s.ForEach(func(_ int) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error = %v, want sentinel", err)
 	}
@@ -174,7 +174,7 @@ func TestBitSetDocIdStream_CountUpTo(t *testing.T) {
 		t.Errorf("CountUpTo(8) = %d, want 3", n)
 	}
 	// Remaining: bit 12.
-	rest, err := search.CountAll(s)
+	rest, err := s.Count()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestBitSetDocIdStream_CountUpTo_LowerBoundIsNoop(t *testing.T) {
 func TestBitSetDocIdStream_IntoArrayUpTo_Full(t *testing.T) {
 	s := search.NewBitSetDocIdStream(makeBitSet(16, 0, 7, 15), 0)
 	buf := make([]int, 8)
-	n := search.IntoArray(s, buf)
+	n := s.IntoArray(buf)
 	if n != 3 {
 		t.Errorf("IntoArray n = %d, want 3", n)
 	}
@@ -224,7 +224,7 @@ func TestBitSetDocIdStream_IntoArrayUpTo_ArrayFillsEarly(t *testing.T) {
 		t.Error("MayHaveRemaining() = false, want true after partial fill")
 	}
 	rest := make([]int, 4)
-	n2 := search.IntoArray(s, rest)
+	n2 := s.IntoArray(rest)
 	if n2 != 2 {
 		t.Errorf("remaining n = %d, want 2", n2)
 	}
@@ -245,7 +245,7 @@ func TestBitSetDocIdStream_IntoArrayUpTo_EmptyArrayNoop(t *testing.T) {
 		t.Errorf("got %v, want [3]", got)
 	}
 
-// ─── interface satisfaction ───────────────────────────────────────────────────
+	// ─── interface satisfaction ───────────────────────────────────────────────────
 
 }
 func TestBitSetDocIdStream_ImplementsDocIdStream(t *testing.T) {

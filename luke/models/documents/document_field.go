@@ -26,7 +26,7 @@ type DocumentField struct {
 	vectorSimilarity    index.VectorSimilarityFunction
 }
 
-func NewDocumentField(finfo index.FieldInfo, field document.IndexableField, reader index.IndexReader, docID int) (*DocumentField, error) {
+func NewDocumentField(finfo *index.FieldInfo, field document.IndexableField, reader index.IndexReader, docID int) (*DocumentField, error) {
 	dfield := &DocumentField{
 		name:                finfo.Name(),
 		idxOptions:          finfo.IndexOptions(),

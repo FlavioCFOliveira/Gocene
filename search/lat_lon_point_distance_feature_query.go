@@ -99,6 +99,24 @@ const (
 // it mirrors Java's LatLonPoint.BYTES = Integer.BYTES used by the
 // visitor's byte-offset math.
 
+// LatLonPointNewDistanceFeatureQuery mirrors the static factory
+// org.apache.lucene.document.LatLonPoint#newDistanceFeatureQuery(String,
+// float, double, double, double) of Apache Lucene 10.5.0: it builds a
+// LatLonPointDistanceFeatureQuery and wraps it in a BoostQuery when weight
+// is not 1.
+func LatLonPointNewDistanceFeatureQuery(field string, weight float32, originLat, originLon, pivotDistanceMeters float64) (Query, error) {
+	var query Query
+	q, err := NewLatLonPointDistanceFeatureQuery(field, originLat, originLon, pivotDistanceMeters)
+	if err != nil {
+		return nil, err
+	}
+	query = q
+	if weight != 1 {
+		query = NewBoostQuery(query, weight)
+	}
+	return query, nil
+}
+
 // NewLatLonPointDistanceFeatureQuery constructs a
 // LatLonPointDistanceFeatureQuery for the named field. originLat /
 // originLon are validated against the WGS-84 ranges and pivotDistance

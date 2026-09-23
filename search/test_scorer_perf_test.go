@@ -22,6 +22,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -68,7 +69,7 @@ func randBitSets(t *testing.T, rng *rand.Rand, numSets, setSize int) []*util.Fix
 
 // addClause adds a random bitset query as a MUST clause and folds its bitset
 // into the running expected-intersection result.
-func addClause(t *testing.T, rng *rand.Rand, sets []*util.FixedBitSet, bq *search.BooleanQuery, result *util.FixedBitSet) *util.FixedBitSet {
+func addClause(t *testing.T, rng *rand.Rand, sets []*util.FixedBitSet, bq *search.BooleanQueryBuilder, result *util.FixedBitSet) *util.FixedBitSet {
 	t.Helper()
 	rnd := sets[rng.Intn(len(sets))]
 	bq.Add(newBitSetQuery(rnd), search.MUST)
@@ -86,12 +87,12 @@ func doConjunctions(t *testing.T, s *search.IndexSearcher, rng *rand.Rand, sets 
 	t.Helper()
 	for i := 0; i < iter; i++ {
 		nClauses := rng.Intn(maxClauses-1) + 2 // min 2 clauses
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		var result *util.FixedBitSet
 		for j := 0; j < nClauses; j++ {
 			result = addClause(t, rng, sets, bq, result)
 		}
-		count := countHits(t, s, bq)
+		count := countHits(t, s, bq.Build())
 		if got, want := count, result.Cardinality(); got != want {
 			t.Fatalf("conjunction iter %d: collected %d, want intersection cardinality %d", i, got, want)
 		}
@@ -102,17 +103,17 @@ func doNestedConjunctions(t *testing.T, s *search.IndexSearcher, rng *rand.Rand,
 	t.Helper()
 	for i := 0; i < iter; i++ {
 		oClauses := rng.Intn(maxOuterClauses-1) + 2
-		oq := search.NewBooleanQuery()
+		oq := search.NewBooleanQueryBuilder()
 		var result *util.FixedBitSet
 		for o := 0; o < oClauses; o++ {
 			nClauses := rng.Intn(maxClauses-1) + 2 // min 2 clauses
-			bq := search.NewBooleanQuery()
+			bq := search.NewBooleanQueryBuilder()
 			for j := 0; j < nClauses; j++ {
 				result = addClause(t, rng, sets, bq, result)
 			}
-			oq.Add(bq, search.MUST)
+			oq.Add(bq.Build(), search.MUST)
 		}
-		count := countHits(t, s, oq)
+		count := countHits(t, s, oq.Build())
 		if got, want := count, result.Cardinality(); got != want {
 			t.Fatalf("nested conjunction iter %d: collected %d, want intersection cardinality %d", i, got, want)
 		}
@@ -143,16 +144,41 @@ func (c *countingHitCollector) ScoreMode() search.ScoreMode { return search.COMP
 
 func (c *countingHitCollector) GetLeafCollector(ctx *index.LeafReaderContext) (search.LeafCollector, error) {
 	if ctx != nil {
-		c.docBase = ctx.DocBase()
+		c.docBase = ctx.DocBase
 	}
 	return c, nil
 }
 
-func (c *countingHitCollector) SetScorer(_ search.Scorer) error { return nil }
+func (c *countingHitCollector) SetScorer(_ search.Scorable) error { return nil }
 
 func (c *countingHitCollector) Collect(doc int) error {
 	c.count++
 	c.sum += c.docBase + doc
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *countingHitCollector) SetWeight(weight search.Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *countingHitCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *countingHitCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *countingHitCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *countingHitCollector) Finish() error {
 	return nil
 }
 
@@ -169,11 +195,7 @@ type bitSetQuery struct {
 	docs *util.FixedBitSet
 }
 
-func (q *bitSetQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	scoreMode := search.COMPLETE_NO_SCORES
-	if needsScores {
-		scoreMode = search.COMPLETE
-	}
+func (q *bitSetQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	supplier := func(_ *index.LeafReaderContext) (search.ScorerSupplier, error) {
 		iter := util.NewBitSetIterator(q.docs, int64(q.docs.Cardinality()))
 		return search.NewConstantScoreScorerSupplierFromIterator(boost, scoreMode, iter), nil
@@ -182,11 +204,12 @@ func (q *bitSetQuery) CreateWeight(searcher *search.IndexSearcher, needsScores b
 	return search.NewConstantScoreWeight(q, boost, supplier, cacheable), nil
 }
 
-func (q *bitSetQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
+func (q *bitSetQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
 
-func (q *bitSetQuery) Clone() search.Query { return &bitSetQuery{docs: q.docs} }
+// Visit mirrors BitSetQuery.visit, whose body is empty.
+func (q *bitSetQuery) Visit(visitor search.QueryVisitor) {}
 
-func (q *bitSetQuery) Equals(other search.Query) bool {
+func (q *bitSetQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*bitSetQuery)
 	return ok && o.docs == q.docs
 }

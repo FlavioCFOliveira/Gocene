@@ -33,7 +33,7 @@ func (seededByteKnnFixture) newQuery(field string, target []float32, k int, filt
 	} else {
 		inner = search.NewKnnByteVectorQueryWithFilter(field, b, k, filter)
 	}
-	return search.NewSeededKnnVectorQuery(field, inner, search.NewMatchNoDocsQuery(), k)
+	return search.NewSeededKnnVectorQuery(field, inner, search.NewMatchNoDocsQuery(""), k)
 }
 
 // TestSeededKnnByteVectorQuery runs the inherited scenario set through the
@@ -72,7 +72,7 @@ func TestSeededKnnByteVectorQuery_RandomWithSeed(t *testing.T) {
 		k := rng.intn(10) + 1
 		n := rng.intn(100) + 1
 		inner := search.NewKnnByteVectorQuery("field", floatToBytes(randomVectorValues(rng, dim)), k)
-		q := search.NewSeededKnnVectorQuery("field", inner, search.NewMatchNoDocsQuery(), k)
+		q := search.NewSeededKnnVectorQuery("field", inner, search.NewMatchNoDocsQuery(""), k)
 		res, err := s.Search(q, n)
 		if err != nil {
 			t.Fatalf("iter %d: search: %v", iter, err)
@@ -111,17 +111,12 @@ func TestSeededKnnByteVectorQuery_SeedWithTimeout(t *testing.T) {
 		t.Fatalf("unexpected String: %q", s)
 	}
 	// Equals / HashCode
-	q2 := search.NewSeededKnnVectorQuery("vec", inner.Clone(), search.NewMatchAllDocsQuery(), 50)
+	q2 := search.NewSeededKnnVectorQuery("vec", inner, search.NewMatchAllDocsQuery(), 50)
 	if !q.Equals(q2) {
 		t.Fatal("equal queries should be Equal")
 	}
 	if q.HashCode() != q2.HashCode() {
 		t.Fatal("equal queries should have same HashCode")
-	}
-	// Clone
-	clone := q.Clone()
-	if !q.Equals(clone) {
-		t.Fatal("clone should Equal original")
 	}
 	// Different maxK not Equal
 	q3 := search.NewSeededKnnVectorQuery("vec", inner, seed, 100)

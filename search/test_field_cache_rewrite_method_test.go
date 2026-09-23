@@ -36,6 +36,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -71,10 +72,7 @@ func fieldCacheRewriteReferenceHits(t *testing.T, s *search.IndexSearcher, reg s
 	if _, rerr := regexp.Compile("^(?:" + reg + ")$"); rerr != nil {
 		return nil, false // invalid pattern: skipped identically on both sides
 	}
-	q, err := search.NewRegexpQuery(fieldCacheRewriteField, reg)
-	if err != nil {
-		return nil, false
-	}
+	q := search.NewRegexpQuery(index.NewTerm(fieldCacheRewriteField, reg))
 	top, err := s.Search(q, 25)
 	if err != nil {
 		t.Fatalf("postings RegexpQuery search %q: %v", reg, err)

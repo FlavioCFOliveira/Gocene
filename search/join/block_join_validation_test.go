@@ -15,6 +15,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func buildValidationIndex(t *testing.T) (*index.DirectoryReader, *search.IndexSe
 	dir, w := newBlockWriter(t)
 	for seg := 0; seg < bjvSegments; seg++ {
 		for p := 0; p < bjvParentDocs; p++ {
-			docs := make([]index.Document, 0, bjvChildDocs+1)
+			docs := make([]*document.Document, 0, bjvChildDocs+1)
 			for c := 0; c < bjvChildDocs; c++ {
 				docs = append(docs, newDoc(t, map[string]string{
 					"id":           bjvFieldValue(seg*bjvParentDocs+p, c),
@@ -84,11 +85,11 @@ func TestBlockJoinValidation_NextDocValidationForToParentBjq(t *testing.T) {
 		// child="0000" matches every c==0 child; id="0000" matches the parent at
 		// seg 0/p 0 — so the disjunction matches a parent doc, violating the
 		// ToParent invariant.
-		childQuery := search.NewBooleanQuery()
+		childQuery := search.NewBooleanQueryBuilder()
 		childQuery.Add(search.NewTermQuery(index.NewTerm("child", bjvFieldValue(0))), search.SHOULD)
 		childQuery.Add(search.NewTermQuery(index.NewTerm("id", bjvFieldValue(0))), search.SHOULD)
 
-		blockJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, sm)
+		blockJoinQuery := NewToParentBlockJoinQuery(childQuery.Build(), parentsFilter, sm)
 		_, err := s.Search(blockJoinQuery, 1)
 		if err == nil {
 			t.Fatalf("%v: expected child-matches-parent invariant error, got nil", sm)
@@ -109,11 +110,11 @@ func TestBlockJoinValidation_NextDocValidationForToChildBjq(t *testing.T) {
 
 	// Parent query (parent=value 0) OR a child doc id -> the parent query
 	// matches a child, violating the ToChild invariant.
-	parentQuery := search.NewBooleanQuery()
+	parentQuery := search.NewBooleanQueryBuilder()
 	parentQuery.Add(search.NewTermQuery(index.NewTerm("parent", bjvFieldValue(0))), search.SHOULD)
 	parentQuery.Add(search.NewTermQuery(index.NewTerm("id", bjvFieldValue(0, 0))), search.SHOULD)
 
-	blockJoinQuery := NewToChildBlockJoinQuery(parentQuery, parentsFilter, None)
+	blockJoinQuery := NewToChildBlockJoinQuery(parentQuery.Build(), parentsFilter, None)
 	_, err := s.Search(blockJoinQuery, 1)
 	if err == nil {
 		t.Fatal("expected an invariant error, got nil")
@@ -141,11 +142,11 @@ func TestBlockJoinValidation_AdvanceValidationForToChildBjq(t *testing.T) {
 		t.Fatalf("Leaves: %v", err)
 	}
 	ctx := leaves[0]
-	rewritten, err := blockJoinQuery.Rewrite(r)
+	rewritten, err := blockJoinQuery.Rewrite(search.NewIndexSearcher(r))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
-	weight, err := rewritten.CreateWeight(s, true, 1.0)
+	weight, err := rewritten.CreateWeight(s, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestBlockJoinValidation_AdvanceValidationForToChildBjq(t *testing.T) {
 		t.Fatal("no suitable non-parent target in this corpus layout")
 	}
 
-	if _, err := scorer.Advance(target); err == nil {
+	if _, err := scorer.Iterator().Advance(target); err == nil {
 		t.Fatalf("Advance(%d) expected an invariant error, got nil", target)
 	} else if !strings.Contains(err.Error(), "Parent query must not match") {
 		t.Errorf("error = %q, want it to contain the invalid-query message", err.Error())

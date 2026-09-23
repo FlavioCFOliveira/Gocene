@@ -63,7 +63,7 @@ func TestPatienceByteVectorQuery_ToString(t *testing.T) {
 		}
 	}
 
-	rewritten, err := q.Rewrite(s.GetIndexReader())
+	rewritten, err := q.Rewrite(s)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}

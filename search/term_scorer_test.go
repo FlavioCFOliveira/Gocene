@@ -22,7 +22,7 @@ func TestTermScorer_Basic(t *testing.T) {
 
 	// Create index with test documents
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -100,7 +100,7 @@ func TestTermScorer_Next(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -162,7 +162,7 @@ func TestTermScorer_Advance(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -218,7 +218,7 @@ func TestTermScorer_ScoreConsistency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -279,7 +279,7 @@ func TestTermScorer_DocFrequency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -357,7 +357,7 @@ func TestTermScorer_NonExistentTerm(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -403,7 +403,7 @@ func TestTermScorer_EmptyIndex(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -438,7 +438,7 @@ func TestTermScorer_TermFrequency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -498,4 +498,5 @@ func TestTermScorer_TermFrequency(t *testing.T) {
 			t.Errorf("Expected doc 1 (tf=3) to have higher score than doc 0 (tf=1), got %f and %f",
 				doc1Score, doc0Score)
 		}
-}}
+	}
+}

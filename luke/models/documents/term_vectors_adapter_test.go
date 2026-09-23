@@ -2,8 +2,6 @@ package documents
 
 import (
 	"testing"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 func TestTermVectorsAdapter(t *testing.T) {

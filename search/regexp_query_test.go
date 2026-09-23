@@ -21,10 +21,7 @@ import (
 // newRegexpQuery is a helper that creates a RegexpQuery and fatals on error.
 func newRegexpQuery(t *testing.T, field, pattern string) *search.RegexpQuery {
 	t.Helper()
-	q, err := search.NewRegexpQuery(field, pattern)
-	if err != nil {
-		t.Fatalf("NewRegexpQuery(%q, %q): %v", field, pattern, err)
-	}
+	q := search.NewRegexpQuery(index.NewTerm(field, pattern))
 	return q
 }
 
@@ -35,7 +32,7 @@ func setupRegexpIndex(t *testing.T) (index.IndexReaderInterface, *search.IndexSe
 	t.Cleanup(func() { dir.Close() })
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -50,7 +47,7 @@ func setupRegexpIndex(t *testing.T) (index.IndexReaderInterface, *search.IndexSe
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -168,11 +165,19 @@ func TestRegexpQuery_CharacterClasses(t *testing.T) {
 	}
 }
 
+// newRegexpQueryFailure constructs a RegexpQuery and returns what the
+// constructor threw (Java) / panicked with (Go), or nil when it succeeded.
+func newRegexpQueryFailure(term *index.Term) (failure any) {
+	defer func() { failure = recover() }()
+	search.NewRegexpQuery(term)
+	return nil
+}
+
 // TestRegexpQuery_CharacterClasses_Invalid tests invalid character class
 // Source: TestRegexpQuery.testCharacterClasses() - invalid class test
 func TestRegexpQuery_CharacterClasses_Invalid(t *testing.T) {
-	_, err := search.NewRegexpQuery("field", "\\p")
-	if err == nil {
+	// Java expectThrows: the constructor throws, which the port renders as a panic.
+	if err := newRegexpQueryFailure(index.NewTerm("field", "\\p")); err == nil {
 		t.Error("expected error for invalid character class '\\p'")
 	}
 }
@@ -182,12 +187,9 @@ func TestRegexpQuery_CharacterClasses_Invalid(t *testing.T) {
 // Note: RegExpCaseInsensitive and RegExpASCIICaseInsensitive flags not yet defined.
 // Test basic constructor and property access as a placeholder.
 func TestRegexpQuery_CaseInsensitive(t *testing.T) {
-	q, err := search.NewRegexpQuery("field", "test")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	if q.Field() != "field" {
-		t.Errorf("Field() = %q, want %q", q.Field(), "field")
+	q := search.NewRegexpQuery(index.NewTerm("field", "test"))
+	if q.GetField() != "field" {
+		t.Errorf("Field() = %q, want %q", q.GetField(), "field")
 	}
 }
 
@@ -220,12 +222,9 @@ func TestRegexpQuery_NegatedCharacterClass(t *testing.T) {
 // Note: NewAutomatonProviderFunc and UnionAutomata not yet implemented.
 // Test basic constructor and field access as a placeholder.
 func TestRegexpQuery_CustomProvider(t *testing.T) {
-	q, err := search.NewRegexpQuery("field", "test")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	if q.Pattern() != "test" {
-		t.Errorf("Pattern() = %q, want %q", q.Pattern(), "test")
+	q := search.NewRegexpQuery(index.NewTerm("field", "test"))
+	if q.GetRegexp().Text() != "test" {
+		t.Errorf("Pattern() = %q, want %q", q.GetRegexp().Text(), "test")
 	}
 }
 
@@ -246,21 +245,18 @@ func TestRegexpQuery_Backtracking(t *testing.T) {
 // TestRegexpQuery_SlowCommonSuffix tests worst-case for getCommonSuffix optimization
 // Source: TestRegexpQuery.testSlowCommonSuffix()
 func TestRegexpQuery_SlowCommonSuffix(t *testing.T) {
-	_, err := search.NewRegexpQuery("field", "(.*a){2000}")
-	if err == nil {
+	// Java expectThrows: the constructor throws, which the port renders as a panic.
+	if err := newRegexpQueryFailure(index.NewTerm("field", "(.*a){2000}")); err == nil {
 		t.Error("expected error for overly complex regex '(.*a){2000}'")
 	}
 }
 
 // TestRegexpQuery_Basics tests basic RegexpQuery functionality
 func TestRegexpQuery_Basics(t *testing.T) {
-	q, err := search.NewRegexpQuery("field", "qu.*ck")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
+	q := search.NewRegexpQuery(index.NewTerm("field", "qu.*ck"))
 
 	// Test String representation
-	str := q.String()
+	str := q.ToString("")
 	if str == "" {
 		t.Error("expected non-empty string representation")
 	}
@@ -271,12 +267,9 @@ func TestRegexpQuery_Basics(t *testing.T) {
 // constants (RegExpSyntaxAll, etc.) are not yet defined.
 // Test the basic constructor with a more complex pattern.
 func TestRegexpQuery_ConstructorVariants(t *testing.T) {
-	q, err := search.NewRegexpQuery("field", "^foo.*bar$")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	if q.Pattern() != "^foo.*bar$" {
-		t.Errorf("Pattern() = %q, want %q", q.Pattern(), "^foo.*bar$")
+	q := search.NewRegexpQuery(index.NewTerm("field", "^foo.*bar$"))
+	if q.GetRegexp().Text() != "^foo.*bar$" {
+		t.Errorf("Pattern() = %q, want %q", q.GetRegexp().Text(), "^foo.*bar$")
 	}
 }
 
@@ -285,7 +278,7 @@ func TestRegexpQuery_Rewrite(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -300,7 +293,7 @@ func TestRegexpQuery_Rewrite(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -314,7 +307,7 @@ func TestRegexpQuery_Rewrite(t *testing.T) {
 	defer reader.Close()
 
 	q := newRegexpQuery(t, "field", "qu.*")
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -328,7 +321,7 @@ func TestRegexpQuery_EmptyPattern(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -343,7 +336,7 @@ func TestRegexpQuery_EmptyPattern(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -374,7 +367,7 @@ func TestRegexpQuery_SpecialCharacters(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -391,7 +384,7 @@ func TestRegexpQuery_SpecialCharacters(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -439,7 +432,7 @@ func TestRegexpQuery_Alternation(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -454,7 +447,7 @@ func TestRegexpQuery_Alternation(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -483,7 +476,7 @@ func TestRegexpQuery_Quantifiers(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -498,7 +491,7 @@ func TestRegexpQuery_Quantifiers(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -546,7 +539,7 @@ func TestRegexpQuery_Anchors(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("IndexWriter: %v", err)
@@ -561,7 +554,7 @@ func TestRegexpQuery_Anchors(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -595,11 +588,8 @@ func TestRegexpQuery_Anchors(t *testing.T) {
 // Note: RegExpSyntaxIntersection constant not yet defined.
 // Test basic constructor and field/pattern access as a placeholder.
 func TestRegexpQuery_Intersection(t *testing.T) {
-	q, err := search.NewRegexpQuery("field", "abc.*")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	if q.Pattern() != "abc.*" {
-		t.Errorf("Pattern() = %q, want %q", q.Pattern(), "abc.*")
+	q := search.NewRegexpQuery(index.NewTerm("field", "abc.*"))
+	if q.GetRegexp().Text() != "abc.*" {
+		t.Errorf("Pattern() = %q, want %q", q.GetRegexp().Text(), "abc.*")
 	}
 }

@@ -52,7 +52,7 @@ func NewExactPhraseMatcher(
 	}
 	approx := IntersectIterators(iters)
 
-	impactsSource := mergeImpacts(impactsEnums, scorer)
+	impactsSource := mergeImpacts(impactsEnums)
 	impactsApprox := NewImpactsDISI(approx, NewMaxScoreCache(newLazyIndexImpactsSource(impactsSource), newSimImpactScorer(scorer)))
 
 	var finalApprox DocIdSetIterator = approx
@@ -436,7 +436,9 @@ func (m *mergedImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	}
 }
 
-func mergeImpacts(impactsEnums []index.ImpactsEnum, scorer SimScorer) index.ImpactsSource {
+// mergeImpacts mirrors the package-private static
+// ExactPhraseMatcher.mergeImpacts(ImpactsEnum[]) of Apache Lucene 10.5.0.
+func mergeImpacts(impactsEnums []index.ImpactsEnum) index.ImpactsSource {
 	tmpLeadIndex := -1
 	for i := 0; i < len(impactsEnums); i++ {
 		if tmpLeadIndex == -1 || impactsEnums[i].Cost() < impactsEnums[tmpLeadIndex].Cost() {

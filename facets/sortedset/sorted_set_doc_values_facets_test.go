@@ -24,14 +24,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Blank-import the codecs so the production Lucene104 codec is registered
+	// as the default; the SortedSetDocValues are not persisted without it.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Blank-import the codecs so the production Lucene104 codec is registered
-	// as the default; the SortedSetDocValues are not persisted without it.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // ssdvFacetDoc is a minimal index.Document carrying the supplied fields.
@@ -50,7 +49,7 @@ func buildSSDVAccumulator(t *testing.T, docs [][]string) (*SortedSetDocValuesAcc
 	const indexField = "$facets"
 
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -68,7 +67,7 @@ func buildSSDVAccumulator(t *testing.T, docs [][]string) (*SortedSetDocValuesAcc
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

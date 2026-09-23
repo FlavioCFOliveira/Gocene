@@ -43,7 +43,7 @@ func newBlockWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
 	if err != nil {
 		t.Fatalf("NewSimpleFSDirectory: %v", err)
 	}
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		_ = dir.Close()
@@ -56,7 +56,7 @@ func newBlockWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
 // addBlock writes one parent/child block (children first, parent last) via
 // IndexWriter.AddDocuments, which keeps the block contiguous in a single
 // segment as block joins require.
-func addBlock(t *testing.T, w *index.IndexWriter, docs ...index.Document) {
+func addBlock(t *testing.T, w *index.IndexWriter, docs ...*document.Document) {
 	t.Helper()
 	if _, err := w.AddDocuments(docs); err != nil {
 		t.Fatalf("AddDocuments: %v", err)
@@ -67,7 +67,7 @@ func addBlock(t *testing.T, w *index.IndexWriter, docs ...index.Document) {
 // a searcher over the directory, registering reader cleanup on the test.
 func commitAndOpen(t *testing.T, dir store.Directory, w *index.IndexWriter) (*index.DirectoryReader, *search.IndexSearcher) {
 	t.Helper()
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -92,11 +92,11 @@ func newQueryBitSetParents(field, value string) BitSetProducer {
 // s.createWeight(s.rewrite(q), COMPLETE, 1).scorer(leaves().get(0)).
 func firstLeafScorer(t *testing.T, searcher *search.IndexSearcher, reader *index.DirectoryReader, q search.Query) search.Scorer {
 	t.Helper()
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
-	weight, err := rewritten.CreateWeight(searcher, true, 1.0)
+	weight, err := rewritten.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -136,7 +136,7 @@ func mustStringField(t *testing.T, name, value string, stored bool) document.Ind
 
 // makeResume ports TestBlockJoin.makeResume: a parent document with
 // docType=resume, a stored name, and a country.
-func makeResume(t *testing.T, name, country string) index.Document {
+func makeResume(t *testing.T, name, country string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "docType", "resume", false))
@@ -147,7 +147,7 @@ func makeResume(t *testing.T, name, country string) index.Document {
 
 // makeJob ports TestBlockJoin.makeJob: a child document with a stored skill and
 // a year. See the package deviation note: year is a StringField, not IntPoint.
-func makeJob(t *testing.T, skill string, year int) index.Document {
+func makeJob(t *testing.T, skill string, year int) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "skill", skill, true))
@@ -157,7 +157,7 @@ func makeJob(t *testing.T, skill string, year int) index.Document {
 
 // makeQualification ports TestBlockJoin.makeQualification: a child document with
 // a stored qualification and a year (year as StringField, see deviation note).
-func makeQualification(t *testing.T, qualification string, year int) index.Document {
+func makeQualification(t *testing.T, qualification string, year int) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "qualification", qualification, true))
@@ -167,7 +167,7 @@ func makeQualification(t *testing.T, qualification string, year int) index.Docum
 
 // makeParent ports TestBlockJoin.makeParent: a parent document with
 // docType=_parent and a stored parent_id.
-func makeParent(t *testing.T, parentID string) index.Document {
+func makeParent(t *testing.T, parentID string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "docType", "_parent", false))
@@ -177,7 +177,7 @@ func makeParent(t *testing.T, parentID string) index.Document {
 
 // makeVector ports TestBlockJoin.makeVector: a child document carrying a
 // KnnFloatVectorField plus a stored my_parent_id.
-func makeVector(t *testing.T, vectorField, childsParent string, value []float32) index.Document {
+func makeVector(t *testing.T, vectorField, childsParent string, value []float32) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	vf, err := document.NewKnnFloatVectorFieldEuclidean(vectorField, value)
@@ -218,7 +218,7 @@ func getParentDoc(t *testing.T, searcher *search.IndexSearcher, reader *index.Di
 		t.Fatalf("Leaves: %v", err)
 	}
 	for _, ctx := range leaves {
-		base := ctx.DocBase()
+		base := ctx.DocBase
 		max := ctx.LeafReader().MaxDoc()
 		if childDocID < base || childDocID >= base+max {
 			continue
@@ -227,7 +227,7 @@ func getParentDoc(t *testing.T, searcher *search.IndexSearcher, reader *index.Di
 		if err != nil {
 			t.Fatalf("GetBitSet: %v", err)
 		}
-		parentLeafDoc := bits.NextSetBit(childDocID - base)
+		parentLeafDoc := bits.NextSetBitBounded(childDocID - base)
 		if parentLeafDoc < 0 {
 			t.Fatalf("no parent found for child doc %d", childDocID)
 		}

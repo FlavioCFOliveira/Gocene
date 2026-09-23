@@ -12,6 +12,8 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func TestFeatureSortField_Constructor_RejectsEmptyArgs(t *testing.T) {
@@ -44,8 +46,8 @@ func TestFeatureSortField_Constructor_DefaultsReverseTrueAndCustomType(t *testin
 	if !fsf.SortField.Reverse {
 		t.Errorf("Reverse must default to true (higher feature values rank first)")
 	}
-	if fsf.SortField.Type != SortFieldTypeCustom {
-		t.Errorf("Type = %v, want SortFieldTypeCustom", fsf.SortField.Type)
+	if fsf.SortField.Type != spi.SortFieldTypeCustom {
+		t.Errorf("Type = %v, want spi.SortFieldTypeCustom", fsf.SortField.Type)
 	}
 }
 
@@ -139,9 +141,13 @@ func TestFeatureSortField_GetComparator_NumHits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ctor: %v", err)
 	}
-	cmp := fsf.GetComparator(8, PruningNone)
-	if cmp == nil {
+	fc := fsf.GetComparator(8, PruningNone)
+	if fc == nil {
 		t.Fatalf("GetComparator returned nil")
+	}
+	cmp, ok := fc.(*FeatureComparator)
+	if !ok {
+		t.Fatalf("GetComparator returned %T, want *FeatureComparator", fc)
 	}
 	if got := len(cmp.values); got != 8 {
 		t.Errorf("values slot count = %d, want 8", got)
@@ -214,6 +220,16 @@ func (f *fakeFeaturePostings) StartOffset() (int, error)   { return -1, nil }
 func (f *fakeFeaturePostings) EndOffset() (int, error)     { return -1, nil }
 func (f *fakeFeaturePostings) GetPayload() ([]byte, error) { return nil, nil }
 func (f *fakeFeaturePostings) Cost() int64                 { return int64(len(f.docs)) }
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (f *fakeFeaturePostings) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (f *fakeFeaturePostings) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
 
 func TestFeatureComparator_GetValueForDoc_DecodesFreq(t *testing.T) {
 	t.Parallel()

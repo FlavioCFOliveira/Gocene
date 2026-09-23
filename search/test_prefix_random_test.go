@@ -105,14 +105,14 @@ func buildDumbPrefixQuery(t *testing.T, s *search.IndexSearcher, prefix string) 
 		t.Fatalf("Terms: %v", err)
 	}
 	if terms == nil {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("")
 	}
 	it, err := terms.Iterator()
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
 	prefixBytes := []byte(prefix)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	any := false
 	for {
 		cur, err := it.Next()
@@ -132,9 +132,9 @@ func buildDumbPrefixQuery(t *testing.T, s *search.IndexSearcher, prefix string) 
 		}
 	}
 	if !any {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("")
 	}
-	return search.NewConstantScoreQuery(bq)
+	return search.NewConstantScoreQuery(bq.Build())
 }
 
 // checkPrefixEqual ports CheckHits.checkEqual: same length, same doc ids, and

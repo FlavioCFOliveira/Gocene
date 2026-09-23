@@ -155,8 +155,10 @@ func assertFacetResult(
 	if result.ChildCount != expectedChildCount {
 		t.Errorf("assertFacetResult: childCount %d != %d", result.ChildCount, expectedChildCount)
 	}
-	if result.Value != expectedValue {
-		t.Errorf("assertFacetResult: value %d != %d", result.Value, expectedValue)
+	// FacetResult.Value is float64 in Gocene (Number in Lucene); the expected
+	// value is an integral count, so the comparison is exact.
+	if result.Value != float64(expectedValue) {
+		t.Errorf("assertFacetResult: value %v != %d", result.Value, expectedValue)
 	}
 	if len(result.LabelValues) != len(expectedChildren) {
 		t.Errorf("assertFacetResult: %d labelValues != %d expected", len(result.LabelValues), len(expectedChildren))

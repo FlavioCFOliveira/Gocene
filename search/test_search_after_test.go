@@ -55,7 +55,7 @@ func TestSearchAfter_Queries(t *testing.T) {
 	defer func() { _ = dir.Close() }()
 
 	const numDocs = 200
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -80,12 +80,12 @@ func TestSearchAfter_Queries(t *testing.T) {
 		}
 		// Force multiple segments.
 		if i > 0 && i%50 == 0 {
-			if err := w.Commit(); err != nil {
+			if _, err := w.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	defer func() { _ = w.Close() }()
@@ -102,14 +102,14 @@ func TestSearchAfter_Queries(t *testing.T) {
 	// (english:one OR oddeven:even).
 	one := search.NewTermQuery(index.NewTerm("english", "one"))
 	even := search.NewTermQuery(index.NewTerm("oddeven", "even"))
-	boolQuery := search.NewBooleanQuery()
+	boolQuery := search.NewBooleanQueryBuilder()
 	boolQuery.Add(one, search.SHOULD)
 	boolQuery.Add(even, search.SHOULD)
 
 	queries := []search.Query{
 		search.NewMatchAllDocsQuery(),
 		search.NewTermQuery(index.NewTerm("english", "one")),
-		boolQuery,
+		boolQuery.Build(),
 	}
 
 	pageSizes := []int{1, 3, 5, 17, 50}

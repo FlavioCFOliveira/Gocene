@@ -76,27 +76,27 @@ func TestBlockMaxConjunction_Random(t *testing.T) {
 		start := rng.Intn(10)
 		numClauses := rng.Intn(1 << uint(rng.Intn(5)))
 
-		builder := search.NewBooleanQuery()
+		builder := search.NewBooleanQueryBuilder()
 		for i := 0; i < numClauses; i++ {
 			builder.Add(maybeWrap(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", start+i)))), search.MUST)
 		}
-		query := builder
+		query := builder.Build()
 
 		testsearch.CheckTopScores(t, rng, query, s)
 
 		filterTerm := rng.Intn(30)
-		filtered := search.NewBooleanQuery()
+		filtered := search.NewBooleanQueryBuilder()
 		filtered.Add(query, search.MUST)
 		filtered.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testsearch.CheckTopScores(t, rng, filtered, s)
+		testsearch.CheckTopScores(t, rng, filtered.Build(), s)
 
-		tpBuilder := search.NewBooleanQuery()
+		tpBuilder := search.NewBooleanQueryBuilder()
 		for i := 0; i < numClauses; i++ {
 			tpBuilder.Add(maybeWrapTwoPhase(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", start+i)))), search.MUST)
 		}
-		twoPhase := search.NewBooleanQuery()
+		twoPhase := search.NewBooleanQueryBuilder()
 		twoPhase.Add(query, search.MUST)
 		twoPhase.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testsearch.CheckTopScores(t, rng, twoPhase, s)
+		testsearch.CheckTopScores(t, rng, twoPhase.Build(), s)
 	}
 }

@@ -22,7 +22,7 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -121,13 +121,13 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 	defer reader.Close()
 
 	searcher := search.NewIndexSearcher(reader)
-	boolQuery := search.NewBooleanQuery()
+	boolQuery := search.NewBooleanQueryBuilder()
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "test")), search.SHOULD)
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "reproducible")), search.SHOULD)
 
 	var last int64 = -1
 	for i := 0; i < 5; i++ {
-		topDocs, err := searcher.Search(boolQuery, 10)
+		topDocs, err := searcher.Search(boolQuery.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -146,7 +146,7 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -186,8 +186,8 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 
 	searcher := search.NewIndexSearcher(reader)
 	phraseQuery := search.NewPhraseQueryBuilder().
-		AddTerm(index.NewTerm("content", "quick")).
-		AddTerm(index.NewTerm("content", "brown")).
+		Add(index.NewTerm("content", "quick")).
+		Add(index.NewTerm("content", "brown")).
 		Build()
 
 	var last int64 = -1
@@ -211,7 +211,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -232,7 +232,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -268,7 +268,7 @@ func BenchmarkSearchScoringReproducibility_Repeated(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 	for i := 0; i < 1000; i++ {

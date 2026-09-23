@@ -17,13 +17,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // buildSearchAfterIndex creates a small index with n documents for SearchAfter tests.
 func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexWriter {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -36,7 +37,7 @@ func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.Inde
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	return w
@@ -47,7 +48,7 @@ func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.Inde
 // and a text field for querying.
 func buildSortAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexWriter {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -73,7 +74,7 @@ func buildSortAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexW
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	return w
@@ -114,21 +115,21 @@ func TestSearchAfter_SortTypes(t *testing.T) {
 		sort *search.Sort
 	}
 	cases := []sortCase{
-		{"INT asc", search.NewSort(search.NewSortField("intField", search.SortFieldTypeInt))},
-		{"INT desc", search.NewSort(search.NewSortFieldReverse("intField", search.SortFieldTypeInt))},
-		{"LONG asc", search.NewSort(search.NewSortField("longField", search.SortFieldTypeLong))},
-		{"LONG desc", search.NewSort(search.NewSortFieldReverse("longField", search.SortFieldTypeLong))},
-		{"FLOAT asc", search.NewSort(search.NewSortField("floatField", search.SortFieldTypeFloat))},
-		{"FLOAT desc", search.NewSort(search.NewSortFieldReverse("floatField", search.SortFieldTypeFloat))},
-		{"DOUBLE asc", search.NewSort(search.NewSortField("doubleField", search.SortFieldTypeDouble))},
-		{"DOUBLE desc", search.NewSort(search.NewSortFieldReverse("doubleField", search.SortFieldTypeDouble))},
+		{"INT asc", search.NewSort(search.NewSortField("intField", spi.SortFieldTypeInt))},
+		{"INT desc", search.NewSort(search.NewSortFieldWithReverse("intField", spi.SortFieldTypeInt, true))},
+		{"LONG asc", search.NewSort(search.NewSortField("longField", spi.SortFieldTypeLong))},
+		{"LONG desc", search.NewSort(search.NewSortFieldWithReverse("longField", spi.SortFieldTypeLong, true))},
+		{"FLOAT asc", search.NewSort(search.NewSortField("floatField", spi.SortFieldTypeFloat))},
+		{"FLOAT desc", search.NewSort(search.NewSortFieldWithReverse("floatField", spi.SortFieldTypeFloat, true))},
+		{"DOUBLE asc", search.NewSort(search.NewSortField("doubleField", spi.SortFieldTypeDouble))},
+		{"DOUBLE desc", search.NewSort(search.NewSortFieldWithReverse("doubleField", spi.SortFieldTypeDouble, true))},
 		{"SCORE desc", search.NewSortByScore()},
 		{"DOC asc", search.NewSortByDoc()},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			all, err := searcher.SearchWithSort(query, numDocs, tc.sort)
+			all, err := searcher.SearchWithSort(query, numDocs, tc.sort, false)
 			if err != nil {
 				t.Logf("SearchWithSort(%s) not supported: %v", tc.name, err)
 				return
@@ -147,7 +148,7 @@ func TestSearchAfter_SortTypes(t *testing.T) {
 			}
 
 			// Verify SearchWithSortAfter(nil) returns the same top hits.
-			firstPage, err := searcher.SearchWithSortAfter(query, 5, tc.sort, nil)
+			firstPage, err := searcher.SearchWithSortAfter(nil, query, 5, tc.sort, false)
 			if err != nil {
 				t.Fatalf("SearchWithSortAfter: %v", err)
 			}
@@ -188,11 +189,11 @@ func TestSearchAfter_MultiSort(t *testing.T) {
 	query := search.NewMatchAllDocsQuery()
 
 	// Multi-field sort: primary by intField ascending, secondary by floatField ascending.
-	intField := search.NewSortField("intField", search.SortFieldTypeInt)
-	floatField := search.NewSortField("floatField", search.SortFieldTypeFloat)
+	intField := search.NewSortField("intField", spi.SortFieldTypeInt)
+	floatField := search.NewSortField("floatField", spi.SortFieldTypeFloat)
 	multiSort := search.NewSort(intField, floatField)
 
-	all, err := searcher.SearchWithSort(query, numDocs, multiSort)
+	all, err := searcher.SearchWithSort(query, numDocs, multiSort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -210,7 +211,7 @@ func TestSearchAfter_MultiSort(t *testing.T) {
 	}
 
 	// Verify SearchWithSortAfter(nil) returns the same top hits as SearchWithSort.
-	firstPage, err := searcher.SearchWithSortAfter(query, 5, multiSort, nil)
+	firstPage, err := searcher.SearchWithSortAfter(nil, query, 5, multiSort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSortAfter: %v", err)
 	}
@@ -342,7 +343,7 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 	defer func() { _ = dir.Close() }()
 
 	const numDocs = 20
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -362,7 +363,7 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	w.Close()
@@ -377,10 +378,10 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 	q := search.NewMatchAllDocsQuery()
 
 	// Sort by intField ascending. Missing values sort last by default.
-	intSort := search.NewSortField("intField", search.SortFieldTypeInt)
+	intSort := search.NewSortField("intField", spi.SortFieldTypeInt)
 	sort := search.NewSort(intSort)
 
-	all, err := searcher.SearchWithSort(q, numDocs, sort)
+	all, err := searcher.SearchWithSort(q, numDocs, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -396,7 +397,7 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 	}
 
 	// Verify SearchWithSortAfter(nil) returns results.
-	firstPage, err := searcher.SearchWithSortAfter(q, 5, sort, nil)
+	firstPage, err := searcher.SearchWithSortAfter(nil, q, 5, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSortAfter: %v", err)
 	}
@@ -416,7 +417,7 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 	defer func() { _ = dir.Close() }()
 
 	const numDocs = 20
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -441,7 +442,7 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	w.Close()
@@ -456,10 +457,10 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 	q := search.NewMatchAllDocsQuery()
 
 	// Sort by intField ascending.
-	intSort := search.NewSortField("intField", search.SortFieldTypeInt)
+	intSort := search.NewSortField("intField", spi.SortFieldTypeInt)
 	sort := search.NewSort(intSort)
 
-	all, err := searcher.SearchWithSort(q, numDocs, sort)
+	all, err := searcher.SearchWithSort(q, numDocs, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -475,4 +476,5 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 		if len(fd.Fields) == 0 {
 			t.Errorf("result %d has no sort values", i)
 		}
-}}
+	}
+}

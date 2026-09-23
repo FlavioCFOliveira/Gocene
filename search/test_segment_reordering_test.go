@@ -37,13 +37,12 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so points / doc-values are flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-
-	// Register the production codec so points / doc-values are flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // newSegmentReorderingWriter opens an IndexWriter with NoMergePolicy so that
@@ -51,7 +50,7 @@ import (
 func newSegmentReorderingWriter(t *testing.T) (*index.IndexWriter, store.Directory) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	cfg.SetMergePolicy(index.NewNoMergePolicy())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
@@ -126,7 +125,7 @@ func TestSegmentReordering_SingleValuedNumericSorts(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%125 == 0 {
-			if err := w.Commit(); err != nil {
+			if _, err := w.Commit(); err != nil {
 				t.Fatalf("Commit at %d: %v", i, err)
 			}
 		}
@@ -187,7 +186,7 @@ func TestSegmentReordering_MultiValuedSegmentSorts(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%250 == 0 {
-			if err := w.Commit(); err != nil {
+			if _, err := w.Commit(); err != nil {
 				t.Fatalf("Commit at %d: %v", i, err)
 			}
 		}
@@ -220,7 +219,7 @@ func TestSegmentReordering_NumericSegmentSortsWithMissingValues(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%125 == 0 {
-			if err := w.Commit(); err != nil {
+			if _, err := w.Commit(); err != nil {
 				t.Fatalf("Commit at %d: %v", i, err)
 			}
 		}

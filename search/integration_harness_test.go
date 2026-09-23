@@ -19,13 +19,12 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so postings / doc-values are flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Register the production codec so postings / doc-values are flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // integrationIndex accumulates documents and, on Searcher(), commits them to a
@@ -49,7 +48,7 @@ func newIntegrationIndex(t testing.TB) *integrationIndex {
 // MMapDirectory) exercise the same flush/read path.
 func newIntegrationIndexWithDir(t testing.TB, dir store.Directory) *integrationIndex {
 	t.Helper()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	// Disable auto-flush so that explicit Commit() calls are the sole
 	// mechanism that flushes segments. The DocumentsWriter auto-flush
 	// writes files using its own segment-name counter, which collides
@@ -105,7 +104,7 @@ func (ix *integrationIndex) addDoc(doc *document.Document) {
 // build a multi-segment index that forces real cross-segment reads.
 func (ix *integrationIndex) commit() {
 	ix.t.Helper()
-	if err := ix.w.Commit(); err != nil {
+	if _, err := ix.w.Commit(); err != nil {
 		ix.t.Fatalf("Commit: %v", err)
 	}
 }
@@ -136,7 +135,7 @@ func (ix *integrationIndex) searcher() (*search.IndexSearcher, func()) {
 		_ = ix.dir.Close()
 	}
 
-// assertHitCount runs the query and fails unless it matches want documents.
+	// assertHitCount runs the query and fails unless it matches want documents.
 }
 func assertHitCount(t testing.TB, s *search.IndexSearcher, q search.Query, want int64) {
 	t.Helper()

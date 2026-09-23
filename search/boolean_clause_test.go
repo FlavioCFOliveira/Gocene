@@ -1,13 +1,38 @@
 package search
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 type mockQuery struct{}
 
-func (m *mockQuery) Rewrite(searcher IndexSearcher, scoreMode ScoreMode, boost float32) Query {
-	return m
+func (m *mockQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return m, nil
+}
+
+// CreateWeight carries the default body Lucene gives Query.createWeight,
+// which throws UnsupportedOperationException.
+func (m *mockQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return nil, errors.New("Query mockQuery does not implement createWeight")
+}
+
+// Visit carries the default body Lucene gives Query.visit: the query is
+// visited as a leaf.
+func (m *mockQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(m)
+}
+
+// Equals is abstract in Lucene's Query; this double does not support it.
+func (m *mockQuery) Equals(other spi.Query) bool {
+	panic("mockQuery.Equals: unsupported operation")
+}
+
+// HashCode is abstract in Lucene's Query; this double does not support it.
+func (m *mockQuery) HashCode() int {
+	panic("mockQuery.HashCode: unsupported operation")
 }
 
 func TestBooleanClause_OccurString(t *testing.T) {
@@ -32,11 +57,11 @@ func TestBooleanClause_Properties(t *testing.T) {
 	q := &mockQuery{}
 
 	tests := []struct {
-		name        string
-		occur       Occur
-		isRequired  bool
+		name         string
+		occur        Occur
+		isRequired   bool
 		isProhibited bool
-		isScoring   bool
+		isScoring    bool
 	}{
 		{"MUST", MUST, true, false, true},
 		{"SHOULD", SHOULD, false, false, true},

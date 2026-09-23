@@ -1,11 +1,13 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"errors"
 	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,8 +22,8 @@ func (m *mockScorer) NextDoc() (int, error) {
 	return m.docIDVal, nil
 }
 
-func (m *mockScorer) Score() float32 {
-	return m.scoreVal
+func (m *mockScorer) Score() (float32, error) {
+	return m.scoreVal, nil
 }
 
 func (m *mockScorer) DocID() int {
@@ -39,11 +41,11 @@ func (m *mockScorer) Advance(target int) (int, error) {
 	return NO_MORE_DOCS, nil
 }
 
-func (m *mockScorer) GetMaxScore(upTo int) float32 {
+func (m *mockScorer) GetMaxScore(upTo int) (float32, error) {
 	if m.docIDVal <= upTo {
-		return m.maxScore
+		return m.maxScore, nil
 	}
-	return 0
+	return 0, nil
 }
 
 type mockIterator struct {
@@ -114,11 +116,16 @@ func TestLogOddsFusionScorer_Score(t *testing.T) {
 	scorer := NewLogOddsFusionScorer(subScorers, 2, 0.5, nil, nil, nil, COMPLETE, 1)
 
 	// Mock a topList by creating a DisiWrapper chain
-	w1 := &DisiWrapper{scorer: subScorers[0], doc: 1}
-	w2 := &DisiWrapper{scorer: subScorers[1], doc: 1}
+	w1 := NewDisiWrapper(subScorers[0], false)
+	w1.doc = 1
+	w2 := NewDisiWrapper(subScorers[1], false)
+	w2.doc = 1
 	w1.next = w2
 
-	score := scorer.scoreTopList(w1)
+	score, err := scorer.scoreTopList(w1)
+	if err != nil {
+		t.Fatalf("scoreTopList: %v", err)
+	}
 
 	// Calculation:
 	// logit(0.8) = log(0.8/0.2) = log(4) = 1.3863
@@ -142,11 +149,16 @@ func TestLogOddsFusionScorer_WeightedScore(t *testing.T) {
 	weights := []float32{0.7, 0.3}
 	scorer := NewLogOddsFusionScorer(subScorers, 2, 0.5, weights, nil, nil, COMPLETE, 1)
 
-	w1 := &DisiWrapper{scorer: subScorers[0], doc: 1}
-	w2 := &DisiWrapper{scorer: subScorers[1], doc: 1}
+	w1 := NewDisiWrapper(subScorers[0], false)
+	w1.doc = 1
+	w2 := NewDisiWrapper(subScorers[1], false)
+	w2.doc = 1
 	w1.next = w2
 
-	score := scorer.scoreTopList(w1)
+	score, err := scorer.scoreTopList(w1)
+	if err != nil {
+		t.Fatalf("scoreTopList: %v", err)
+	}
 
 	// Calculation:
 	// gated1 = 1.6094, gated2 = 0.9163
@@ -168,11 +180,16 @@ func TestLogOddsFusionScorer_NormalizedScore(t *testing.T) {
 	logitMax := []float32{2.0, 2.0}
 	scorer := NewLogOddsFusionScorer(subScorers, 2, 0.5, nil, logitMin, logitMax, COMPLETE, 1)
 
-	w1 := &DisiWrapper{scorer: subScorers[0], doc: 1}
-	w2 := &DisiWrapper{scorer: subScorers[1], doc: 1}
+	w1 := NewDisiWrapper(subScorers[0], false)
+	w1.doc = 1
+	w2 := NewDisiWrapper(subScorers[1], false)
+	w2.doc = 1
 	w1.next = w2
 
-	score := scorer.scoreTopList(w1)
+	score, err := scorer.scoreTopList(w1)
+	if err != nil {
+		t.Fatalf("scoreTopList: %v", err)
+	}
 
 	// Calculation:
 	// logit(0.8) = 1.3863, logit(0.6) = 0.4055
@@ -187,40 +204,84 @@ func TestLogOddsFusionScorer_NormalizedScore(t *testing.T) {
 }
 
 func TestLogOddsFusionQuery_Rewrite(t *testing.T) {
-	q1 := &mockQuery{}
-	q2 := &mockQuery{}
-	q3 := &mockQuery{}
+	q1 := &logOddsMockQuery{}
+	q2 := &logOddsMockQuery{}
+	q3 := &logOddsMockQuery{}
 
 	clauses := []Query{q1, q2, q3}
 	q, _ := NewLogOddsFusionQuery(clauses, 0.5, nil, nil, nil)
 
 	// Mock a searcher
-	searcher := &mockSearcher{}
+	searcher := &mockSearcher{IndexSearcher: NewIndexSearcher(newEmptyMultiReader(t))}
 
 	// case 1: no changes
-	rewritten, _ := q.Rewrite(searcher)
+	rewritten, _ := q.Rewrite(searcher.IndexSearcher)
 	assert.Equal(t, q, rewritten)
 }
 
-type mockQuery struct {
+type logOddsMockQuery struct {
 	rewriteTo Query
 }
 
-func (m *mockQuery) CreateWeight(s *IndexSearcher, sm ScoreMode, b float32) (Weight, error) {
-	return &mockWeight{}, nil
+func (m *logOddsMockQuery) CreateWeight(s *IndexSearcher, sm ScoreMode, b float32) (Weight, error) {
+	return &mockWeight{query: m}, nil
 }
 
-func (m *mockQuery) Rewrite(s *IndexSearcher) (Query, error) {
+func (m *logOddsMockQuery) Rewrite(s *IndexSearcher) (Query, error) {
 	if m.rewriteTo != nil {
 		return m.rewriteTo, nil
 	}
 	return m, nil
 }
 
-func (m *mockQuery) Visit(v QueryVisitor)     {}
-func (m *mockQuery) ToString(f string) string { return "mock" }
+// Equals is abstract in Lucene's Query; this double compares by identity.
+func (m *logOddsMockQuery) Equals(other spi.Query) bool {
+	o, ok := other.(*logOddsMockQuery)
+	return ok && o == m
+}
 
-type mockWeight struct{}
+// HashCode is abstract in Lucene's Query; identity equality admits a
+// constant hash.
+func (m *logOddsMockQuery) HashCode() int {
+	return 31
+}
+
+func (m *logOddsMockQuery) Visit(v QueryVisitor)     {}
+func (m *logOddsMockQuery) ToString(f string) string { return "mock" }
+
+type mockWeight struct {
+	query Query
+}
+
+// GetQuery returns the parent query, as Lucene's Weight.getQuery() does.
+func (m *mockWeight) GetQuery() Query {
+	return m.query
+}
+
+// Scorer carries the default body Lucene gives Weight.scorer: the scorer
+// supplier's scorer for a lead cost of Long.MAX_VALUE.
+func (m *mockWeight) Scorer(ctx *index.LeafReaderContext) (Scorer, error) {
+	supplier, err := m.ScorerSupplier(ctx)
+	if err != nil || supplier == nil {
+		return nil, err
+	}
+	return supplier.Get(math.MaxInt64)
+}
+
+// BulkScorer carries the default body Lucene gives Weight.bulkScorer: the
+// scorer supplier's bulk scorer.
+func (m *mockWeight) BulkScorer(ctx *index.LeafReaderContext) (BulkScorer, error) {
+	supplier, err := m.ScorerSupplier(ctx)
+	if err != nil || supplier == nil {
+		return nil, err
+	}
+	return supplier.BulkScorer()
+}
+
+// Count carries the default body Lucene gives Weight.count: -1.
+func (m *mockWeight) Count(ctx *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
 
 func (m *mockWeight) Matches(ctx *index.LeafReaderContext, doc int) (Matches, error) {
 	return nil, nil
@@ -248,14 +309,49 @@ func (m *mockScorerSupplier) Cost() int64 {
 	return 1
 }
 
-func (m *mockScorerSupplier) SetTopLevelScoringClause() {}
+func (m *mockScorerSupplier) SetTopLevelScoringClause() error { return nil }
+
+// AdvanceShallow carries the default body Lucene gives Scorer.AdvanceShallow.
+func (m *mockScorer) AdvanceShallow(target int) (int, error) {
+	return DefaultAdvanceShallow(target)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (m *mockScorer) GetChildren() ([]ChildScorable, error) {
+	return nil, nil
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (m *mockScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(m, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (m *mockScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (m *mockScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (m *mockScorer) TwoPhaseIterator() *TwoPhaseIterator {
+	return DefaultTwoPhaseIterator()
+}
+
+// BulkScorer is abstract in Lucene's ScorerSupplier; this double does not support it.
+func (m *mockScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return nil, errors.New("mockScorerSupplier.BulkScorer: unsupported operation")
+}
 
 type mockSearcher struct {
 	*IndexSearcher
 }
 
 func (m *mockSearcher) CreateWeight(q Query, sm ScoreMode, b float32) (Weight, error) {
-	return q.CreateWeight(m, sm, b)
+	return q.CreateWeight(m.IndexSearcher, sm, b)
 }
 
 // IntoBitSet carries the default body of

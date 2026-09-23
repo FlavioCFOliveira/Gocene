@@ -41,15 +41,15 @@ func TestApproximationSearchEquivalence_Conjunction(t *testing.T) {
 	q1 := sseTermQuery(h.randomTerm())
 	q2 := sseTermQuery(h.randomTerm())
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.MUST)
 
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(aseApprox(q1, rng), search.MUST)
 	bq2.Add(aseApprox(q2, rng), search.MUST)
 
-	h.seqAssertSameScores(bq1, bq2)
+	h.seqAssertSameScores(bq1.Build(), bq2.Build())
 }
 
 // TestApproximationSearchEquivalence_NestedConjunction ports testNestedConjunction.
@@ -64,21 +64,21 @@ func TestApproximationSearchEquivalence_NestedConjunction(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.MUST)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.MUST)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.MUST)
 	bq2.Add(q3, search.MUST)
 
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.MUST)
 	bq3.Add(aseApprox(q2, rng), search.MUST)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
 
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 }
 
 // TestApproximationSearchEquivalence_Disjunction ports testDisjunction.
@@ -89,15 +89,15 @@ func TestApproximationSearchEquivalence_Disjunction(t *testing.T) {
 	q1 := sseTermQuery(h.randomTerm())
 	q2 := sseTermQuery(h.randomTerm())
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.SHOULD)
 	bq1.Add(q2, search.SHOULD)
 
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(aseApprox(q1, rng), search.SHOULD)
 	bq2.Add(aseApprox(q2, rng), search.SHOULD)
 
-	h.seqAssertSameScores(bq1, bq2)
+	h.seqAssertSameScores(bq1.Build(), bq2.Build())
 }
 
 // TestApproximationSearchEquivalence_NestedDisjunction ports testNestedDisjunction.
@@ -117,23 +117,23 @@ func TestApproximationSearchEquivalence_NestedDisjunction(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.SHOULD)
 	bq1.Add(q2, search.SHOULD)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.SHOULD)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.SHOULD)
 	bq2.Add(q3, search.SHOULD)
 
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.SHOULD)
 	bq3.Add(aseApprox(q2, rng), search.SHOULD)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.SHOULD)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.SHOULD)
 	bq4.Add(q3, search.SHOULD)
 
 	// Document-set equivalence only (score equivalence is gated by
 	// RandomApproximationScorer's scoring alignment, tracked separately).
-	h.seqAssertSameSet(bq2, bq4)
+	h.seqAssertSameSet(bq2.Build(), bq4.Build())
 }
 
 // TestApproximationSearchEquivalence_DisjunctionInConjunction ports testDisjunctionInConjunction.
@@ -148,21 +148,21 @@ func TestApproximationSearchEquivalence_DisjunctionInConjunction(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.SHOULD)
 	bq1.Add(q2, search.SHOULD)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.MUST)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.MUST)
 	bq2.Add(q3, search.MUST)
 
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.SHOULD)
 	bq3.Add(aseApprox(q2, rng), search.SHOULD)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
 
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 }
 
 // TestApproximationSearchEquivalence_ConjunctionInDisjunction ports testConjunctionInDisjunction.
@@ -177,21 +177,21 @@ func TestApproximationSearchEquivalence_ConjunctionInDisjunction(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.MUST)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.SHOULD)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.SHOULD)
 	bq2.Add(q3, search.SHOULD)
 
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.MUST)
 	bq3.Add(aseApprox(q2, rng), search.MUST)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.SHOULD)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.SHOULD)
 	bq4.Add(q3, search.SHOULD)
 
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 }
 
 // TestApproximationSearchEquivalence_ConstantScore ports testConstantScore.
@@ -202,15 +202,15 @@ func TestApproximationSearchEquivalence_ConstantScore(t *testing.T) {
 	q1 := sseTermQuery(h.randomTerm())
 	q2 := sseTermQuery(h.randomTerm())
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(search.NewConstantScoreQuery(q1), search.MUST)
 	bq1.Add(search.NewConstantScoreQuery(q2), search.MUST)
 
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(search.NewConstantScoreQuery(aseApprox(q1, rng)), search.MUST)
 	bq2.Add(search.NewConstantScoreQuery(aseApprox(q2, rng)), search.MUST)
 
-	h.seqAssertSameScores(bq1, bq2)
+	h.seqAssertSameScores(bq1.Build(), bq2.Build())
 }
 
 // TestApproximationSearchEquivalence_Exclusion ports testExclusion.
@@ -221,15 +221,15 @@ func TestApproximationSearchEquivalence_Exclusion(t *testing.T) {
 	q1 := sseTermQuery(h.randomTerm())
 	q2 := sseTermQuery(h.randomTerm())
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.MUST_NOT)
 
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(aseApprox(q1, rng), search.MUST)
 	bq2.Add(aseApprox(q2, rng), search.MUST_NOT)
 
-	h.seqAssertSameScores(bq1, bq2)
+	h.seqAssertSameScores(bq1.Build(), bq2.Build())
 }
 
 // TestApproximationSearchEquivalence_NestedExclusion ports testNestedExclusion.
@@ -244,39 +244,39 @@ func TestApproximationSearchEquivalence_NestedExclusion(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.MUST_NOT)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.MUST)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.MUST)
 	bq2.Add(q3, search.MUST)
 
 	// Both req and excl have approximations.
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.MUST)
 	bq3.Add(aseApprox(q2, rng), search.MUST_NOT)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 
 	// Only req has an approximation.
-	bq3 = search.NewBooleanQuery()
+	bq3 = search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.MUST)
 	bq3.Add(q2, search.MUST_NOT)
-	bq4 = search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 = search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 
 	// Only excl has an approximation.
-	bq3 = search.NewBooleanQuery()
+	bq3 = search.NewBooleanQueryBuilder()
 	bq3.Add(q1, search.MUST)
 	bq3.Add(aseApprox(q2, rng), search.MUST_NOT)
-	bq4 = search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 = search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 }
 
 // TestApproximationSearchEquivalence_ReqOpt ports testReqOpt.
@@ -291,19 +291,19 @@ func TestApproximationSearchEquivalence_ReqOpt(t *testing.T) {
 	q2 := sseTermQuery(t2)
 	q3 := sseTermQuery(t3)
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(q1, search.MUST)
 	bq1.Add(q2, search.SHOULD)
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(bq1, search.MUST)
+	bq2 := search.NewBooleanQueryBuilder()
+	bq2.Add(bq1.Build(), search.MUST)
 	bq2.Add(q3, search.MUST)
 
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(aseApprox(q1, rng), search.MUST)
 	bq3.Add(aseApprox(q2, rng), search.SHOULD)
-	bq4 := search.NewBooleanQuery()
-	bq4.Add(bq3, search.MUST)
+	bq4 := search.NewBooleanQueryBuilder()
+	bq4.Add(bq3.Build(), search.MUST)
 	bq4.Add(q3, search.MUST)
 
-	h.seqAssertSameScores(bq2, bq4)
+	h.seqAssertSameScores(bq2.Build(), bq4.Build())
 }

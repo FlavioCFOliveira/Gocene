@@ -2,79 +2,138 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package search
+// Port of lucene/core/src/test/org/apache/lucene/search/TestConstantScoreQuery.java
+// (Apache Lucene 10.5.0).
+//
+// This class only tests some basic functionality in CSQ, the main parts are
+// mostly tested by MultiTermQuery tests, explanations seems to be tested in
+// TestExplanations!
+
+package search_test
 
 import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-func TestConstantScoreQuery_Basics(t *testing.T) {
-	tq := NewTermQuery(index.NewTerm("field", "value"))
-	csq := NewConstantScoreQuery(tq)
-
-	if csq.Query() != tq {
-		t.Error("Query() should return the wrapped query")
-	}
-	if csq.Score() != 1.0 {
-		t.Errorf("Expected default score 1.0, got %f", csq.Score())
-	}
-
-	csq.SetScore(2.5)
-	if csq.Score() != 2.5 {
-		t.Errorf("Expected score 2.5, got %f", csq.Score())
-	}
+func TestConstantScoreQueryCSQ(t *testing.T) {
+	q1 := search.NewConstantScoreQuery(search.NewTermQuery(index.NewTerm("a", "b")))
+	q2 := search.NewConstantScoreQuery(search.NewTermQuery(index.NewTerm("a", "c")))
+	q3 := search.NewConstantScoreQuery(search.NewStringRange("a", "b", "c", true, true))
+	queryUtilsCheck(t, q1)
+	queryUtilsCheck(t, q2)
+	queryUtilsCheckEqual(t, q1, q1)
+	queryUtilsCheckEqual(t, q2, q2)
+	queryUtilsCheckEqual(t, q3, q3)
+	queryUtilsCheckUnequal(t, q1, q2)
+	queryUtilsCheckUnequal(t, q2, q3)
+	queryUtilsCheckUnequal(t, q1, q3)
+	queryUtilsCheckUnequal(t, q1, search.NewTermQuery(index.NewTerm("a", "b")))
 }
 
-func TestConstantScoreQuery_Rewrite(t *testing.T) {
-	// Nested BooleanQuery that should be rewritten
-	inner := NewBooleanQuery()
-	tq := NewTermQuery(index.NewTerm("f", "v"))
-	inner.Add(tq, MUST)
-
-	csq := NewConstantScoreQuery(inner)
-	rewritten, err := csq.Rewrite(nil)
-	if err != nil {
-		t.Fatalf("Rewrite failed: %v", err)
-	}
-
-	// inner rewrites to tq, so csq should now wrap tq
-	if rcsq, ok := rewritten.(*ConstantScoreQuery); ok {
-		if !rcsq.Query().Equals(tq) {
-			t.Errorf("Expected wrapped query to be rewritten to TermQuery, got %T", rcsq.Query())
-		}
-	} else {
-		t.Errorf("Expected ConstantScoreQuery, got %T", rewritten)
-	}
-
-// TestConstantScoreQuery_CreateWeightNotNil guards the root-cause bug behind
-// rmp #4760 / #4767: ConstantScoreQuery must override CreateWeight rather than
-// inheriting BaseQuery.CreateWeight (which returns a nil Weight). A nil Weight
-// makes the query silently match nothing.
+// csqQueryWrapper renders the private TestConstantScoreQuery.QueryWrapper: a
+// query for which other queries don't have special rewrite rules.
+type csqQueryWrapper struct {
+	in search.Query
 }
-func TestConstantScoreQuery_CreateWeightNotNil(t *testing.T) {
-	tq := NewTermQuery(index.NewTerm("field", "value"))
-	csq := NewConstantScoreQuery(tq)
 
-	// needsScores=false returns the inner Weight directly (TermWeight here).
-	wNoScores, err := csq.CreateWeight(nil, false, 1.0)
-	if err != nil {
-		t.Fatalf("CreateWeight(needsScores=false) failed: %v", err)
-	}
-	if wNoScores == nil {
-		t.Fatal("CreateWeight(needsScores=false) returned a nil Weight")
+func (q *csqQueryWrapper) ToString(field string) string { return "MockQuery" }
+
+func (q *csqQueryWrapper) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	return q, nil
+}
+
+func (q *csqQueryWrapper) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	return q.in.CreateWeight(searcher, scoreMode, boost)
+}
+
+func (q *csqQueryWrapper) Visit(visitor search.QueryVisitor) { q.in.Visit(visitor) }
+
+func (q *csqQueryWrapper) Equals(other spi.Query) bool {
+	o, ok := other.(*csqQueryWrapper)
+	return ok && q.in.Equals(o.in)
+}
+
+// csqQueryWrapperClassHash stands for classHash() of QueryWrapper.
+const csqQueryWrapperClassHash = 0x51575250
+
+func (q *csqQueryWrapper) HashCode() int { return 31*csqQueryWrapperClassHash + q.in.HashCode() }
+
+func TestConstantScoreQueryConstantScoreQueryAndFilter(t *testing.T) {
+	d := newDirectory()
+	w := newRandomIndexWriter(t, d)
+	doc := newTestDocument(newStringField(t, "field", "a", false))
+	mustAddDocument(t, w, doc)
+	doc = newTestDocument(newStringField(t, "field", "b", false))
+	mustAddDocument(t, w, doc)
+	r := mustGetReader(t, w)
+	mustClose(t, w)
+
+	filterB := &csqQueryWrapper{in: search.NewTermQuery(index.NewTerm("field", "b"))}
+	var query search.Query = search.NewConstantScoreQuery(filterB)
+
+	s := newSearcher(t, r)
+	var filtered search.Query = search.NewBooleanQueryBuilder().Add(query, search.MUST).Add(filterB, search.FILTER).Build()
+	if got := mustCount(t, s, filtered); got != 1 { // Query for field:b, Filter field:b
+		t.Fatalf("expected 1, got %d", got)
 	}
 
-	// needsScores=true wraps the inner Weight in a ConstantScoreWeight.
-	wScores, err := csq.CreateWeight(nil, true, 1.0)
+	filterA := &csqQueryWrapper{in: search.NewTermQuery(index.NewTerm("field", "a"))}
+	query = search.NewConstantScoreQuery(filterA)
+
+	filtered = search.NewBooleanQueryBuilder().Add(query, search.MUST).Add(filterB, search.FILTER).Build()
+	if got := mustCount(t, s, filtered); got != 0 { // Query field:b, Filter field:a
+		t.Fatalf("expected 0, got %d", got)
+	}
+
+	mustClose(t, r, d)
+}
+
+func TestConstantScoreQueryPropagatesApproximations(t *testing.T) {
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	f := newTextField(t, "field", "a b", false)
+	doc := newTestDocument(f)
+	mustAddDocument(t, w, doc)
+	if _, err := w.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	reader := mustGetReader(t, w)
+	searcher := newSearcher(t, reader)
+	searcher.SetQueryCache(nil) // to still have approximations
+
+	pq := search.NewPhraseQuery(0, "field", "a", "b")
+
+	q := mustRewrite(t, searcher, search.NewConstantScoreQuery(pq))
+
+	weight, err := searcher.CreateWeight(q, search.COMPLETE, 1)
 	if err != nil {
-		t.Fatalf("CreateWeight(needsScores=true) failed: %v", err)
+		t.Fatalf("createWeight: %v", err)
 	}
-	if wScores == nil {
-		t.Fatal("CreateWeight(needsScores=true) returned a nil Weight")
+	scorer, err := weight.Scorer(mustLeaves(t, searcher.GetIndexReader())[0])
+	if err != nil {
+		t.Fatalf("scorer: %v", err)
 	}
-	if _, ok := wScores.(*ConstantScoreWeight); !ok {
-		t.Errorf("Expected a *ConstantScoreWeight when scores are needed, got %T", wScores)
+	if scorer.TwoPhaseIterator() == nil {
+		t.Fatal("expected a two-phase iterator")
+	}
+
+	mustClose(t, reader, w, dir)
+}
+
+func TestConstantScoreQueryRewriteBubblesUpMatchNoDocsQuery(t *testing.T) {
+	multiReader, err := index.NewMultiReader(nil)
+	if err != nil {
+		t.Fatalf("new MultiReader: %v", err)
+	}
+	searcher := newSearcher(t, multiReader)
+
+	query := search.NewConstantScoreQuery(search.MatchNoDocsQueryInstance)
+	if got := mustRewrite(t, searcher, query); !search.MatchNoDocsQueryInstance.Equals(got) {
+		t.Fatalf("expected %v, got %v", search.MatchNoDocsQueryInstance, got)
 	}
 }

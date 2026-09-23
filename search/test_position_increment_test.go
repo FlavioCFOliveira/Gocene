@@ -20,18 +20,18 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // TestPositionIncrement_TestCrazy mirrors TestPositionIncrement.testSetPosition.
 func TestPositionIncrement_TestCrazy(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(&cannedPositionAnalyzer{}))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(newCannedPositionAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestPositionIncrement_TestCrazy(t *testing.T) {
 	mkTerm := func(text string) *index.Term { return index.NewTerm("field", text) }
 
 	// "1" "2" adjacent (positions 0,1) -> no match (real gap is 0->2).
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("1"), mkTerm("2")), 0)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("1"), mkTerm("2")), 0)
 
 	// Builder with implicit consecutive positions -> still no match.
 	assertPhraseHits(t, searcher, buildPhrase(mkTerm("1"), mkTerm("2")), 0)
@@ -78,10 +78,10 @@ func TestPositionIncrement_TestCrazy(t *testing.T) {
 	assertPhraseHits(t, searcher, buildPhraseAt([]termPos{{mkTerm("1"), 0}, {mkTerm("2"), 2}}), 1)
 
 	// "2" "3" adjacent (positions 2,3) -> matches.
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("2"), mkTerm("3")), 1)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("2"), mkTerm("3")), 1)
 
 	// "3" "4" adjacent -> no match: both are at position 3 (increment 0).
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("3"), mkTerm("4")), 0)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("3"), mkTerm("4")), 0)
 
 	// "3" "4" both at position 0 (relative) -> matches the stacked tokens.
 	assertPhraseHits(t, searcher, buildPhraseAt([]termPos{{mkTerm("3"), 0}, {mkTerm("4"), 0}}), 1)
@@ -97,10 +97,10 @@ func TestPositionIncrement_TestCrazy(t *testing.T) {
 	assertPhraseHits(t, searcher, mqb.Build(), 1)
 
 	// Remaining adjacency checks following the absolute positions {0,2,3,3,4}.
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("2"), mkTerm("4")), 1)
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("3"), mkTerm("5")), 1)
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("4"), mkTerm("5")), 1)
-	assertPhraseHits(t, searcher, search.NewPhraseQuery("field", mkTerm("2"), mkTerm("5")), 0)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("2"), mkTerm("4")), 1)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("3"), mkTerm("5")), 1)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("4"), mkTerm("5")), 1)
+	assertPhraseHits(t, searcher, search.NewPhraseQueryWithTerms(0, "field", mkTerm("2"), mkTerm("5")), 0)
 }
 
 // firstPosition reads the first position of the first document containing term.
@@ -164,7 +164,7 @@ type termPos struct {
 func buildPhrase(terms ...*index.Term) search.Query {
 	b := search.NewPhraseQueryBuilder()
 	for _, term := range terms {
-		b.AddTerm(term)
+		b.Add(term)
 	}
 	return b.Build()
 }
@@ -173,22 +173,27 @@ func buildPhrase(terms ...*index.Term) search.Query {
 func buildPhraseAt(tps []termPos) search.Query {
 	b := search.NewPhraseQueryBuilder()
 	for _, tp := range tps {
-		b.AddTermAtPosition(tp.term, tp.pos)
+		b.AddWithPosition(tp.term, tp.pos)
 	}
 	return b.Build()
 }
 
-// cannedPositionAnalyzer is an Analyzer whose TokenStream always yields the
+// newCannedPositionAnalyzer returns an Analyzer whose TokenStream always yields the
 // fixed token/position sequence from the upstream test, ignoring the reader.
-type cannedPositionAnalyzer struct{}
-
-func (a *cannedPositionAnalyzer) TokenStream(_ string, _ io.Reader) (analysis.TokenStream, error) {
-	return newCannedPositionTokenizer(), nil
+func newCannedPositionAnalyzer() analysis.Analyzer {
+	a := analysis.NewAnalyzer(nil)
+	a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+		src := newCannedPositionTokenizer()
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: src,
+		}
+	}
+	return a
 }
-
-func (a *cannedPositionAnalyzer) Close() error { return nil }
-
-var _ analysis.Analyzer = (*cannedPositionAnalyzer)(nil)
 
 // cannedPositionTokenizer emits the tokens {1,2,3,4,5} with the position
 // increments {1,2,1,0,1}, mirroring the anonymous Tokenizer in the upstream
@@ -199,7 +204,7 @@ type cannedPositionTokenizer struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	i int
 }
@@ -210,15 +215,11 @@ var (
 )
 
 func newCannedPositionTokenizer() *cannedPositionTokenizer {
-	tk := &cannedPositionTokenizer{
-		BaseTokenizer: analysis.NewBaseTokenizer(),
-		termAttr:      analysis.NewCharTermAttribute(),
-		offsetAttr:    analysis.NewOffsetAttribute(),
-		posIncrAttr:   analysis.NewPositionIncrementAttribute(),
-	}
-	tk.AddAttribute(tk.termAttr)
-	tk.AddAttribute(tk.offsetAttr)
-	tk.AddAttribute(tk.posIncrAttr)
+	tk := &cannedPositionTokenizer{BaseTokenizer: analysis.NewBaseTokenizer()}
+	// Java: addAttribute(CharTermAttribute.class) and friends.
+	tk.termAttr = tk.AddAttribute(tokenattributes.CharTermAttributeType).(analysis.CharTermAttribute)
+	tk.offsetAttr = tk.AddAttribute(tokenattributes.OffsetAttributeType).(analysis.OffsetAttribute)
+	tk.posIncrAttr = tk.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	return tk
 }
 

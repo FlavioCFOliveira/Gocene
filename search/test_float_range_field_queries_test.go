@@ -28,7 +28,7 @@ const floatRangeFieldName = "floatRangeField"
 
 func buildFloatRangeBasicsIndex(t *testing.T, dir store.Directory) *index.DirectoryReader {
 	t.Helper()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -54,7 +54,7 @@ func buildFloatRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Direct
 	add([]float32{negInf, 1.2}, []float32{-11.0, 29.9})   // intersects (crosses)
 	add([]float32{-11, -15}, []float32{15, 20})           // equal
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	t.Cleanup(func() { _ = w.Close() })

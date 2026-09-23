@@ -98,7 +98,7 @@ func TestTaxonomyFacetCounts_Basic(t *testing.T) {
 	config := facets.NewFacetsConfig()
 	config.SetHierarchical("Publish Date", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestTaxonomyFacetCounts_Basic(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -169,7 +169,7 @@ func TestTaxonomyFacetCounts_Basic(t *testing.T) {
 	}
 	// Verify value and child count, then check individual entries.
 	if result.Value != 5 {
-		t.Errorf("Publish Date value: want 5, got %d", result.Value)
+		t.Errorf("Publish Date value: want 5, got %v", result.Value)
 	}
 	if result.ChildCount != 3 {
 		t.Errorf("Publish Date childCount: want 3, got %d", result.ChildCount)
@@ -188,7 +188,7 @@ func TestTaxonomyFacetCounts_Basic(t *testing.T) {
 		t.Fatalf("GetTopChildren Author: %v", err)
 	}
 	if result.Value != 5 {
-		t.Errorf("Author value: want 5, got %d", result.Value)
+		t.Errorf("Author value: want 5, got %v", result.Value)
 	}
 	if result.ChildCount != 4 {
 		t.Errorf("Author childCount: want 4, got %d", result.ChildCount)
@@ -219,7 +219,7 @@ func TestTaxonomyFacetCounts_MultiValuedHierarchy(t *testing.T) {
 	config.SetHierarchical("Publish Date", true)
 	config.SetMultiValued("Author", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestTaxonomyFacetCounts_MultiValuedHierarchy(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -325,7 +325,7 @@ func TestTaxonomyFacetCounts_Random(t *testing.T) {
 	defer taxoWriter.Close()
 
 	config := facets.NewFacetsConfig()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestTaxonomyFacetCounts_Random(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -385,7 +385,7 @@ func TestTaxonomyFacetCounts_Random(t *testing.T) {
 	}
 	// cat_0 appears 4 times, cat_1 3 times, cat_2 3 times
 	if result.Value != 10 {
-		t.Errorf("total value: want 10, got %d", result.Value)
+		t.Errorf("total value: want 10, got %v", result.Value)
 	}
 }
 
@@ -403,7 +403,7 @@ func TestTaxonomyFacetCounts_DrillDown(t *testing.T) {
 	defer taxoWriter.Close()
 
 	config := facets.NewFacetsConfig()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestTaxonomyFacetCounts_DrillDown(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -451,12 +451,8 @@ func TestTaxonomyFacetCounts_DrillDown(t *testing.T) {
 	}
 
 	// Search with a drill-down query.
-	builder := facets.NewDrillDownQueryBuilder(config, search.NewMatchAllDocsQuery())
-	builder.Add("Author", "Lisa")
-	q, err := builder.Build()
-	if err != nil {
-		t.Fatalf("build drill-down: %v", err)
-	}
+	q := facets.NewDrillDownQueryWithBaseQuery(config, search.NewMatchAllDocsQuery())
+	q.Add("Author", "Lisa")
 
 	fc := facets.NewFacetsCollector()
 	if err := searcher.SearchWithCollector(q, fc); err != nil {
@@ -486,6 +482,6 @@ func TestTaxonomyFacetCounts_DrillDown(t *testing.T) {
 
 	// After drill-down to Lisa: 1 blue + 1 red = 2
 	if result.Value != 2 {
-		t.Errorf("Color total after drill-down: want 2, got %d", result.Value)
+		t.Errorf("Color total after drill-down: want 2, got %v", result.Value)
 	}
 }

@@ -17,7 +17,7 @@ import (
 func TestRangeDocIdStream_ForEach(t *testing.T) {
 	s := search.NewRangeDocIdStream(42, 100)
 	expected := 42
-	err := search.ForEachAll(s, func(doc int) error {
+	err := s.ForEach(func(doc int) error {
 		if doc != expected {
 			t.Errorf("got doc %d, want %d", doc, expected)
 		}
@@ -35,7 +35,7 @@ func TestRangeDocIdStream_ForEach(t *testing.T) {
 // TestRangeDocIdStream_Count mirrors TestRangeDocIdStream.testCount.
 func TestRangeDocIdStream_Count(t *testing.T) {
 	s := search.NewRangeDocIdStream(42, 100)
-	n, err := search.CountAll(s)
+	n, err := s.Count()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestRangeDocIdStream_IntoArray(t *testing.T) {
 
 	for i := 42; i < 100; i++ {
 		if o == count {
-			count = search.IntoArray(s, array)
+			count = s.IntoArray(array)
 			o = 0
 			if 100-i >= len(array) {
 				if count != len(array) {
@@ -260,7 +260,7 @@ func TestRangeDocIdStream_MixForEachCountUpTo(t *testing.T) {
 		t.Error("MayHaveRemaining() = true after full consume, want false")
 	}
 
-// TestRangeDocIdStream_PanicOnMinGeMax verifies constructor precondition.
+	// TestRangeDocIdStream_PanicOnMinGeMax verifies constructor precondition.
 }
 func TestRangeDocIdStream_PanicOnMinGeMax(t *testing.T) {
 	defer func() {

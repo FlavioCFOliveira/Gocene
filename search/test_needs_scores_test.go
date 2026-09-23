@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // needsScoresIndex builds the five-document index shared by the TestNeedsScores
@@ -62,11 +63,11 @@ func TestNeedsScores(t *testing.T) {
 		requiredAssert := newAssertNeedsScores(t, required, search.COMPLETE)
 		prohibitedAssert := newAssertNeedsScores(t, prohibited, search.COMPLETE_NO_SCORES)
 
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(requiredAssert, search.MUST)
 		bq.Add(prohibitedAssert, search.MUST_NOT)
 
-		top, err := searcher.Search(bq, 5)
+		top, err := searcher.Search(bq.Build(), 5)
 		if err != nil {
 			t.Fatalf("Search: %v", err)
 		}
@@ -119,7 +120,7 @@ func TestNeedsScores(t *testing.T) {
 		sortAssert := newAssertNeedsScores(t, term3, search.COMPLETE_NO_SCORES)
 		sortCSQ := search.NewConstantScoreQuery(sortAssert)
 
-		sortTop, err := searcher.SearchWithSort(sortCSQ, 5, search.NewSortByDoc())
+		sortTop, err := searcher.SearchWithSort(sortCSQ, 5, search.NewSortByDoc(), false)
 		if err != nil {
 			t.Fatalf("SearchWithSort(constantScore): %v", err)
 		}
@@ -136,7 +137,7 @@ func TestNeedsScores(t *testing.T) {
 		defer cleanup()
 
 		assertQ := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.COMPLETE_NO_SCORES)
-		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByDoc())
+		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByDoc(), false)
 		if err != nil {
 			t.Fatalf("SearchWithSort: %v", err)
 		}
@@ -153,7 +154,7 @@ func TestNeedsScores(t *testing.T) {
 		defer cleanup()
 
 		assertQ := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.COMPLETE)
-		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByScore())
+		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByScore(), false)
 		if err != nil {
 			t.Fatalf("SearchWithSort: %v", err)
 		}
@@ -166,9 +167,8 @@ func TestNeedsScores(t *testing.T) {
 
 // assertNeedsScores wraps a query and asserts that the ScoreMode passed to its
 // inner query's weight creation equals value, mirroring the upstream
-// AssertNeedsScores test helper. It implements search.Query plus the optional
-// ScoreMode-aware CreateWeightScoreMode so IndexSearcher.CreateWeight dispatches
-// to it and forwards the full ScoreMode.
+// AssertNeedsScores test helper. It implements search.Query, whose
+// CreateWeight receives the full ScoreMode.
 type assertNeedsScores struct {
 	t        *testing.T
 	in       search.Query
@@ -193,10 +193,10 @@ func (q *assertNeedsScores) requireObserved(t *testing.T) {
 	}
 }
 
-// CreateWeightScoreMode builds the inner weight under scoreMode (via the
+// CreateWeight builds the inner weight under scoreMode (via the
 // searcher's dispatch, so composite inner queries also see it) and wraps it so
 // that pulling a Scorer asserts scoreMode == q.value.
-func (q *assertNeedsScores) CreateWeightScoreMode(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+func (q *assertNeedsScores) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	inner, err := searcher.CreateWeight(q.in, scoreMode, boost)
 	if err != nil {
 		return nil, err
@@ -207,20 +207,8 @@ func (q *assertNeedsScores) CreateWeightScoreMode(searcher *search.IndexSearcher
 	return &assertNeedsScoresWeight{Weight: inner, parent: q, scoreMode: scoreMode}, nil
 }
 
-// CreateWeight is the bool-based entry point required by search.Query; it maps
-// the bool to the coarsest ScoreMode and delegates to CreateWeightScoreMode.
-// IndexSearcher always reaches this wrapper through CreateWeightScoreMode, so on
-// the real search path the full ScoreMode is preserved.
-func (q *assertNeedsScores) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	mode := search.COMPLETE_NO_SCORES
-	if needsScores {
-		mode = search.COMPLETE
-	}
-	return q.CreateWeightScoreMode(searcher, mode, boost)
-}
-
-func (q *assertNeedsScores) Rewrite(reader search.IndexReader) (search.Query, error) {
-	in2, err := q.in.Rewrite(reader)
+func (q *assertNeedsScores) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	in2, err := q.in.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -230,16 +218,17 @@ func (q *assertNeedsScores) Rewrite(reader search.IndexReader) (search.Query, er
 	return &assertNeedsScores{t: q.t, in: in2, value: q.value}, nil
 }
 
-func (q *assertNeedsScores) Clone() search.Query {
-	return &assertNeedsScores{t: q.t, in: q.in.Clone(), value: q.value}
-}
-
-func (q *assertNeedsScores) Equals(other search.Query) bool {
+func (q *assertNeedsScores) Equals(other spi.Query) bool {
 	o, ok := other.(*assertNeedsScores)
 	if !ok {
 		return false
 	}
 	return q.value == o.value && q.in.Equals(o.in)
+}
+
+// Visit mirrors AssertNeedsScores.visit: the wrapped query is visited.
+func (q *assertNeedsScores) Visit(visitor search.QueryVisitor) {
+	q.in.Visit(visitor)
 }
 
 func (q *assertNeedsScores) HashCode() int {

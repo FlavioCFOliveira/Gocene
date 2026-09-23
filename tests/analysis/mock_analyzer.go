@@ -67,25 +67,16 @@ func NewMockAnalyzer(runAutomaton *automaton.CharacterRunAutomaton, lowerCase bo
 	}
 }
 
-// NewMockAnalyzerRandom is a convenience constructor that builds a
-// deterministic but varied MockAnalyzer from a single random seed. It is
-// used by tests that need a "standard" analyzer shape.
-func NewMockAnalyzerRandom(r *rand.Rand, lowerCase bool, maxTokenLength int, stopSet map[string]struct{}, enableChecks bool) *MockAnalyzer {
-	if r == nil {
-		r = rand.New(rand.NewSource(0))
-	}
-	// Choose an automaton based on the random source.
-	var run *automaton.CharacterRunAutomaton
-	switch r.Intn(3) {
-	case 0:
-		run = WHITESPACE
-	case 1:
-		run = KEYWORD
-	default:
-		run = SIMPLE
-	}
-	a := NewMockAnalyzer(run, lowerCase, maxTokenLength, stopSet, enableChecks)
-	a.payloadRandom = r
+// NewMockAnalyzerRandom renders new MockAnalyzer(Random random): a
+// whitespace-tokenizing, lower-casing analyzer with no stopwords removal,
+// i.e. MockAnalyzer(random, MockTokenizer.WHITESPACE, true,
+// MockTokenFilter.EMPTY_STOPSET, null). As in Java, the analyzer keeps its own
+// generator seeded from random.nextLong() (the "Random for payloads
+// behavior").
+func NewMockAnalyzerRandom(random *rand.Rand) *MockAnalyzer {
+	a := NewMockAnalyzer(WHITESPACE, true, DefaultMaxTokenLength, EMPTY_STOPSET, true)
+	// TODO: this should be solved in a different way; Random should not be shared (!).
+	a.payloadRandom = rand.New(rand.NewSource(random.Int63()))
 	return a
 }
 

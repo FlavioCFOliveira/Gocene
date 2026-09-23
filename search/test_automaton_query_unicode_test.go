@@ -35,22 +35,22 @@ func buildUnicodeIndex(t *testing.T) (index.IndexReaderInterface, func()) {
 	// Indexed values — each element becomes one document in the field.
 	// Source: TestAutomatonQueryUnicode.setUp(), converted from UTF-16 to Go.
 	values := []string{
-		"\U00029C05abcdef",  // doc 0: U+29C05 = 𩸅 (was 𩬅 surrogate pair)
-		"\U00029C06ghijkl",  // doc 1: U+29C06 = 𩸆
-		"ﮔmnopqr",      // doc 2: U+FB94  = ﮤ (Arabic presentation form B, Kaf)
-		"ﮕstuvwx",      // doc 3: U+FB95  = ﮥ
-		"a￼bc",         // doc 4: U+FFFC  = object replacement character
-		"a�bc",         // doc 5: U+FFFD  = replacement character
-		"a￾bc",         // doc 6: U+FFFE  = non-character BOM
-		"aﮔbc",         // doc 7: U+FB94  embedded in ASCII prefix
-		"bacadaba",          // doc 8: pure ASCII
-		"�",            // doc 9: lone replacement character
-		"�\U00029C05",  // doc 10: replacement char + U+29C05
-		"��",      // doc 11: two replacement characters
+		"\U00029C05abcdef", // doc 0: U+29C05 = 𩸅 (was 𩬅 surrogate pair)
+		"\U00029C06ghijkl", // doc 1: U+29C06 = 𩸆
+		"ﮔmnopqr",          // doc 2: U+FB94  = ﮤ (Arabic presentation form B, Kaf)
+		"ﮕstuvwx",          // doc 3: U+FB95  = ﮥ
+		"a￼bc",             // doc 4: U+FFFC  = object replacement character
+		"a�bc",             // doc 5: U+FFFD  = replacement character
+		"a￾bc",             // doc 6: U+FFFE  = non-character BOM
+		"aﮔbc",             // doc 7: U+FB94  embedded in ASCII prefix
+		"bacadaba",         // doc 8: pure ASCII
+		"�",                // doc 9: lone replacement character
+		"�\U00029C05",      // doc 10: replacement char + U+29C05
+		"��",               // doc 11: two replacement characters
 	}
 
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -69,7 +69,7 @@ func buildUnicodeIndex(t *testing.T) (index.IndexReaderInterface, func()) {
 			t.Fatalf("AddDocument(%q): %v", v, addErr)
 		}
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {
@@ -97,7 +97,7 @@ func automatonQueryNrHits(t *testing.T, searcher *IndexSearcher, a *automaton.Au
 
 	rewriteMethods := []struct {
 		name   string
-		method string
+		method RewriteMethod
 	}{
 		{"ScoringBoolean", ScoringBooleanRewrite},
 		{"ConstantScore", ConstantScoreRewrite},
@@ -106,7 +106,7 @@ func automatonQueryNrHits(t *testing.T, searcher *IndexSearcher, a *automaton.Au
 	}
 
 	for _, rm := range rewriteMethods {
-		q := NewAutomatonQueryFull(dummyTerm, a, false, rm.method)
+		q := NewAutomatonQuery(dummyTerm, a, false, rm.method)
 		topDocs, err := searcher.Search(q, 20)
 		if err != nil {
 			t.Fatalf("[%s] Search: %v", rm.name, err)
@@ -116,17 +116,17 @@ func automatonQueryNrHits(t *testing.T, searcher *IndexSearcher, a *automaton.Au
 		}
 	}
 
-// TestAutomatonQueryUnicode_SortOrder mirrors testSortOrder.
-//
-// The expression `(𩸅|ﮤ).*` matches any term that starts with U+29C05 (𩸅, a
-// supplementary CJK character that encodes as a 4-byte UTF-8 sequence) or with
-// U+FB94 (ﮤ, an Arabic presentation form that encodes as a 3-byte UTF-8
-// sequence). In UTF-8 / UTF-32 sort order the supplementary character sorts
-// BEFORE the BMP Arabic form, whereas in Java's UTF-16 encoding the surrogate
-// pair code units sort AFTER it. This test verifies that Gocene's AutomatonQuery
-// observes the correct UTF-8 sort order.
-//
-// Expected matches: doc 0 (𩸅abcdef) and doc 2 (ﮤmnopqr) → 2 hits.
+	// TestAutomatonQueryUnicode_SortOrder mirrors testSortOrder.
+	//
+	// The expression `(𩸅|ﮤ).*` matches any term that starts with U+29C05 (𩸅, a
+	// supplementary CJK character that encodes as a 4-byte UTF-8 sequence) or with
+	// U+FB94 (ﮤ, an Arabic presentation form that encodes as a 3-byte UTF-8
+	// sequence). In UTF-8 / UTF-32 sort order the supplementary character sorts
+	// BEFORE the BMP Arabic form, whereas in Java's UTF-16 encoding the surrogate
+	// pair code units sort AFTER it. This test verifies that Gocene's AutomatonQuery
+	// observes the correct UTF-8 sort order.
+	//
+	// Expected matches: doc 0 (𩸅abcdef) and doc 2 (ﮤmnopqr) → 2 hits.
 }
 func TestAutomatonQueryUnicode_SortOrder(t *testing.T) {
 	reader, cleanup := buildUnicodeIndex(t)

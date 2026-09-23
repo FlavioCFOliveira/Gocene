@@ -100,7 +100,12 @@ func Unpack(bytesRef *util.BytesRef, start int, buf []int64) {
 // NewLongPoint creates a new LongPoint, indexing the provided N-dimensional long point.
 func NewLongPoint(name string, point ...int64) *LongPoint {
 	ft := getType(len(point))
-	f, _ := NewField(name, binaryValue(Pack(point...)), ft)
+	f, err := NewField(name, Pack(point...), ft)
+	if err != nil {
+		// Java's Field(String, BytesRef, IndexableFieldType) throws
+		// IllegalArgumentException for an invalid name or type.
+		panic(err)
+	}
 	return &LongPoint{Field: *f}
 }
 

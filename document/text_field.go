@@ -7,6 +7,7 @@ package document
 import (
 	"io"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -66,6 +67,18 @@ func NewTextField(name string, value string, stored bool) (*TextField, error) {
 	}
 
 	field, err := NewField(name, value, ft)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TextField{Field: field}, nil
+}
+
+// NewTextFieldFromTokenStream creates a new un-stored TextField with
+// TokenStream value. Mirrors TextField(String name, TokenStream stream) of
+// Apache Lucene 10.5.0: super(name, stream, TYPE_NOT_STORED).
+func NewTextFieldFromTokenStream(name string, stream analysis.TokenStream) (*TextField, error) {
+	field, err := NewField(name, stream, TextFieldTypeNotStored)
 	if err != nil {
 		return nil, err
 	}

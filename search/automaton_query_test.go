@@ -351,7 +351,7 @@ func (t *TestAutomatonQuery) Setup() error {
 	t.directory = store.NewByteBuffersDirectory()
 
 	// Create index writer config
-	config := index.NewIndexWriterConfig(nil)
+	config := index.NewIndexWriterConfigWithAnalyzer(nil)
 
 	// Create index writer
 	writer, err := index.NewIndexWriter(t.directory, config)
@@ -393,7 +393,7 @@ func (t *TestAutomatonQuery) Setup() error {
 	}
 
 	// Commit and get reader
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		return err
 	}
 	if err := writer.Close(); err != nil {
@@ -840,7 +840,7 @@ func BenchmarkAutomatonQuery_Equals(b *testing.B) {
 		_ = aq1.Equals(aq2)
 	}
 
-// BenchmarkAutomatonQuery_ThreadSafety benchmarks concurrent hashCode access.
+	// BenchmarkAutomatonQuery_ThreadSafety benchmarks concurrent hashCode access.
 }
 func BenchmarkAutomatonQuery_ThreadSafety(b *testing.B) {
 	automata := Automata{}

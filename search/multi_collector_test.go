@@ -48,7 +48,7 @@ type simpleTestScorer struct {
 	score float32
 }
 
-func (s *simpleTestScorer) Score() float32               { return s.score }
+func (s *simpleTestScorer) Score() (float32, error)      { return s.score, nil }
 func (s *simpleTestScorer) GetMaxScore(upTo int) float32 { return s.score }
 func (s *simpleTestScorer) AdvanceShallow(int) (int, error) {
 	return NO_MORE_DOCS, nil
@@ -61,7 +61,7 @@ type minScoreRecordingScorer struct {
 	minCompetitiveScore float32
 }
 
-func (s *minScoreRecordingScorer) Score() float32               { return 0 }
+func (s *minScoreRecordingScorer) Score() (float32, error)      { return 0, nil }
 func (s *minScoreRecordingScorer) GetMaxScore(upTo int) float32 { return 0 }
 func (s *minScoreRecordingScorer) AdvanceShallow(int) (int, error) {
 	return NO_MORE_DOCS, nil
@@ -81,7 +81,7 @@ type failOnMinScoreScorer struct {
 	t *testing.T
 }
 
-func (s *failOnMinScoreScorer) Score() float32               { return 0 }
+func (s *failOnMinScoreScorer) Score() (float32, error)      { return 0, nil }
 func (s *failOnMinScoreScorer) GetMaxScore(upTo int) float32 { return 0 }
 func (s *failOnMinScoreScorer) AdvanceShallow(int) (int, error) {
 	return NO_MORE_DOCS, nil
@@ -117,7 +117,7 @@ func (c *dummyCollector) GetLeafCollector(context *index.LeafReaderContext) (Lea
 	return c, nil
 }
 func (c *dummyCollector) ScoreMode() ScoreMode { return c.scoreMode }
-func (c *dummyCollector) SetScorer(scorer Scorer) error {
+func (c *dummyCollector) SetScorer(scorer Scorable) error {
 	c.setScorerCalled = true
 	return nil
 }
@@ -167,8 +167,8 @@ type dummyTotalHitCountCollector struct {
 func (c *dummyTotalHitCountCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	return c, nil
 }
-func (c *dummyTotalHitCountCollector) ScoreMode() ScoreMode          { return COMPLETE_NO_SCORES }
-func (c *dummyTotalHitCountCollector) SetScorer(scorer Scorer) error { return nil }
+func (c *dummyTotalHitCountCollector) ScoreMode() ScoreMode            { return COMPLETE_NO_SCORES }
+func (c *dummyTotalHitCountCollector) SetScorer(scorer Scorable) error { return nil }
 func (c *dummyTotalHitCountCollector) Collect(doc int) error {
 	c.totalHits++
 	return nil
@@ -212,7 +212,7 @@ type terminateAfterLeafCollector struct {
 	parent *terminateAfterCollector
 }
 
-func (c *terminateAfterLeafCollector) SetScorer(scorer Scorer) error { return c.in.SetScorer(scorer) }
+func (c *terminateAfterLeafCollector) SetScorer(scorer Scorable) error { return c.in.SetScorer(scorer) }
 func (c *terminateAfterLeafCollector) Collect(doc int) error {
 	if c.parent.count >= c.parent.terminateAfter {
 		return NewCollectionTerminatedException()
@@ -237,6 +237,10 @@ func newSetScorerCollector(in Collector, flag *bool) *setScorerCollector {
 }
 
 func (c *setScorerCollector) ScoreMode() ScoreMode { return c.in.ScoreMode() }
+
+// SetWeight carries FilterCollector.setWeight, which delegates to the
+// wrapped collector.
+func (c *setScorerCollector) SetWeight(weight Weight) { c.in.SetWeight(weight) }
 func (c *setScorerCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	in, err := c.in.GetLeafCollector(context)
 	if err != nil {
@@ -250,7 +254,7 @@ type setScorerLeafCollector struct {
 	setScorerCalled *bool
 }
 
-func (c *setScorerLeafCollector) SetScorer(scorer Scorer) error {
+func (c *setScorerLeafCollector) SetScorer(scorer Scorable) error {
 	if err := c.in.SetScorer(scorer); err != nil {
 		return err
 	}
@@ -268,10 +272,10 @@ func (c *setScorerLeafCollector) Finish() error         { return finishLeafColle
 // caller-supplied predicate.
 type scorerCheckCollector struct {
 	scoreMode ScoreMode
-	check     func(scorer Scorer) error
+	check     func(scorer Scorable) error
 }
 
-func collectorWithScorerCheck(scoreMode ScoreMode, check func(scorer Scorer) error) *scorerCheckCollector {
+func collectorWithScorerCheck(scoreMode ScoreMode, check func(scorer Scorable) error) *scorerCheckCollector {
 	return &scorerCheckCollector{scoreMode: scoreMode, check: check}
 }
 
@@ -281,21 +285,21 @@ func (c *scorerCheckCollector) GetLeafCollector(context *index.LeafReaderContext
 }
 
 type scorerCheckLeafCollector struct {
-	check func(scorer Scorer) error
+	check func(scorer Scorable) error
 }
 
-func (c *scorerCheckLeafCollector) SetScorer(scorer Scorer) error { return c.check(scorer) }
-func (c *scorerCheckLeafCollector) Collect(doc int) error         { return nil }
+func (c *scorerCheckLeafCollector) SetScorer(scorer Scorable) error { return c.check(scorer) }
+func (c *scorerCheckLeafCollector) Collect(doc int) error           { return nil }
 
 // unwrapIgnoreMinCompetitive peels off any *ignoreMinCompetitiveScorer layers,
 // the Gocene analogue of unwrapping FilterScorable to reach the real scorer.
-func unwrapIgnoreMinCompetitive(scorer Scorer) Scorer {
+func unwrapIgnoreMinCompetitive(scorer Scorable) Scorable {
 	for {
 		w, ok := scorer.(*ignoreMinCompetitiveScorer)
 		if !ok {
 			return scorer
 		}
-		scorer = w.Scorer
+		scorer = w.Scorable
 	}
 }
 
@@ -309,7 +313,7 @@ func oneDocLeafContext(t *testing.T) (*index.LeafReaderContext, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	w, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -317,7 +321,7 @@ func oneDocLeafContext(t *testing.T) (*index.LeafReaderContext, func()) {
 	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -454,7 +458,7 @@ func TestMultiCollector_MergeScoreModes(t *testing.T) {
 			switch {
 			case sm1 == sm2:
 				want = sm1
-			case sm1.needsScores() || sm2.needsScores():
+			case sm1.NeedsScores() || sm2.NeedsScores():
 				want = COMPLETE
 			default:
 				want = COMPLETE_NO_SCORES
@@ -723,7 +727,7 @@ func TestMultiCollector_DisablesSetMinScore(t *testing.T) {
 // minScoreSettingCollector is the Go port of the anonymous TOP_SCORES collector
 // in testDisablesSetMinScore that calls setMinCompetitiveScore on every collect.
 type minScoreSettingCollector struct {
-	scorer   Scorer
+	scorer   Scorable
 	minScore float32
 }
 
@@ -733,7 +737,7 @@ func (c *minScoreSettingCollector) ScoreMode() ScoreMode { return TOP_SCORES }
 func (c *minScoreSettingCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	return c, nil
 }
-func (c *minScoreSettingCollector) SetScorer(scorer Scorer) error {
+func (c *minScoreSettingCollector) SetScorer(scorer Scorable) error {
 	c.scorer = scorer
 	return nil
 }
@@ -742,6 +746,201 @@ func (c *minScoreSettingCollector) Collect(doc int) error {
 	if mc, ok := c.scorer.(MinCompetitiveScorer); ok {
 		return mc.SetMinCompetitiveScore(c.minScore)
 	}
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *dummyCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *dummyCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *dummyCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *dummyCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *dummyCollector) Finish() error {
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *dummyTotalHitCountCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *dummyTotalHitCountCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *dummyTotalHitCountCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *dummyTotalHitCountCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *dummyTotalHitCountCollector) Finish() error {
+	return nil
+}
+
+// GetChildren carries the default body Lucene gives Scorable.GetChildren.
+func (s *failOnMinScoreScorer) GetChildren() ([]ChildScorable, error) {
+	return nil, nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorable.SmoothingScore.
+func (s *failOnMinScoreScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// GetChildren carries the default body Lucene gives Scorable.GetChildren.
+func (s *minScoreRecordingScorer) GetChildren() ([]ChildScorable, error) {
+	return nil, nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorable.SmoothingScore.
+func (s *minScoreRecordingScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *minScoreSettingCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *minScoreSettingCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *minScoreSettingCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *minScoreSettingCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *minScoreSettingCollector) Finish() error {
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *scorerCheckCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *scorerCheckLeafCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *scorerCheckLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *scorerCheckLeafCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *scorerCheckLeafCollector) Finish() error {
+	return nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *setScorerLeafCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *setScorerLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *setScorerLeafCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// GetChildren carries the default body Lucene gives Scorable.GetChildren.
+func (s *simpleTestScorer) GetChildren() ([]ChildScorable, error) {
+	return nil, nil
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorable.SetMinCompetitiveScore.
+func (s *simpleTestScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorable.SmoothingScore.
+func (s *simpleTestScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *terminateAfterCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *terminateAfterLeafCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *terminateAfterLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *terminateAfterLeafCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *terminatingDummyCollector) SetWeight(weight Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *terminatingDummyCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *terminatingDummyCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *terminatingDummyCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *terminatingDummyCollector) Finish() error {
 	return nil
 }
 
@@ -760,7 +959,7 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	w, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -775,7 +974,7 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -822,9 +1021,9 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 		}
 	}
 
-// TestMultiCollector_CacheScores ports testCacheScoresIfNecessary: scores are
-// only cached (the child sees a *ScoreCachingWrappingScorer) when at least two
-// children need scores.
+	// TestMultiCollector_CacheScores ports testCacheScoresIfNecessary: scores are
+	// only cached (the child sees a *ScoreCachingWrappingScorer) when at least two
+	// children need scores.
 }
 func TestMultiCollector_CacheScores(t *testing.T) {
 	ctx, cleanup := oneDocLeafContext(t)
@@ -835,13 +1034,13 @@ func TestMultiCollector_CacheScores(t *testing.T) {
 	// whatever the outer (possibly score-caching) leaf collector installed. We
 	// peel that wrapper before checking, mirroring the FilterScorable-unwrap
 	// loop in Lucene's collector() helper.
-	expectScoreCaching := func(scorer Scorer) error {
+	expectScoreCaching := func(scorer Scorable) error {
 		if _, ok := unwrapIgnoreMinCompetitive(scorer).(*ScoreCachingWrappingScorer); !ok {
 			t.Errorf("expected *ScoreCachingWrappingScorer, got %T", scorer)
 		}
 		return nil
 	}
-	expectNotScoreCaching := func(scorer Scorer) error {
+	expectNotScoreCaching := func(scorer Scorable) error {
 		if _, ok := unwrapIgnoreMinCompetitive(scorer).(*ScoreCachingWrappingScorer); ok {
 			t.Errorf("did not expect *ScoreCachingWrappingScorer, got %T", scorer)
 		}
@@ -872,7 +1071,7 @@ func TestMultiCollector_ScorerWrappingForTopScores(t *testing.T) {
 	ctx, cleanup := oneDocLeafContext(t)
 	defer cleanup()
 
-	expectMinCompetitiveAware := func(scorer Scorer) error {
+	expectMinCompetitiveAware := func(scorer Scorable) error {
 		// The skip-non-competitive path forwards the MinCompetitiveScoreAware
 		// scorer directly to each child (no ignore wrapper), matching Lucene.
 		if _, ok := scorer.(*minCompetitiveScoreAwareScorer); !ok {
@@ -880,7 +1079,7 @@ func TestMultiCollector_ScorerWrappingForTopScores(t *testing.T) {
 		}
 		return nil
 	}
-	expectScoreCaching := func(scorer Scorer) error {
+	expectScoreCaching := func(scorer Scorable) error {
 		if _, ok := unwrapIgnoreMinCompetitive(scorer).(*ScoreCachingWrappingScorer); !ok {
 			t.Errorf("expected *ScoreCachingWrappingScorer, got %T", scorer)
 		}

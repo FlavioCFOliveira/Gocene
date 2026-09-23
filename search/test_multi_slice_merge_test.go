@@ -109,14 +109,8 @@ func TestMultiSliceMerge_MultipleSlicesOfMultipleIndexSearchers(t *testing.T) {
 
 	shardHits := []*search.TopDocs{topDocs1, topDocs2}
 
-	mergedHits1, err := search.MergeWithStart(0, len(topDocs1.ScoreDocs), shardHits)
-	if err != nil {
-		t.Fatalf("MergeWithStart(1): %v", err)
-	}
-	mergedHits2, err := search.MergeWithStart(0, len(topDocs1.ScoreDocs), shardHits)
-	if err != nil {
-		t.Fatalf("MergeWithStart(2): %v", err)
-	}
+	mergedHits1 := search.Merge(0, len(topDocs1.ScoreDocs), shardHits, nil)
+	mergedHits2 := search.Merge(0, len(topDocs1.ScoreDocs), shardHits, nil)
 
 	testsearch.CheckEqual(t, query, mergedHits1.ScoreDocs, mergedHits2.ScoreDocs)
 }

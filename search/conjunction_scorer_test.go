@@ -77,11 +77,14 @@ func TestConjunctionScorer_ScoreSum(t *testing.T) {
 	sc2 := newConstantScorer([]int{0, 1, 2}, 3.0, 3)
 	cs := search.NewConjunctionScorer([]search.Scorer{sc1, sc2}, []search.Scorer{sc1, sc2})
 
-	doc, err := cs.NextDoc()
+	doc, err := cs.Iterator().NextDoc()
 	if err != nil || doc != 0 {
 		t.Fatalf("NextDoc()=%d,%v, want 0,nil", doc, err)
 	}
-	score := cs.Score()
+	score, err := cs.Score()
+	if err != nil {
+		t.Fatalf("cs.Score: %v", err)
+	}
 	if score != 5.0 {
 		t.Errorf("Score()=%v, want 5.0 (sum of 2+3)", score)
 	}
@@ -97,11 +100,14 @@ func TestConjunctionScorer_ScoringSubset(t *testing.T) {
 		[]search.Scorer{sc1, sc2},
 		[]search.Scorer{sc1}, // only sc1 contributes to score
 	)
-	doc, err := cs.NextDoc()
+	doc, err := cs.Iterator().NextDoc()
 	if err != nil || doc != 0 {
 		t.Fatalf("NextDoc()=%d,%v", doc, err)
 	}
-	score := cs.Score()
+	score, err := cs.Score()
+	if err != nil {
+		t.Fatalf("cs.Score: %v", err)
+	}
 	if score != 10.0 {
 		t.Errorf("Score()=%v, want 10.0 (only scoring subset)", score)
 	}
@@ -112,8 +118,8 @@ func TestConjunctionScorer_Cost(t *testing.T) {
 	sc1 := newConstantScorer([]int{0, 1}, 1, 2)
 	sc2 := newConstantScorer([]int{0, 1, 2, 3, 4}, 1, 5)
 	cs := search.NewConjunctionScorer([]search.Scorer{sc1, sc2}, []search.Scorer{sc1, sc2})
-	if cs.Cost() > 2 {
-		t.Errorf("Cost()=%d, want ≤2 (cheapest clause)", cs.Cost())
+	if cs.Iterator().Cost() > 2 {
+		t.Errorf("Cost()=%d, want ≤2 (cheapest clause)", cs.Iterator().Cost())
 	}
 }
 
@@ -136,21 +142,24 @@ func TestConjunctionScorer_GetMaxScore(t *testing.T) {
 	sc2 := newConstantScorer([]int{0, 1}, 4.0, 4.0)
 	cs := search.NewConjunctionScorer([]search.Scorer{sc1, sc2}, []search.Scorer{sc1, sc2})
 	// Advance both clauses to doc 0.
-	if _, err := cs.NextDoc(); err != nil {
+	if _, err := cs.Iterator().NextDoc(); err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
-	maxScore := cs.GetMaxScore(1)
+	maxScore, err := cs.GetMaxScore(1)
+	if err != nil {
+		t.Fatalf("cs.GetMaxScore: %v", err)
+	}
 	if maxScore != 7.0 {
 		t.Errorf("GetMaxScore(1)=%v, want 7.0 (sum of 3+4)", maxScore)
 	}
 
-// advanceAll collects all doc IDs from a Scorer by calling NextDoc.
+	// advanceAll collects all doc IDs from a Scorer by calling NextDoc.
 }
 func advanceAll(t *testing.T, sc search.Scorer) []int {
 	t.Helper()
 	var docs []int
 	for {
-		d, err := sc.NextDoc()
+		d, err := sc.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}

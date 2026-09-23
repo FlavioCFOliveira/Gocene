@@ -32,7 +32,7 @@ func TestBoolean2Scoring(t *testing.T) {
 	// Create directory and writer
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -66,11 +66,11 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 1: MUST + MUST query (w3 AND xx)
 	t.Run("MUST_MUST", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -91,11 +91,11 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 2: MUST + SHOULD query (w3 AND xx)
 	t.Run("MUST_SHOULD", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.SHOULD)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -113,11 +113,11 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 3: SHOULD + SHOULD query (w3 OR xx)
 	t.Run("SHOULD_SHOULD", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.SHOULD)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.SHOULD)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -130,11 +130,11 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 4: SHOULD + MUST_NOT query (w3 AND NOT xx)
 	t.Run("SHOULD_MUST_NOT", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.SHOULD)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST_NOT)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -154,11 +154,11 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 5: MUST + MUST_NOT query (w3 AND NOT xx)
 	t.Run("MUST_MUST_NOT", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST_NOT)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -171,12 +171,12 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 6: MUST + MUST_NOT + MUST_NOT query (w3 AND NOT xx AND NOT w5)
 	t.Run("MUST_MUST_NOT_MUST_NOT", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST_NOT)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w5")), search.MUST_NOT)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -193,12 +193,12 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 7: All MUST_NOT query
 	t.Run("ALL_MUST_NOT", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST_NOT)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST_NOT)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w5")), search.MUST_NOT)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -211,12 +211,12 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 8: MUST + SHOULD + MUST_NOT query
 	t.Run("MUST_SHOULD_MUST_NOT", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.SHOULD)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w5")), search.MUST_NOT)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -231,13 +231,13 @@ func TestBoolean2Scoring(t *testing.T) {
 
 	// Test 9: MUST + MUST + MUST + SHOULD query
 	t.Run("MUST_MUST_MUST_SHOULD", func(t *testing.T) {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w3")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "xx")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "w2")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm(field, "zz")), search.SHOULD)
 
-		topDocs, err := searcher.Search(bq, 10)
+		topDocs, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			t.Fatalf("Search failed: %v", err)
 		}
@@ -253,7 +253,7 @@ func TestBoolean2Scoring(t *testing.T) {
 func TestBoolean2MultiSegment(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -287,11 +287,11 @@ func TestBoolean2MultiSegment(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test BooleanQuery across segments
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("content", "hello")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("content", "world")), search.MUST)
 
-	topDocs, err := searcher.Search(bq, 10)
+	topDocs, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestBoolean2RandomQueries(t *testing.T) {
 	// Create test index
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -344,7 +344,7 @@ func TestBoolean2RandomQueries(t *testing.T) {
 
 	// Test random BooleanQueries
 	for i := 0; i < 10; i++ {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		numClauses := 1 + rand.Intn(4)
 
 		for j := 0; j < numClauses; j++ {
@@ -364,7 +364,7 @@ func TestBoolean2RandomQueries(t *testing.T) {
 		}
 
 		// Execute query - should not error
-		_, err := searcher.Search(bq, 100)
+		_, err := searcher.Search(bq.Build(), 100)
 		if err != nil {
 			t.Errorf("Random query %d failed: %v", i, err)
 		}
@@ -375,7 +375,7 @@ func TestBoolean2RandomQueries(t *testing.T) {
 func TestBoolean2ScoringOrder(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -410,11 +410,11 @@ func TestBoolean2ScoringOrder(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test that SHOULD clauses affect scoring
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "b")), search.SHOULD)
 
-	topDocs, err := searcher.Search(bq, 10)
+	topDocs, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestBoolean2ScoringOrder(t *testing.T) {
 func TestBoolean2CoordFactor(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -468,12 +468,12 @@ func TestBoolean2CoordFactor(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Query with 3 SHOULD clauses
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "x")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "y")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "z")), search.SHOULD)
 
-	topDocs, err := searcher.Search(bq, 10)
+	topDocs, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestBoolean2CoordFactor(t *testing.T) {
 func TestBoolean2EmptyIndex(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -523,11 +523,11 @@ func TestBoolean2EmptyIndex(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			bq := search.NewBooleanQuery()
+			bq := search.NewBooleanQueryBuilder()
 			bq.Add(search.NewTermQuery(index.NewTerm("field", "x")), tc.occur1)
 			bq.Add(search.NewTermQuery(index.NewTerm("field", "y")), tc.occur2)
 
-			topDocs, err := searcher.Search(bq, 10)
+			topDocs, err := searcher.Search(bq.Build(), 10)
 			if err != nil {
 				t.Fatalf("Search failed: %v", err)
 			}
@@ -544,7 +544,7 @@ func TestBoolean2EmptyIndex(t *testing.T) {
 func TestBoolean2MinShouldMatch(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -580,13 +580,13 @@ func TestBoolean2MinShouldMatch(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test with minShouldMatch = 2
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "b")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "c")), search.SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	topDocs, err := searcher.Search(bq, 10)
+	topDocs, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -596,12 +596,12 @@ func TestBoolean2MinShouldMatch(t *testing.T) {
 		t.Errorf("Expected 4 hits with minShouldMatch=2, got %d", topDocs.TotalHits.Value)
 	}
 
-// BenchmarkBoolean2Query benchmarks BooleanQuery performance
+	// BenchmarkBoolean2Query benchmarks BooleanQuery performance
 }
 func BenchmarkBoolean2Query(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, _ := index.NewIndexWriter(dir, config)
 
 	// Create index with 1000 documents
@@ -618,13 +618,13 @@ func BenchmarkBoolean2Query(b *testing.B) {
 	defer reader.Close()
 	searcher := search.NewIndexSearcher(reader)
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "term1")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "term2")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "term3")), search.MUST_NOT)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		searcher.Search(bq, 100)
+		searcher.Search(bq.Build(), 100)
 	}
 }

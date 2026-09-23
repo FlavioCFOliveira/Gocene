@@ -26,14 +26,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so postings / doc-values are flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
-
-	// Register the production codec so postings / doc-values are flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 const (
@@ -72,7 +71,7 @@ type explanationTestCase struct {
 func newExplanationTestCase(t *testing.T) *explanationTestCase {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -81,7 +80,7 @@ func newExplanationTestCase(t *testing.T) *explanationTestCase {
 			t.Fatalf("AddDocument(%d): %v", i, addErr)
 		}
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {
@@ -152,10 +151,10 @@ func (tc *explanationTestCase) qtest(q search.Query, expDocNrs []int) {
 		return
 	}
 	if tc.rng.Intn(2) == 0 {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(q, search.SHOULD)
 		bq.Add(search.NewTermQuery(index.NewTerm("NEVER", "MATCH")), search.SHOULD)
-		q = bq
+		q = bq.Build()
 	}
 	testsearch.CheckHitCollector(tc.t, q, explField, tc.searcher, expDocNrs)
 	// QueryUtils.check (run by Lucene's checkHitCollector) validates the
@@ -174,29 +173,29 @@ func (tc *explanationTestCase) bqtest(q search.Query, expDocNrs []int) {
 // matchTheseItems mirrors BaseExplanationTestCase.matchTheseItems: a SHOULD
 // BooleanQuery over the KEY field for each supplied document number.
 func (tc *explanationTestCase) matchTheseItems(terms []int) search.Query {
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	for _, term := range terms {
 		query.Add(search.NewTermQuery(index.NewTerm(explKey, intToStr(term))), search.SHOULD)
 	}
-	return query
+	return query.Build()
 }
 
 // optB mirrors BaseExplanationTestCase.optB: wrap q as SHOULD alongside a
 // never-matching MUST_NOT clause.
 func (tc *explanationTestCase) optB(q search.Query) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(q, search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("NEVER", "MATCH")), search.MUST_NOT)
-	return bq
+	return bq.Build()
 }
 
 // reqB mirrors BaseExplanationTestCase.reqB: wrap q as MUST alongside a SHOULD
 // clause that matches every document (FIELD:w1).
 func (tc *explanationTestCase) reqB(q search.Query) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(q, search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm(explField, "w1")), search.SHOULD)
-	return bq
+	return bq.Build()
 }
 
 // explTerms mirrors BaseExplanationTestCase.ta: build FIELD terms from strings.

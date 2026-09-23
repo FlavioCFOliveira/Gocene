@@ -17,7 +17,7 @@ import (
 func TestIndexSearcherBasic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -57,7 +57,7 @@ func TestIndexSearcherBasic(t *testing.T) {
 func TestIndexSearcherMultiSegment(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -116,4 +116,5 @@ func TestIndexSearcherMultiSegment(t *testing.T) {
 		if !seen[i] {
 			t.Errorf("Doc ID %d not found in results", i)
 		}
-}}
+	}
+}

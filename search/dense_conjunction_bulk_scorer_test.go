@@ -265,9 +265,10 @@ func TestDenseConjunctionBulkScorer_TwoPhaseIterators(t *testing.T) {
 		all, _ := util.NewFixedBitSet(maxDoc)
 		all.SetRange(0, maxDoc)
 		approx := util.NewBitSetIterator(all, int64(maxDoc))
-		return search.NewTwoPhaseIterator(approx, func() (bool, error) {
+		// TestDenseConjunctionBulkScorer: matchCost() returns 1f.
+		return search.NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 			return approx.DocID()%step == 0, nil
-		})
+		}, 1)
 	}
 
 	tp1 := makeTwoPhase(3)
@@ -310,10 +311,10 @@ func TestDenseConjunctionBulkScorer_StopOnMinCompetitiveScore(t *testing.T) {
 	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{bitSetDISI(c1), bitSetDISI(c2)}, maxDoc)
 
 	stopDoc := 200
-	var stopScorer search.Scorer
+	var stopScorer search.Scorable
 	lc := &earlyTermLeafCollector{
 		stopDoc: stopDoc,
-		onSetScorer: func(s search.Scorer) {
+		onSetScorer: func(s search.Scorable) {
 			stopScorer = s
 		},
 		onCollect: func(doc int) error {
@@ -346,11 +347,11 @@ type earlyTermLeafCollector struct {
 	docs        []int
 	scores      []float32
 	stopDoc     int
-	onSetScorer func(search.Scorer)
+	onSetScorer func(search.Scorable)
 	onCollect   func(int) error
 }
 
-func (c *earlyTermLeafCollector) SetScorer(s search.Scorer) error {
+func (c *earlyTermLeafCollector) SetScorer(s search.Scorable) error {
 	if c.onSetScorer != nil {
 		c.onSetScorer(s)
 	}
@@ -369,4 +370,24 @@ func (c *earlyTermLeafCollector) ScoreMode() search.ScoreMode { return search.CO
 
 func (c *earlyTermLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *earlyTermLeafCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *earlyTermLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *earlyTermLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *earlyTermLeafCollector) Finish() error {
+	return nil
 }

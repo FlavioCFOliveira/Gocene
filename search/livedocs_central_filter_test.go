@@ -25,7 +25,7 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 	defer func() { _ = dir.Close() }()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analyzer))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analyzer))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -47,15 +47,15 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 			t.Fatalf("AddDocument(%s): %v", id, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
 	// Delete d2 and commit so the deletion is applied to the committed segment.
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "d2")); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "d2")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit (delete): %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -87,4 +87,5 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 		if sd.Doc == 2 {
 			t.Errorf("deleted doc ordinal 2 was returned by MatchAllDocsQuery")
 		}
-}}
+	}
+}

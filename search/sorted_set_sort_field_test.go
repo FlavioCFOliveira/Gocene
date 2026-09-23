@@ -147,7 +147,7 @@ func TestSortedSetSortField_Serialization(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			orig := search.NewSortedSetSortFieldFull(tc.field, tc.reverse, tc.selector, tc.missingValue)
-			out := store.NewByteArrayDataOutput(256)
+			out := store.NewByteArrayDataOutput(make([]byte, 256))
 			if err := orig.Serialize(out); err != nil {
 				t.Fatalf("Serialize: %v", err)
 			}
@@ -183,7 +183,7 @@ func TestSortedSetSortField_ForwardIndex(t *testing.T) {
 	}
 
 	// Serialization round-trip for a basic case.
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteArrayDataOutput(make([]byte, 256))
 	if err := sf.Serialize(out); err != nil {
 		t.Fatalf("Serialize: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestSortedSetSortField_MissingFirstIndex(t *testing.T) {
 		t.Fatalf("SetMissingValue(STRING_FIRST): %v", err)
 	}
 
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteArrayDataOutput(make([]byte, 256))
 	if err := sf.Serialize(out); err != nil {
 		t.Fatalf("Serialize: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestSortedSetSortField_MissingLastIndex(t *testing.T) {
 		t.Fatalf("SetMissingValue(STRING_LAST): %v", err)
 	}
 
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteArrayDataOutput(make([]byte, 256))
 	if err := sf.Serialize(out); err != nil {
 		t.Fatalf("Serialize: %v", err)
 	}

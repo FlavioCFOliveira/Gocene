@@ -26,7 +26,7 @@ func TestSearchResultValidation_TermQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestSearchResultValidation_TermQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -143,7 +143,7 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -156,11 +156,11 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test Boolean OR query: content:"apple" OR title:"fruit"
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("title", "fruit")), search.SHOULD)
 
-	topDocs, err := searcher.Search(bq, 10)
+	topDocs, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -171,11 +171,11 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 	}
 
 	// Test Boolean AND query: content:"apple" AND content:"banana"
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.MUST)
 	bq2.Add(search.NewTermQuery(index.NewTerm("content", "banana")), search.MUST)
 
-	topDocs2, err := searcher.Search(bq2, 10)
+	topDocs2, err := searcher.Search(bq2.Build(), 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestSearchResultValidation_PhraseQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -225,7 +225,7 @@ func TestSearchResultValidation_PhraseQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -239,9 +239,9 @@ func TestSearchResultValidation_PhraseQuery(t *testing.T) {
 
 	// Test phrase query for "quick brown fox"
 	query := search.NewPhraseQueryBuilder().
-		AddTerm(index.NewTerm("content", "quick")).
-		AddTerm(index.NewTerm("content", "brown")).
-		AddTerm(index.NewTerm("content", "fox")).
+		Add(index.NewTerm("content", "quick")).
+		Add(index.NewTerm("content", "brown")).
+		Add(index.NewTerm("content", "fox")).
 		Build()
 
 	topDocs, err := searcher.Search(query, 10)
@@ -262,7 +262,7 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -288,7 +288,7 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -331,7 +331,7 @@ func TestSearchResultValidation_Sorting(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -365,7 +365,7 @@ func TestSearchResultValidation_Sorting(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -404,7 +404,7 @@ func TestSearchResultValidation_Reproducibility(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -427,7 +427,7 @@ func TestSearchResultValidation_Reproducibility(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -485,7 +485,7 @@ func TestSearchResultValidation_ScoreNormalization(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -518,7 +518,7 @@ func TestSearchResultValidation_ScoreNormalization(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -556,7 +556,7 @@ func TestSearchResultValidation_MatchAllDocs(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -579,7 +579,7 @@ func TestSearchResultValidation_MatchAllDocs(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -620,7 +620,7 @@ func TestSearchResultValidation_TopN(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -643,7 +643,7 @@ func TestSearchResultValidation_TopN(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -681,7 +681,7 @@ func BenchmarkSearchResultValidation_TermQuery(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 

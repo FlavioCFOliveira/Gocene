@@ -110,12 +110,12 @@ func newMsm2Index(t *testing.T) *msm2Index {
 // scorerFor builds a per-document Scorer for the minShouldMatch disjunction.
 func (ix *msm2Index) scorerFor(t *testing.T, values []string, minShouldMatch int) search.Scorer {
 	t.Helper()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, v := range values {
 		bq.Add(search.NewTermQuery(index.NewTerm("field", v)), search.SHOULD)
 	}
 	bq.SetMinimumNumberShouldMatch(minShouldMatch)
-	rewritten, err := bq.Rewrite(ix.s.GetIndexReader())
+	rewritten, err := bq.Build().Rewrite(ix.s)
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -137,12 +137,12 @@ func (ix *msm2Index) scorerFor(t *testing.T, values []string, minShouldMatch int
 // production cross-check against the per-document Scorer.
 func (ix *msm2Index) bulkPairsFor(t *testing.T, values []string, minShouldMatch int) []msm2Pair {
 	t.Helper()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, v := range values {
 		bq.Add(search.NewTermQuery(index.NewTerm("field", v)), search.SHOULD)
 	}
 	bq.SetMinimumNumberShouldMatch(minShouldMatch)
-	rewritten, err := bq.Rewrite(ix.s.GetIndexReader())
+	rewritten, err := bq.Build().Rewrite(ix.s)
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -173,17 +173,41 @@ type msm2Pair struct {
 }
 
 type msm2Collector struct {
-	scorer search.Scorer
+	scorer search.Scorable
 	pairs  []msm2Pair
 }
 
-func (c *msm2Collector) SetScorer(s search.Scorer) error { c.scorer = s; return nil }
+func (c *msm2Collector) SetScorer(s search.Scorable) error { c.scorer = s; return nil }
 func (c *msm2Collector) Collect(doc int) error {
 	var score float32
 	if c.scorer != nil {
-		score = c.scorer.Score()
+		s, err := c.scorer.Score()
+		if err != nil {
+			return err
+		}
+		score = s
 	}
 	c.pairs = append(c.pairs, msm2Pair{doc: doc, score: score})
+	return nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *msm2Collector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *msm2Collector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *msm2Collector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *msm2Collector) Finish() error {
 	return nil
 }
 
@@ -199,7 +223,7 @@ func assertNextMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair) {
 	}
 	i := 0
 	for {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
@@ -212,8 +236,16 @@ func assertNextMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair) {
 		if doc != expected[i].doc {
 			t.Fatalf("hit %d: scorer doc=%d, bulk doc=%d", i, doc, expected[i].doc)
 		}
-		if scorer.Score() != expected[i].score {
-			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, scorer.Score(), expected[i].score)
+		v235_6, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		if v235_6 != expected[i].score {
+			v236_60, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, v236_60, expected[i].score)
 		}
 		i++
 	}
@@ -238,7 +270,7 @@ func assertAdvanceMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair, 
 	}
 	prevDoc := 0
 	for {
-		doc, err := scorer.Advance(prevDoc + amount)
+		doc, err := scorer.Iterator().Advance(prevDoc + amount)
 		if err != nil {
 			t.Fatalf("Advance: %v", err)
 		}
@@ -249,8 +281,16 @@ func assertAdvanceMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair, 
 		if !ok {
 			t.Fatalf("scorer advanced to doc %d which the bulk path did not match", doc)
 		}
-		if scorer.Score() != want {
-			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, scorer.Score(), want)
+		v272_6, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		if v272_6 != want {
+			v273_60, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, v273_60, want)
 		}
 		prevDoc = doc
 	}
@@ -350,4 +390,5 @@ func TestMinShouldMatch2_AdvanceVaryingNumberOfTerms(t *testing.T) {
 				assertAdvanceMsm2(t, ix.scorerFor(t, sub, minNrShouldMatch), expected, amount)
 			}
 		}
-}}
+	}
+}

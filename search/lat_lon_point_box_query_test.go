@@ -79,19 +79,19 @@ func TestNewLatLonPointBoxQuery_DatelineCrossing(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ConstantScoreQuery for dateline box, got %T", q)
 	}
-	bq, ok := csq.Query().(*BooleanQuery)
+	bq, ok := csq.GetQuery().(*BooleanQuery)
 	if !ok {
-		t.Fatalf("expected BooleanQuery inside ConstantScoreQuery, got %T", csq.Query())
+		t.Fatalf("expected BooleanQuery inside ConstantScoreQuery, got %T", csq.GetQuery())
 	}
 	if len(bq.Clauses()) != 2 {
 		t.Fatalf("expected 2 clauses in BooleanQuery, got %d", len(bq.Clauses()))
 	}
 	for i, clause := range bq.Clauses() {
-		if clause.Occur != SHOULD {
-			t.Errorf("clause[%d] occur = %v; want SHOULD", i, clause.Occur)
+		if clause.Occur() != SHOULD {
+			t.Errorf("clause[%d] occur = %v; want SHOULD", i, clause.Occur())
 		}
-		if _, ok := clause.Query.(*PointRangeQuery); !ok {
-			t.Errorf("clause[%d] query type = %T; want *PointRangeQuery", i, clause.Query)
+		if _, ok := clause.Query().(*PointRangeQuery); !ok {
+			t.Errorf("clause[%d] query type = %T; want *PointRangeQuery", i, clause.Query())
 		}
 	}
 }
@@ -108,10 +108,10 @@ func TestNewLatLonPointBoxQuery_NonDateline(t *testing.T) {
 		t.Fatalf("expected *PointRangeQuery for normal box, got %T", q)
 	}
 
-// TestNewLatLonPointBoxQuery_MinLon180DatelineCeil verifies the edge
-// case where minLon==180 and maxLon < minLon (dateline wrap). Java
-// corrects minLon to -180 and continues; this must NOT produce a
-// MatchNoDocsQuery.
+	// TestNewLatLonPointBoxQuery_MinLon180DatelineCeil verifies the edge
+	// case where minLon==180 and maxLon < minLon (dateline wrap). Java
+	// corrects minLon to -180 and continues; this must NOT produce a
+	// MatchNoDocsQuery.
 }
 func TestNewLatLonPointBoxQuery_MinLon180DatelineCeil(t *testing.T) {
 	t.Parallel()

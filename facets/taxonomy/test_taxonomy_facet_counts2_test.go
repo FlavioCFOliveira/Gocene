@@ -150,7 +150,7 @@ func setupIndexForCounts2(t *testing.T) (store.Directory, taxonomy.TaxonomyReade
 
 	config := facetCounts2Config()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -185,7 +185,7 @@ func setupIndexForCounts2(t *testing.T) (store.Directory, taxonomy.TaxonomyReade
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {

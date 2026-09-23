@@ -26,7 +26,7 @@ func explainTestIndex(t *testing.T, values []string) (*search.IndexSearcher, *in
 	t.Cleanup(func() { _ = dir.Close() })
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -42,7 +42,7 @@ func explainTestIndex(t *testing.T, values []string) (*search.IndexSearcher, *in
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -140,7 +140,7 @@ func TestTermWeight_Explain(t *testing.T) {
 
 	term := index.NewTerm("field", "all")
 	query := search.NewTermQuery(term)
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -162,17 +162,17 @@ func TestBooleanWeight_Explain(t *testing.T) {
 	// Docs: 0:"all dogs" 1:"all" 2:"like" 3:"cat"
 	searcher, leaf := explainTestIndex(t, []string{"all dogs", "all", "like", "cat"})
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "all")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "dogs")), search.SHOULD)
 
-	weight, err := bq.CreateWeight(searcher, true, 1.0)
+	weight, err := bq.Build().CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
 
 	// Doc 0 matches both SHOULD clauses.
-	want := scoreOfDoc(t, searcher, bq, 0)
+	want := scoreOfDoc(t, searcher, bq.Build(), 0)
 	exp, err := weight.Explain(leaf, 0)
 	assertExplainMatchesScore(t, exp, err, want)
 	if len(exp.GetDetails()) == 0 {
@@ -180,7 +180,7 @@ func TestBooleanWeight_Explain(t *testing.T) {
 	}
 
 	// Doc 1 matches a single SHOULD clause ("all").
-	want = scoreOfDoc(t, searcher, bq, 1)
+	want = scoreOfDoc(t, searcher, bq.Build(), 1)
 	exp, err = weight.Explain(leaf, 1)
 	assertExplainMatchesScore(t, exp, err, want)
 
@@ -195,11 +195,11 @@ func TestBooleanWeight_Explain_MustNot(t *testing.T) {
 	// Docs: 0:"all dogs" 1:"all cat"
 	searcher, leaf := explainTestIndex(t, []string{"all dogs", "all cat"})
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "all")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "dogs")), search.MUST_NOT)
 
-	weight, err := bq.CreateWeight(searcher, true, 1.0)
+	weight, err := bq.Build().CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestBooleanWeight_Explain_MustNot(t *testing.T) {
 	assertExplainNoMatch(t, exp, err)
 
 	// Doc 1 contains "all" and not "dogs" -> match.
-	want := scoreOfDoc(t, searcher, bq, 1)
+	want := scoreOfDoc(t, searcher, bq.Build(), 1)
 	exp, err = weight.Explain(leaf, 1)
 	assertExplainMatchesScore(t, exp, err, want)
 }
@@ -221,9 +221,8 @@ func TestPhraseWeight_Explain(t *testing.T) {
 	// Docs: 0:"quick brown fox" 1:"brown quick fox" 2:"lazy dog"
 	searcher, leaf := explainTestIndex(t, []string{"quick brown fox", "brown quick fox", "lazy dog"})
 
-	query := search.NewPhraseQuery("field",
-		index.NewTerm("field", "quick"), index.NewTerm("field", "brown"))
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	query := search.NewPhraseQueryWithTerms(0, "field", index.NewTerm("field", "quick"), index.NewTerm("field", "brown"))
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -249,11 +248,8 @@ func TestRegexpWeight_Explain(t *testing.T) {
 	// Docs: 0:"apple" 1:"apply" 2:"banana"
 	searcher, leaf := explainTestIndex(t, []string{"apple", "apply", "banana"})
 
-	query, err := search.NewRegexpQuery("field", "app.*")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	weight, err := query.CreateWeight(searcher, false, 1.0)
+	query := search.NewRegexpQuery(index.NewTerm("field", "app.*"))
+	weight, err := query.CreateWeight(searcher, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -282,7 +278,7 @@ func TestSynonymWeight_Explain(t *testing.T) {
 		AddTerm(index.NewTerm("field", "apple")).
 		AddTerm(index.NewTerm("field", "banana")).
 		Build()
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}

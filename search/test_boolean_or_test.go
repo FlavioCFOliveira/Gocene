@@ -24,14 +24,15 @@
 package search_test
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 const (
@@ -103,12 +104,12 @@ func TestBooleanOr_Elements(t *testing.T) {
 func TestBooleanOr_Flat(t *testing.T) {
 	s, cleanup := newBooleanOrSearcher(t)
 	defer cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(booleanOrT1(), search.SHOULD)
 	q.Add(booleanOrT2(), search.SHOULD)
 	q.Add(booleanOrC1(), search.SHOULD)
 	q.Add(booleanOrC2(), search.SHOULD)
-	if got := booleanOrSearchCount(t, s, q); got != 1 {
+	if got := booleanOrSearchCount(t, s, q.Build()); got != 1 {
 		t.Errorf("hits = %d, want 1", got)
 	}
 }
@@ -118,16 +119,16 @@ func TestBooleanOr_Flat(t *testing.T) {
 func TestBooleanOr_ParenthesisMust(t *testing.T) {
 	s, cleanup := newBooleanOrSearcher(t)
 	defer cleanup()
-	q3 := search.NewBooleanQuery()
+	q3 := search.NewBooleanQueryBuilder()
 	q3.Add(booleanOrT1(), search.SHOULD)
 	q3.Add(booleanOrT2(), search.SHOULD)
-	q4 := search.NewBooleanQuery()
+	q4 := search.NewBooleanQueryBuilder()
 	q4.Add(booleanOrC1(), search.MUST)
 	q4.Add(booleanOrC2(), search.MUST)
-	q2 := search.NewBooleanQuery()
-	q2.Add(q3, search.SHOULD)
-	q2.Add(q4, search.SHOULD)
-	if got := booleanOrSearchCount(t, s, q2); got != 1 {
+	q2 := search.NewBooleanQueryBuilder()
+	q2.Add(q3.Build(), search.SHOULD)
+	q2.Add(q4.Build(), search.SHOULD)
+	if got := booleanOrSearchCount(t, s, q2.Build()); got != 1 {
 		t.Errorf("hits = %d, want 1", got)
 	}
 }
@@ -137,16 +138,16 @@ func TestBooleanOr_ParenthesisMust(t *testing.T) {
 func TestBooleanOr_ParenthesisMust2(t *testing.T) {
 	s, cleanup := newBooleanOrSearcher(t)
 	defer cleanup()
-	q3 := search.NewBooleanQuery()
+	q3 := search.NewBooleanQueryBuilder()
 	q3.Add(booleanOrT1(), search.SHOULD)
 	q3.Add(booleanOrT2(), search.SHOULD)
-	q4 := search.NewBooleanQuery()
+	q4 := search.NewBooleanQueryBuilder()
 	q4.Add(booleanOrC1(), search.SHOULD)
 	q4.Add(booleanOrC2(), search.SHOULD)
-	q2 := search.NewBooleanQuery()
-	q2.Add(q3, search.SHOULD)
-	q2.Add(q4, search.MUST)
-	if got := booleanOrSearchCount(t, s, q2); got != 1 {
+	q2 := search.NewBooleanQueryBuilder()
+	q2.Add(q3.Build(), search.SHOULD)
+	q2.Add(q4.Build(), search.MUST)
+	if got := booleanOrSearchCount(t, s, q2.Build()); got != 1 {
 		t.Errorf("hits = %d, want 1", got)
 	}
 }
@@ -156,16 +157,16 @@ func TestBooleanOr_ParenthesisMust2(t *testing.T) {
 func TestBooleanOr_ParenthesisShould(t *testing.T) {
 	s, cleanup := newBooleanOrSearcher(t)
 	defer cleanup()
-	q3 := search.NewBooleanQuery()
+	q3 := search.NewBooleanQueryBuilder()
 	q3.Add(booleanOrT1(), search.SHOULD)
 	q3.Add(booleanOrT2(), search.SHOULD)
-	q4 := search.NewBooleanQuery()
+	q4 := search.NewBooleanQueryBuilder()
 	q4.Add(booleanOrC1(), search.SHOULD)
 	q4.Add(booleanOrC2(), search.SHOULD)
-	q2 := search.NewBooleanQuery()
-	q2.Add(q3, search.SHOULD)
-	q2.Add(q4, search.SHOULD)
-	if got := booleanOrSearchCount(t, s, q2); got != 1 {
+	q2 := search.NewBooleanQueryBuilder()
+	q2.Add(q3.Build(), search.SHOULD)
+	q2.Add(q4.Build(), search.SHOULD)
+	if got := booleanOrSearchCount(t, s, q2.Build()); got != 1 {
 		t.Errorf("hits = %d, want 1", got)
 	}
 }
@@ -179,12 +180,32 @@ type booleanOrMaxCollector struct {
 	t    *testing.T
 }
 
-func (c *booleanOrMaxCollector) SetScorer(_ search.Scorer) error { return nil }
+func (c *booleanOrMaxCollector) SetScorer(_ search.Scorable) error { return nil }
 func (c *booleanOrMaxCollector) Collect(doc int) error {
 	if doc >= *c.end {
 		c.t.Errorf("collected doc=%d beyond max=%d", doc, *c.end)
 	}
 	c.hits[doc] = true
+	return nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *booleanOrMaxCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *booleanOrMaxCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *booleanOrMaxCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *booleanOrMaxCollector) Finish() error {
 	return nil
 }
 
@@ -209,11 +230,11 @@ func TestBooleanOr_BooleanScorerMax(t *testing.T) {
 		t.Fatalf("leaves = %d, want 1 (single committed segment)", len(leaves))
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.SHOULD)
 
-	rewritten, err := bq.Rewrite(s.GetIndexReader())
+	rewritten, err := bq.Build().Rewrite(s)
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -291,41 +312,59 @@ func (s *booleanOrIntScorer) Advance(target int) (int, error) {
 	}
 }
 
-func (s *booleanOrIntScorer) Cost() int64               { return int64(len(s.docs)) }
-func (s *booleanOrIntScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
-func (s *booleanOrIntScorer) Score() float32            { return 0 }
-func (s *booleanOrIntScorer) GetMaxScore(_ int) float32 { return math.MaxFloat32 }
+// Iterator returns the double itself: it iterates its own documents.
+func (s *booleanOrIntScorer) Iterator() search.DocIdSetIterator { return s }
 
-// booleanOrCollectCollector records collected doc ids in collection order.
+func (s *booleanOrIntScorer) Cost() int64                        { return int64(len(s.docs)) }
+func (s *booleanOrIntScorer) DocIDRunEnd() (int, error)          { return s.DocID() + 1, nil }
+func (s *booleanOrIntScorer) Score() (float32, error)            { return 0, nil }
+func (s *booleanOrIntScorer) GetMaxScore(_ int) (float32, error) { return math.MaxFloat32, nil }
+
+// booleanOrCollectCollector renders the anonymous LeafCollector of
+// testSubScorerNextIsNotMatch: setScorer is a no-op and collect records the
+// doc; the other members keep LeafCollector's default bodies.
 type booleanOrCollectCollector struct {
+	*search.BaseLeafCollector
 	matches []int
 }
 
-func (c *booleanOrCollectCollector) SetScorer(_ search.Scorer) error { return nil }
+func (c *booleanOrCollectCollector) SetScorer(_ search.Scorable) error { return nil }
+
 func (c *booleanOrCollectCollector) Collect(doc int) error {
 	c.matches = append(c.matches, doc)
 	return nil
 }
 
-// TestBooleanOr_SubScorerNextIsNotMatch verifies basic BooleanScorer
-// construction. The full bucketed BulkScorer test is deferred until
-// BooleanScorer implements the BulkScorer interface.
+func (c *booleanOrCollectCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+func (c *booleanOrCollectCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// Make sure that BooleanScorer keeps working even if the sub clauses return
+// next matching docs which are less than the actual next match.
 func TestBooleanOr_SubScorerNextIsNotMatch(t *testing.T) {
-	optional := []search.Scorer{
+	optionalScorers := []search.Scorer{
 		newBooleanOrIntScorer(100000, 1000001, 9999999),
 		newBooleanOrIntScorer(4000, 1000051),
 		newBooleanOrIntScorer(5000, 100000, 9999998, 9999999),
 	}
-
-	scorer := search.NewBooleanScorer(optional, search.COMPLETE_NO_SCORES, 1)
-	if scorer == nil {
-		t.Fatal("NewBooleanScorer returned nil")
+	rand.Shuffle(len(optionalScorers), func(i, j int) {
+		optionalScorers[i], optionalScorers[j] = optionalScorers[j], optionalScorers[i]
+	})
+	scorer, err := search.NewBooleanScorer(optionalScorers, 1, rand.Intn(2) == 0)
+	if err != nil {
+		t.Fatalf("new BooleanScorer: %v", err)
 	}
-	if docID := scorer.DocID(); docID != -1 {
-		t.Errorf("initial DocID() = %d, want -1", docID)
+	collector := &booleanOrCollectCollector{BaseLeafCollector: search.NewBaseLeafCollector()}
+	if _, err := scorer.Score(collector, nil, 0, util.NO_MORE_DOCS); err != nil {
+		t.Fatalf("score: %v", err)
 	}
-	if c := scorer.Cost(); c != 9 {
-		t.Errorf("Cost() = %d, want 9 (3+2+4)", c)
+	want := []int{4000, 5000, 100000, 1000001, 1000051, 9999998, 9999999}
+	if !slices.Equal(want, collector.matches) {
+		t.Fatalf("expected %v, got %v", want, collector.matches)
 	}
 }
 
@@ -334,4 +373,9 @@ func TestBooleanOr_SubScorerNextIsNotMatch(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *booleanOrIntScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *booleanOrIntScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }

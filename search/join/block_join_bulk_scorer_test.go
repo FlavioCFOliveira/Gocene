@@ -26,7 +26,7 @@ import (
 // anonymous LeafCollector in TestBlockJoinBulkScorer.assertScores.
 type bulkScoreCollector struct {
 	t          *testing.T
-	scorer     search.Scorer
+	scorer     search.Scorable
 	needsScore bool
 	minScore   *float32
 	scores     map[int]float32
@@ -36,7 +36,7 @@ func newBulkScoreCollector(t *testing.T, needsScore bool, minScore *float32) *bu
 	return &bulkScoreCollector{t: t, needsScore: needsScore, minScore: minScore, scores: map[int]float32{}}
 }
 
-func (c *bulkScoreCollector) SetScorer(scorer search.Scorer) error {
+func (c *bulkScoreCollector) SetScorer(scorer search.Scorable) error {
 	if scorer == nil {
 		c.t.Fatal("SetScorer received nil scorer")
 	}
@@ -59,9 +59,29 @@ func (c *bulkScoreCollector) Collect(doc int) error {
 	}
 	var score float32
 	if c.needsScore {
-		score = c.scorer.Score()
+		score = mustScorerScore(c.t, c.scorer)
 	}
 	c.scores[doc] = score
+	return nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *bulkScoreCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *bulkScoreCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *bulkScoreCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *bulkScoreCollector) Finish() error {
 	return nil
 }
 
@@ -70,11 +90,11 @@ func (c *bulkScoreCollector) Collect(doc int) error {
 // returns its BulkScorer. Mirrors the Lucene idiom in TestBlockJoinBulkScorer.
 func bulkScorerForLeaf(t *testing.T, searcher *search.IndexSearcher, reader *index.DirectoryReader, q search.Query, needsScore bool) search.BulkScorer {
 	t.Helper()
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
-	weight, err := rewritten.CreateWeight(searcher, needsScore, 1.0)
+	weight, err := rewritten.CreateWeight(searcher, bulkScoreMode(needsScore), 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -214,7 +234,7 @@ func TestBlockJoinBulkScorer_ScoreRandomIndices(t *testing.T) {
 			parentCount := rng.Intn(20) + 1
 			for p := 0; p < parentCount; p++ {
 				childCount := rng.Intn(8)
-				docs := make([]index.Document, 0, childCount+1)
+				docs := make([]*document.Document, 0, childCount+1)
 				var childMatchSets [][]string
 				for c := 0; c < childCount; c++ {
 					child := document.NewDocument()
@@ -270,11 +290,11 @@ func TestBlockJoinBulkScorer_ScoreRandomIndices(t *testing.T) {
 // query has no matches on the leaf).
 func supplierForLeaf(t *testing.T, searcher *search.IndexSearcher, reader *index.DirectoryReader, q search.Query, needsScore bool) search.ScorerSupplier {
 	t.Helper()
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
-	weight, err := rewritten.CreateWeight(searcher, needsScore, 1.0)
+	weight, err := rewritten.CreateWeight(searcher, bulkScoreMode(needsScore), 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -292,11 +312,11 @@ func supplierForLeaf(t *testing.T, searcher *search.IndexSearcher, reader *index
 // randomChildQuery builds the SHOULD disjunction of boosted constant-score term
 // queries used by the random test (boost == the value's score).
 func randomChildQuery(values []string, scoreOf map[string]float32) *search.BooleanQuery {
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	for _, v := range values {
 		q.Add(boostCSQTerm("value", v, scoreOf[v]), search.SHOULD)
 	}
-	return q
+	return q.Build()
 }
 
 // computeExpectedScores reproduces TestBlockJoinBulkScorer.computeExpectedScores:
@@ -381,4 +401,13 @@ func TestBlockJoinBulkScorer_ScoreModes(t *testing.T) {
 			t.Errorf("GetScoreMode() = %v, want %v", q.GetScoreMode(), sm)
 		}
 	}
+}
+
+// bulkScoreMode maps the needsScore flag to the search ScoreMode passed to
+// createWeight.
+func bulkScoreMode(needsScore bool) search.ScoreMode {
+	if needsScore {
+		return search.COMPLETE
+	}
+	return search.COMPLETE_NO_SCORES
 }

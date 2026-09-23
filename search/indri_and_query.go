@@ -24,3 +24,9 @@ func NewIndriAndQuery(clauses []*BooleanClause) *IndriAndQuery {
 func (q *IndriAndQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewIndriAndWeight(q, searcher, boost), nil
 }
+
+// Rewrite renders the inherited Query.rewrite(IndexSearcher), which returns
+// this; neither IndriAndQuery nor IndriQuery overrides it.
+func (q *IndriAndQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q, nil
+}

@@ -93,9 +93,29 @@ type collectingLeafCollector struct {
 	hits *util.FixedBitSet
 }
 
-func (c *collectingLeafCollector) SetScorer(_ Scorer) error { return nil }
+func (c *collectingLeafCollector) SetScorer(_ Scorable) error { return nil }
 func (c *collectingLeafCollector) Collect(doc int) error {
 	c.hits.Set(doc)
+	return nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *collectingLeafCollector) CollectRange(min int, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *collectingLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *collectingLeafCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *collectingLeafCollector) Finish() error {
 	return nil
 }
 
@@ -251,7 +271,7 @@ func TestReqExclBulkScorer_RandomTwoPhase(t *testing.T) {
 
 	// Create a deterministic two-phase iterator that always matches.
 	exclIter := exclDS.Iterator()
-	twoPhase := NewTwoPhaseIterator(exclIter, func() (bool, error) { return true, nil })
+	twoPhase := NewTwoPhaseIteratorWithMatchCost(exclIter, func() (bool, error) { return true, nil }, 0)
 
 	scorer := newReqExclBulkScorerFromTwoPhase(reqScorer, twoPhase)
 

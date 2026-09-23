@@ -31,7 +31,7 @@ const (
 func visitSubscorersIndex(t *testing.T) (*search.IndexSearcher, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -54,7 +54,7 @@ func visitSubscorersIndex(t *testing.T) (*search.IndexSearcher, func()) {
 	add("lucene", "lucene is a very popular search engine library")
 	add("solr", "solr is a very popular search server and is using lucene")
 	add("nutch", "nutch is an internet search engine with web crawler and is using lucene and hadoop")
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {
@@ -81,12 +81,12 @@ func TestBooleanQueryVisitSubscorers_Disjunctions(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF1, "lucene"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "lucene"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "search"), search.SHOULD)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -102,14 +102,14 @@ func TestBooleanQueryVisitSubscorers_NestedDisjunctions(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF1, "lucene"), search.SHOULD)
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(visitTerm(visitF2, "lucene"), search.SHOULD)
 	bq2.Add(visitTerm(visitF2, "search"), search.SHOULD)
-	bq.Add(bq2, search.SHOULD)
+	bq.Add(bq2.Build(), search.SHOULD)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -124,11 +124,11 @@ func TestBooleanQueryVisitSubscorers_Conjunctions(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF2, "lucene"), search.MUST)
 	bq.Add(visitTerm(visitF2, "is"), search.MUST)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -144,11 +144,11 @@ func TestBooleanQueryVisitSubscorers_DisjunctionMatches(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(visitTerm(visitF1, "lucene"), search.SHOULD)
-	bq1.Add(search.NewPhraseQueryWithStrings(visitF2, "search", "engine"), search.SHOULD)
+	bq1.Add(search.NewPhraseQuery(0, visitF2, "search", "engine"), search.SHOULD)
 
-	top1, err := searcher.Search(bq1, 10)
+	top1, err := searcher.Search(bq1.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search bq1: %v", err)
 	}
@@ -158,11 +158,11 @@ func TestBooleanQueryVisitSubscorers_DisjunctionMatches(t *testing.T) {
 		t.Errorf("bq1 totalHits = %d, want >= 2", top1.TotalHits.Value)
 	}
 
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(visitTerm(visitF1, "lucene"), search.SHOULD)
-	bq2.Add(search.NewPhraseQueryWithStrings(visitF2, "search", "library"), search.SHOULD)
+	bq2.Add(search.NewPhraseQuery(0, visitF2, "search", "library"), search.SHOULD)
 
-	top2, err := searcher.Search(bq2, 10)
+	top2, err := searcher.Search(bq2.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search bq2: %v", err)
 	}
@@ -178,13 +178,13 @@ func TestBooleanQueryVisitSubscorers_MinShouldMatchMatches(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF1, "lucene"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "lucene"), search.SHOULD)
-	bq.Add(search.NewPhraseQueryWithStrings(visitF2, "search", "library"), search.SHOULD)
+	bq.Add(search.NewPhraseQuery(0, visitF2, "search", "library"), search.SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -201,14 +201,14 @@ func TestBooleanQueryVisitSubscorers_GetChildrenMinShouldMatchSumScorer(t *testi
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF2, "nutch"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "web"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "crawler"), search.SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 	bq.Add(search.NewMatchAllDocsQuery(), search.MUST)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -225,11 +225,11 @@ func TestBooleanQueryVisitSubscorers_GetChildrenBoosterScorer(t *testing.T) {
 	searcher, cleanup := visitSubscorersIndex(t)
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(visitTerm(visitF2, "nutch"), search.SHOULD)
 	bq.Add(visitTerm(visitF2, "miss"), search.SHOULD)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

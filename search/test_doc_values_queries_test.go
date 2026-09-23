@@ -385,7 +385,7 @@ func TestDocValuesQueries_SlowRangeQueryRewrite(t *testing.T) {
 
 	// SortedNumericDocValuesField.newSlowRangeQuery(foo, 10, 1) -> MatchNoDocs.
 	q1 := mustSNRange(t, "foo", 10, 1)
-	r1, err := q1.Rewrite(reader)
+	r1, err := q1.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("rewrite q1: %v", err)
 	}
@@ -395,14 +395,14 @@ func TestDocValuesQueries_SlowRangeQueryRewrite(t *testing.T) {
 
 	// newSlowRangeQuery(foo, MIN, MAX) -> FieldExistsQuery(foo).
 	q2 := mustSNRange(t, "foo", math.MinInt64, math.MaxInt64)
-	r2, err := q2.Rewrite(reader)
+	r2, err := q2.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("rewrite q2: %v", err)
 	}
 	if fe, ok := r2.(*search.FieldExistsQuery); !ok {
 		t.Errorf("newSlowRangeQuery(MIN,MAX) rewrote to %T, want *FieldExistsQuery", r2)
-	} else if fe.GetField() != "foo" {
-		t.Errorf("FieldExistsQuery field = %q, want %q", fe.GetField(), "foo")
+	} else if fe.Field() != "foo" {
+		t.Errorf("FieldExistsQuery field = %q, want %q", fe.Field(), "foo")
 	}
 }
 
@@ -486,7 +486,7 @@ func TestDocValuesQueries_SortedNumericDocValuesRangeQueryRewrites(t *testing.T)
 	reader := indexReaderOf(s)
 
 	q := mustSNRange(t, "field", 1, 10)
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -561,7 +561,7 @@ func assertQString(t *testing.T, q search.Query, defField, want string) {
 	}
 }
 
-func indexReaderOf(s *search.IndexSearcher) search.IndexReader {
+func indexReaderOf(s *search.IndexSearcher) index.IndexReaderInterface {
 	return s.GetIndexReader()
 }
 

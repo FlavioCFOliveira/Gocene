@@ -40,13 +40,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // sortChild builds one child document for the sorting corpus: a StringField
 // field2 (for term-based child queries/filters), a SortedDocValuesField on the
 // same name field2 carrying the same letter (the value the parent is sorted by;
 // dual-purpose field, rmp #4780), and a StringField filter_1.
-func sortChild(t *testing.T, field2, filter1 string) index.Document {
+func sortChild(t *testing.T, field2, filter1 string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "field2", field2, false))
@@ -60,7 +61,7 @@ func sortChild(t *testing.T, field2, filter1 string) index.Document {
 }
 
 // sortParent builds the trailing parent document of a block.
-func sortParent(t *testing.T, field1 string) index.Document {
+func sortParent(t *testing.T, field1 string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "__type", "parent", false))
@@ -72,11 +73,11 @@ func sortParent(t *testing.T, field1 string) index.Document {
 // TermQuery(field2, letter) over the corpus alphabet a..o. It selects every
 // child that has a field2 value, exactly like the Lucene PrefixQuery.
 func allField2() search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for c := 'a'; c <= 'o'; c++ {
 		bq.Add(search.NewTermQuery(index.NewTerm("field2", string(c))), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 // sortValues extracts the FieldDoc[0] sort value of every hit as a string.
@@ -144,11 +145,11 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 	}
 
 	// Variant 1: sort by field ascending, order first (MIN, ascending).
-	sf1, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, false, parentFilter, childFilter)
+	sf1, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, false, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v1: %v", err)
 	}
-	td, err := s.SearchWithSort(query, 5, sf1.Sort())
+	td, err := s.SearchWithSort(query, 5, sf1.Sort(), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort v1: %v", err)
 	}
@@ -157,11 +158,11 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 		[]string{"a", "c", "e", "g", "i"})
 
 	// Variant 2: sort by field ascending, order last (MAX, ascending).
-	sf2, err := NewToParentBlockJoinSortFieldOrder("field2", search.SortFieldTypeString, false, true, parentFilter, childFilter)
+	sf2, err := NewToParentBlockJoinSortFieldOrder("field2", spi.SortFieldTypeString, false, true, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortFieldOrder v2: %v", err)
 	}
-	td, err = s.SearchWithSort(query, 5, sf2.Sort())
+	td, err = s.SearchWithSort(query, 5, sf2.Sort(), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort v2: %v", err)
 	}
@@ -170,11 +171,11 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 		[]string{"c", "e", "g", "i", "k"})
 
 	// Variant 3: sort by field descending, order last (MAX, descending).
-	sf3, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, true, parentFilter, childFilter)
+	sf3, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v3: %v", err)
 	}
-	td, err = s.SearchWithSort(query, 5, sf3.Sort())
+	td, err = s.SearchWithSort(query, 5, sf3.Sort(), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort v3: %v", err)
 	}
@@ -185,11 +186,11 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 	// Variant 4: sort by field descending, order last, childFilter filter_1:T.
 	childFilter1T := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("filter_1", "T")))
 	query1T := NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("filter_1", "T")), parentFilter, None)
-	sf4, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, true, parentFilter, childFilter1T)
+	sf4, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter1T)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v4: %v", err)
 	}
-	td, err = s.SearchWithSort(query1T, 5, sf4.Sort())
+	td, err = s.SearchWithSort(query1T, 5, sf4.Sort(), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort v4: %v", err)
 	}
@@ -204,15 +205,15 @@ func TestBlockJoinSorting_SortFieldDescriptor(t *testing.T) {
 	parents := newQueryBitSetParents("__type", "parent")
 	children := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("field2", "a")))
 
-	sf, err := NewToParentBlockJoinSortField("childField", search.SortFieldTypeInt, false, parents, children)
+	sf, err := NewToParentBlockJoinSortField("childField", spi.SortFieldTypeInt, false, parents, children)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField: %v", err)
 	}
 	if sf.Field() != "childField" {
 		t.Errorf("Field = %q, want %q", sf.Field(), "childField")
 	}
-	if sf.Type() != search.SortFieldTypeInt {
-		t.Errorf("Type = %v, want SortFieldTypeInt", sf.Type())
+	if sf.Type() != spi.SortFieldTypeInt {
+		t.Errorf("Type = %v, want spi.SortFieldTypeInt", sf.Type())
 	}
 	if sf.Reverse() {
 		t.Error("Reverse should be false")
@@ -221,16 +222,16 @@ func TestBlockJoinSorting_SortFieldDescriptor(t *testing.T) {
 		t.Error("IsAscending() should be true")
 	}
 	// MIN selection for ascending order.
-	if got := sf.selectorType(); got != BlockJoinMin {
+	if got := sf.selectorType(); got != BlockJoinSelectorMin {
 		t.Errorf("selectorType() = %v, want BlockJoinMin", got)
 	}
 	// The produced SortField must carry the field and STRING/numeric type.
-	if produced := sf.SortField(); produced.Field != "childField" || produced.Type != search.SortFieldTypeInt {
+	if produced := sf.SortField(); produced.Field != "childField" || produced.Type != spi.SortFieldTypeInt {
 		t.Errorf("SortField() = {Field:%q Type:%v}, want {childField Int}", produced.Field, produced.Type)
 	}
 
 	// An unsupported type is rejected.
-	if _, err := NewToParentBlockJoinSortField("f", search.SortFieldTypeScore, false, parents, children); err == nil {
+	if _, err := NewToParentBlockJoinSortField("f", spi.SortFieldTypeScore, false, parents, children); err == nil {
 		t.Error("expected error for unsupported sort type SCORE")
 	}
 }

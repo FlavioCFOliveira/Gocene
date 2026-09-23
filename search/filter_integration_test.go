@@ -25,7 +25,7 @@ func TestFilterIntegration_TermFilter(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -50,12 +50,12 @@ func TestFilterIntegration_TermFilter(t *testing.T) {
 	searcher := search.NewIndexSearcher(r)
 
 	// Filter: type = "a" using BooleanQuery FILTER clause
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewTermQuery(index.NewTerm("body", "test")), search.MUST)
 	filter := search.NewTermQuery(index.NewTerm("type", "a"))
 	query.Add(filter, search.FILTER)
 
-	top, err := searcher.Search(query, 10)
+	top, err := searcher.Search(query.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestFilterIntegration_RangeFilter(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	for _, val := range []int{5, 10, 15, 20, 25} {
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("value", string(rune('0'+val)), false)
@@ -89,11 +89,11 @@ func TestFilterIntegration_RangeFilter(t *testing.T) {
 	// Demonstrate that a BooleanQuery with a TermQuery filter works.
 	bodyQ := search.NewTermQuery(index.NewTerm("body", "doc"))
 	filterQ := search.NewTermQuery(index.NewTerm("value", string(rune('0'+15))))
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(bodyQ, search.MUST)
 	bq.Add(filterQ, search.FILTER)
 
-	top, err := searcher.Search(bq, 10)
+	top, err := searcher.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestFilterIntegration_BooleanFilter(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	for _, typ := range []string{"a", "b", "a", "b", "a"} {
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("type", typ, false)
@@ -125,10 +125,10 @@ func TestFilterIntegration_BooleanFilter(t *testing.T) {
 	searcher := search.NewIndexSearcher(r)
 
 	// All documents matching "body:test" should be 5, regardless of filter.
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewTermQuery(index.NewTerm("body", "test")), search.MUST)
 
-	top, err := searcher.Search(query, 10)
+	top, err := searcher.Search(query.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -142,7 +142,7 @@ func BenchmarkFilterIntegration_Application(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	for i := 0; i < 100; i++ {
 		doc := document.NewDocument()
 		sf, _ := document.NewStringField("type", "a", false)
@@ -161,10 +161,10 @@ func BenchmarkFilterIntegration_Application(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(search.NewTermQuery(index.NewTerm("body", "benchmark")), search.MUST)
 		bq.Add(search.NewTermQuery(index.NewTerm("type", "a")), search.FILTER)
-		_, err := searcher.Search(bq, 10)
+		_, err := searcher.Search(bq.Build(), 10)
 		if err != nil {
 			b.Fatalf("Search: %v", err)
 		}

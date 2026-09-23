@@ -67,7 +67,7 @@ func TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch(t *testing.T) 
 
 // pbjMakeByteChild builds a child document carrying a byte vector for field and
 // a stored "id".
-func pbjMakeByteChild(t *testing.T, field string, vector []byte, id string) index.Document {
+func pbjMakeByteChild(t *testing.T, field string, vector []byte, id string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	vf, err := document.NewKnnByteVectorField(field, vector, index.VectorSimilarityFunctionEuclidean)

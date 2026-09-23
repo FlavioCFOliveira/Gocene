@@ -106,15 +106,7 @@ func TestRegexpRandom2_Regexps(t *testing.T) {
 func regexp2AssertSame(t *testing.T, s *search.IndexSearcher, reg string) {
 	t.Helper()
 
-	smart, err := search.NewRegexpQuery(regexp2Field, reg)
-	if err != nil {
-		// An invalid pattern is skipped on both sides identically (it is not a
-		// feature gap — the reference compiler would reject it too).
-		if _, rerr := regexp.Compile("^(?:" + reg + ")$"); rerr != nil {
-			return
-		}
-		t.Fatalf("NewRegexpQuery(%q): %v", reg, err)
-	}
+	smart := search.NewRegexpQuery(index.NewTerm(regexp2Field, reg))
 
 	dumb := regexp2BuildReference(t, s, reg)
 
@@ -144,13 +136,13 @@ func regexp2BuildReference(t *testing.T, s *search.IndexSearcher, reg string) se
 		t.Fatalf("Terms: %v", err)
 	}
 	if terms == nil {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("")
 	}
 	it, err := terms.Iterator()
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	any := false
 	for {
 		cur, nerr := it.Next()
@@ -170,9 +162,9 @@ func regexp2BuildReference(t *testing.T, s *search.IndexSearcher, reg string) se
 		}
 	}
 	if !any {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("")
 	}
-	return search.NewConstantScoreQuery(bq)
+	return search.NewConstantScoreQuery(bq.Build())
 }
 
 // regexp2CheckEqual ports CheckHits.checkEqual: same set of doc ids.

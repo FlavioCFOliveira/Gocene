@@ -13,6 +13,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strconv"
 	"testing"
 
@@ -31,13 +32,13 @@ import (
 //	Scorer scorer = ss.get(Long.MAX_VALUE);
 func firstLeafTopScoresScorer(t *testing.T, searcher *search.IndexSearcher, reader *index.DirectoryReader, q search.Query) search.Scorer {
 	t.Helper()
-	rewritten, err := q.Rewrite(reader)
+	rewritten, err := q.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
 	// TOP_SCORES is requested by passing needsScores=true; the block-join
 	// None-mode child is built as a TOP_SCORES ConstantScoreScorer regardless.
-	weight, err := rewritten.CreateWeight(searcher, true, 1.0)
+	weight, err := rewritten.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -78,7 +79,7 @@ func mustSetMinCompetitiveScore(t *testing.T, scorer search.Scorer, minScore flo
 
 // nextSetBitFromBitSetProducer returns the leaf-local parent bitset positions in
 // ascending order, used to predict the parents the scorer should iterate.
-func parentBitsForLeaf(t *testing.T, reader *index.DirectoryReader, parents BitSetProducer) *FixedBitSet {
+func parentBitsForLeaf(t *testing.T, reader *index.DirectoryReader, parents BitSetProducer) util.BitSet {
 	t.Helper()
 	leaves, err := reader.Leaves()
 	if err != nil {
@@ -101,7 +102,7 @@ func parentBitsForLeaf(t *testing.T, reader *index.DirectoryReader, parents BitS
 func TestBlockJoinScorer_ScoreNone(t *testing.T) {
 	dir, w := newBlockWriter(t)
 	for i := 0; i < 10; i++ {
-		docs := make([]index.Document, 0, i+1)
+		docs := make([]*document.Document, 0, i+1)
 		for j := 0; j < i; j++ {
 			child := document.NewDocument()
 			child.Add(mustStringField(t, "value", strconv.Itoa(j), true))
@@ -128,8 +129,8 @@ func TestBlockJoinScorer_ScoreNone(t *testing.T) {
 	expectParents := func(scorer search.Scorer) {
 		parent := 0
 		for i := 0; i < 9; i++ {
-			parent = bits.NextSetBit(parent + 1)
-			doc, err := scorer.NextDoc()
+			parent = bits.NextSetBitBounded(parent + 1)
+			doc, err := scorer.Iterator().NextDoc()
 			if err != nil {
 				t.Fatalf("NextDoc: %v", err)
 			}
@@ -137,7 +138,7 @@ func TestBlockJoinScorer_ScoreNone(t *testing.T) {
 				t.Fatalf("iter %d: doc = %d, want %d", i, doc, parent)
 			}
 		}
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
@@ -159,7 +160,7 @@ func TestBlockJoinScorer_ScoreNone(t *testing.T) {
 	//    NO_MORE_DOCS immediately.
 	scorer = firstLeafTopScoresScorer(t, searcher, reader, query)
 	mustSetMinCompetitiveScore(t, scorer, nextUpZero())
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	} else if doc != search.NO_MORE_DOCS {
 		t.Fatalf("expected NO_MORE_DOCS, got %d", doc)
@@ -168,13 +169,13 @@ func TestBlockJoinScorer_ScoreNone(t *testing.T) {
 	// 4) Advance one parent, then setMinCompetitiveScore(nextUp(0)) terminates
 	//    the remaining iteration.
 	scorer = firstLeafTopScoresScorer(t, searcher, reader, query)
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	} else if doc != 2 {
 		t.Fatalf("first parent = %d, want 2", doc)
 	}
 	mustSetMinCompetitiveScore(t, scorer, nextUpZero())
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	} else if doc != search.NO_MORE_DOCS {
 		t.Fatalf("expected NO_MORE_DOCS, got %d", doc)
@@ -199,12 +200,12 @@ func boostCSQTerm(field, value string, boost float32) search.Query {
 // scoreMaxChildQuery builds the SHOULD disjunction of boosted constant-score
 // term queries from TestBlockJoinScorer.testScoreMax: A=2, B=1, C=3, D=4.
 func scoreMaxChildQuery() *search.BooleanQuery {
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(boostCSQTerm("value", "A", 2), search.SHOULD)
 	q.Add(boostCSQTerm("value", "B", 1), search.SHOULD)
 	q.Add(boostCSQTerm("value", "C", 3), search.SHOULD)
 	q.Add(boostCSQTerm("value", "D", 4), search.SHOULD)
-	return q
+	return q.Build()
 }
 
 // addStaticBlock adds one block of child docs (each carrying the listed values)
@@ -212,7 +213,7 @@ func scoreMaxChildQuery() *search.BooleanQuery {
 // TestBlockJoinScorer/TestBlockJoinBulkScorer.
 func addStaticBlock(t *testing.T, w *index.IndexWriter, children [][]string) {
 	t.Helper()
-	docs := make([]index.Document, 0, len(children)+1)
+	docs := make([]*document.Document, 0, len(children)+1)
 	for _, values := range children {
 		child := document.NewDocument()
 		child.Add(mustStringField(t, "type", "child", false))
@@ -265,18 +266,18 @@ func TestBlockJoinScorer_ScoreMax(t *testing.T) {
 	}
 	scorer := firstLeafTopScoresScorer(t, searcher, reader, query)
 	for i, ws := range want {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("iter %d NextDoc: %v", i, err)
 		}
 		if doc != ws.doc {
 			t.Fatalf("iter %d: doc = %d, want %d", i, doc, ws.doc)
 		}
-		if got := scorer.Score(); got != ws.score {
+		if got := mustScorerScore(t, scorer); got != ws.score {
 			t.Fatalf("iter %d (doc %d): score = %v, want %v", i, doc, got, ws.score)
 		}
 	}
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("final NextDoc: %v", err)
 	} else if doc != search.NO_MORE_DOCS {
 		t.Fatalf("expected NO_MORE_DOCS, got %d", doc)
@@ -286,18 +287,18 @@ func TestBlockJoinScorer_ScoreMax(t *testing.T) {
 	scorer = firstLeafTopScoresScorer(t, searcher, reader, query)
 	mustSetMinCompetitiveScore(t, scorer, 6)
 	for _, ws := range []docScore{{2, 2 + 1 + 3}, {10, 2 + 1 + 3 + 4}} {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("prune6 NextDoc: %v", err)
 		}
 		if doc != ws.doc {
 			t.Fatalf("prune6: doc = %d, want %d", doc, ws.doc)
 		}
-		if got := scorer.Score(); got != ws.score {
+		if got := mustScorerScore(t, scorer); got != ws.score {
 			t.Fatalf("prune6 (doc %d): score = %v, want %v", doc, got, ws.score)
 		}
 	}
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("prune6 final NextDoc: %v", err)
 	} else if doc != search.NO_MORE_DOCS {
 		t.Fatalf("prune6: expected NO_MORE_DOCS, got %d", doc)
@@ -306,16 +307,16 @@ func TestBlockJoinScorer_ScoreMax(t *testing.T) {
 	// Advance one parent, then setMinCompetitiveScore(11) terminates iteration
 	// because no block can reach 11 (the global max child score is 10).
 	scorer = firstLeafTopScoresScorer(t, searcher, reader, query)
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("prune11 NextDoc: %v", err)
 	} else if doc != 2 {
 		t.Fatalf("prune11: first parent = %d, want 2", doc)
 	}
-	if got := scorer.Score(); got != 2+1+3 {
+	if got := mustScorerScore(t, scorer); got != 2+1+3 {
 		t.Fatalf("prune11: score = %v, want 6", got)
 	}
 	mustSetMinCompetitiveScore(t, scorer, 11)
-	if doc, err := scorer.NextDoc(); err != nil {
+	if doc, err := scorer.Iterator().NextDoc(); err != nil {
 		t.Fatalf("prune11 NextDoc: %v", err)
 	} else if doc != search.NO_MORE_DOCS {
 		t.Fatalf("prune11: expected NO_MORE_DOCS, got %d", doc)

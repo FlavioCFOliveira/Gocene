@@ -35,7 +35,7 @@ import (
 func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -73,7 +73,7 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -92,7 +92,7 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 
 	// needsScores = true so the TermWeight wires a real SimScorer and the
 	// TermScorer builds its MaxScoreCache.
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -132,11 +132,14 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		}
 
 		// The global bound must dominate every score the scorer produces.
-		globalBound := scorer.GetMaxScore(noMoreDocs)
+		globalBound, err := scorer.GetMaxScore(noMoreDocs)
+		if err != nil {
+			t.Fatalf("scorer.GetMaxScore: %v", err)
+		}
 
 		var leafScores []docScore
 		for {
-			doc, err := scorer.NextDoc()
+			doc, err := scorer.Iterator().NextDoc()
 			if err != nil {
 				t.Fatalf("NextDoc: %v", err)
 			}
@@ -144,7 +147,10 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 				break
 			}
 			matchedAny = true
-			score := scorer.Score()
+			score, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
 			leafScores = append(leafScores, docScore{doc: doc, score: score})
 
 			if score > 1.0 {
@@ -155,8 +161,8 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 			}
 
 			// Per-document invariants against the current scorer position.
-			if got := scorer.GetMaxScore(noMoreDocs); got < score {
-				t.Errorf("doc %d: GetMaxScore(NO_MORE_DOCS)=%v < score=%v", doc, got, score)
+			if got, err := scorer.GetMaxScore(noMoreDocs); err != nil || got < score {
+				t.Errorf("doc %d: GetMaxScore(NO_MORE_DOCS)=%v < score=%v (err: %v)", doc, got, score, err)
 			}
 			if globalBound < score {
 				t.Errorf("doc %d: global bound %v < score %v (bound must not shrink below any doc score)",
@@ -195,16 +201,23 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		}
 		var seen []docScore
 		for {
-			doc, err := scorer.NextDoc()
+			doc, err := scorer.Iterator().NextDoc()
 			if err != nil {
 				t.Fatalf("NextDoc (2nd pass): %v", err)
 			}
 			if doc == noMoreDocs {
 				break
 			}
-			seen = append(seen, docScore{doc: doc, score: scorer.Score()})
+			v211_50, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			seen = append(seen, docScore{doc: doc, score: v211_50})
 
-			bound := scorer.GetMaxScore(doc) // upTo = current doc id
+			bound, err := scorer.GetMaxScore(doc) // upTo = current doc id
+			if err != nil {
+				t.Fatalf("scorer.GetMaxScore: %v", err)
+			}
 			for _, ds := range seen {
 				if bound < ds.score {
 					t.Errorf("upTo=%d: GetMaxScore(%d)=%v < score(doc %d)=%v",
@@ -225,7 +238,7 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		if scorer == nil {
 			continue
 		}
-		if _, err := scorer.NextDoc(); err != nil {
+		if _, err := scorer.Iterator().NextDoc(); err != nil {
 			t.Fatalf("NextDoc (shallow pass): %v", err)
 		}
 		upTo, err := scorer.AdvanceShallow(0)
@@ -237,7 +250,15 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		}
 		// The bound computed for the advanced block must dominate the current
 		// document score.
-		if bound, score := scorer.GetMaxScore(upTo), scorer.Score(); bound < score {
+		v249_48, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		v249_22, err := scorer.GetMaxScore(upTo)
+		if err != nil {
+			t.Fatalf("scorer.GetMaxScore: %v", err)
+		}
+		if bound, score := v249_22, v249_48; bound < score {
 			t.Errorf("after AdvanceShallow: GetMaxScore(%d)=%v < score=%v", upTo, bound, score)
 		}
 	}

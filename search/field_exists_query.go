@@ -139,7 +139,8 @@ func (q *FieldExistsQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 		return Instance, nil
 	}
 
-	return q.BaseQuery.Rewrite(searcher)
+	// super.rewrite(indexSearcher): Query.rewrite returns this.
+	return q, nil
 }
 
 // termsCoversLeaf renders `terms == null || terms.getDocCount() != leaf.maxDoc()`

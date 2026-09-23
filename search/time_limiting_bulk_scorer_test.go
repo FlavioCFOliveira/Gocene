@@ -64,8 +64,24 @@ func (s *errorBulkScorer) Cost() int64 { return 1 }
 // dummyLeafCollector is a no-op LeafCollector used to drive a BulkScorer.
 type dummyLeafCollector struct{}
 
-func (dummyLeafCollector) SetScorer(_ search.Scorer) error { return nil }
-func (dummyLeafCollector) Collect(_ int) error             { return nil }
+func (dummyLeafCollector) SetScorer(_ search.Scorable) error { return nil }
+func (dummyLeafCollector) Collect(_ int) error               { return nil }
+
+// CollectRange carries the default body Lucene gives LeafCollector.collectRange.
+func (c dummyLeafCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.collect(DocIdStream).
+func (c dummyLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.competitiveIterator.
+func (dummyLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) { return nil, nil }
+
+// Finish carries the default body Lucene gives LeafCollector.finish.
+func (dummyLeafCollector) Finish() error { return nil }
 
 // scoreFull drives a BulkScorer over the whole document space, the analogue of
 // score(collector, acceptDocs, 0, NO_MORE_DOCS) in the Lucene tests.

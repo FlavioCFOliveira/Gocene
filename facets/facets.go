@@ -198,32 +198,3 @@ type FacetsCalculator interface {
 	// CalculateTopChildren calculates the top N facet children.
 	CalculateTopChildren(matchingDocs []*MatchingDocs, topN int, dim string, path []string) (*FacetResult, error)
 }
-
-// DrillDownQuery represents a query that drills down into a specific facet value.
-// This is used to filter search results to documents matching a specific facet.
-type DrillDownQuery struct {
-	// Dim is the dimension being drilled down
-	Dim string
-
-	// Path is the path for hierarchical facets
-	Path []string
-
-	// Value is the specific facet value to drill down to
-	Value string
-}
-
-// NewDrillDownQuery creates a new DrillDownQuery.
-func NewDrillDownQuery(dim string, value string) *DrillDownQuery {
-	return &DrillDownQuery{
-		Dim:   dim,
-		Value: value,
-		Path:  make([]string, 0),
-	}
-}
-
-// NewDrillDownQueryWithPath creates a new DrillDownQuery with a hierarchical path.
-func NewDrillDownQueryWithPath(dim string, path []string, value string) *DrillDownQuery {
-	ddq := NewDrillDownQuery(dim, value)
-	ddq.Path = append(ddq.Path, path...)
-	return ddq
-}

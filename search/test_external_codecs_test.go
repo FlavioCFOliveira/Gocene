@@ -61,7 +61,7 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 	const numDocs = 173
 
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	cfg.SetCodec(newCustomPerFieldCodec())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
@@ -89,16 +89,16 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, addErr)
 		}
 		if (i+1)%10 == 0 {
-			if cErr := w.Commit(); cErr != nil {
+			if _, cErr := w.Commit(); cErr != nil {
 				t.Fatalf("Commit: %v", cErr)
 			}
 		}
 	}
 
-	if _, err = w.DeleteDocuments(index.NewTerm("id", "77")); err != nil {
+	if _, err = w.DeleteDocuments([]index.Term{*index.NewTerm("id", "77")}); err != nil {
 		t.Fatalf("DeleteDocuments(id:77): %v", err)
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit after delete: %v", err)
 	}
 
@@ -116,13 +116,13 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 		t.Fatalf("reader.Close: %v", err)
 	}
 
-	if _, err = w.DeleteDocuments(index.NewTerm("id", "44")); err != nil {
+	if _, err = w.DeleteDocuments([]index.Term{*index.NewTerm("id", "44")}); err != nil {
 		t.Fatalf("DeleteDocuments(id:44): %v", err)
 	}
 	if err = w.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge: %v", err)
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit after merge: %v", err)
 	}
 

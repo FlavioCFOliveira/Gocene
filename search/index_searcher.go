@@ -14,6 +14,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TooManyClauses is thrown when an attempt is made to add more than
@@ -116,6 +117,10 @@ type IndexSearcher struct {
 	// partialResult is set if any search hit the timeout.
 	partialResult bool
 
+	// countOverride renders a subclass overriding the public, non-final
+	// IndexSearcher.count(Query); see SetCountOverride.
+	countOverride func(super func(Query) (int, error), query Query) (int, error)
+
 	mu sync.RWMutex
 }
 
@@ -175,6 +180,49 @@ func NewIndexSearcherWithExecutor(r index.IndexReaderInterface, executor Executo
 		reader:             r,
 		similarity:         DefaultSimilarity,
 		readerContext:      ctx,
+		leafContexts:       leaves,
+		taskExecutor:       NewTaskExecutor(executorDispatch(executor)),
+		queryCache:         defaultQueryCache,
+		queryCachingPolicy: defaultQueryCachingPolicy,
+	}
+
+	if executor == nil {
+		if len(leaves) == 0 {
+			s.leafSlices = []LeafSlice{}
+		} else {
+			s.leafSlices = []LeafSlice{entireSegments(leaves)}
+		}
+	}
+
+	return s
+}
+
+// NewIndexSearcherFromContext creates a searcher searching the provided
+// top-level IndexReaderContext. Mirrors IndexSearcher(IndexReaderContext),
+// whose body is this(context, null).
+func NewIndexSearcherFromContext(context index.IndexReaderContext) *IndexSearcher {
+	return NewIndexSearcherFromContextWithExecutor(context, nil)
+}
+
+// NewIndexSearcherFromContextWithExecutor creates a searcher searching the
+// provided top-level IndexReaderContext, using the provided Executor to run
+// searches for each segment separately. Mirrors
+// IndexSearcher(IndexReaderContext, Executor): reader = context.reader(),
+// readerContext = context, leafContexts = context.leaves().
+func NewIndexSearcherFromContextWithExecutor(context index.IndexReaderContext, executor Executor) *IndexSearcher {
+	if util.AssertsEnabled() && !context.IsTopLevel() {
+		panic(util.NewAssertionError(fmt.Sprintf(
+			"IndexSearcher's ReaderContext must be topLevel for reader%v", context.Reader())))
+	}
+	leaves, err := context.Leaves()
+	if err != nil {
+		panic(err)
+	}
+
+	s := &IndexSearcher{
+		reader:             context.Reader(),
+		similarity:         DefaultSimilarity,
+		readerContext:      context,
 		leafContexts:       leaves,
 		taskExecutor:       NewTaskExecutor(executorDispatch(executor)),
 		queryCache:         defaultQueryCache,
@@ -351,8 +399,24 @@ func (s *IndexSearcher) GetSimilarity() Similarity {
 	return s.similarity
 }
 
+// SetCountOverride renders an IndexSearcher subclass that overrides the
+// public, non-final count(Query): once set, every Count call, including the
+// recursive calls Count makes for the two-clause disjunction optimisation, is
+// dispatched to override, which receives the un-overridden body as super.
+func (s *IndexSearcher) SetCountOverride(override func(super func(Query) (int, error), query Query) (int, error)) {
+	s.countOverride = override
+}
+
 // Count counts how many documents match the given query.
 func (s *IndexSearcher) Count(query Query) (int, error) {
+	if s.countOverride != nil {
+		return s.countOverride(s.count, query)
+	}
+	return s.count(query)
+}
+
+// count is the body of IndexSearcher.count(Query).
+func (s *IndexSearcher) count(query Query) (int, error) {
 	// CSQ.rewrite may simplify the query -- don't need scores
 	q := NewConstantScoreQuery(query)
 	rewritten, err := s.Rewrite(q)

@@ -27,7 +27,7 @@ func TestTopFieldCollector_SortWithoutFillFields(t *testing.T) {
 
 	// Create index with at least 100 documents
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -81,7 +81,7 @@ func TestTopFieldCollector_Sort(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -132,7 +132,7 @@ func TestTopFieldCollector_SortNoResults(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -173,7 +173,7 @@ func TestTopFieldCollector_TotalHits(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	// Disable auto-flush to control segment creation
 	config.SetRAMBufferSizeMB(256)
 	config.SetMergePolicy(index.NewNoMergePolicy())
@@ -253,7 +253,7 @@ func TestTopFieldCollector_SharedHitcountCollector(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -325,7 +325,7 @@ func TestTopFieldCollector_PopulateScores(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -392,7 +392,7 @@ func TestTopFieldCollector_RelationVsTopDocsCount(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -464,7 +464,7 @@ func TestTopFieldCollector_ComputeScoresOnlyOnce(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -522,7 +522,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -599,7 +599,7 @@ func TestTopFieldCollector_RandomMinCompetitiveScore(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -669,7 +669,7 @@ func TestTopFieldCollector_SetMinCompetitiveScore(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -707,10 +707,6 @@ func TestTopFieldCollector_SetMinCompetitiveScore(t *testing.T) {
 			t.Errorf("Expected 10 total hits with n=%d, got %d", n, topDocs.TotalHits.Value)
 		}
 
-		// Verify max score is set
-		if topDocs.MaxScore == 0 && topDocs.TotalHits.Value > 0 {
-			t.Logf("Warning: MaxScore is 0 with n=%d", n)
-		}
 	}
 }
 
@@ -720,7 +716,7 @@ func TestTopFieldCollector_TotalHitsWithScore(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -790,7 +786,7 @@ func TestTopFieldCollector_SortWithoutTotalHitTracking(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)

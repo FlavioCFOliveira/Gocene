@@ -120,17 +120,15 @@ func (h *seqHarness) randomFilter() search.Query {
 	if h.rng.Intn(2) == 1 {
 		return search.NewTermRangeQueryWithStrings(seqField, "a", string([]byte{seqRandomChar(h.rng)}), true, true)
 	}
-	return search.NewPhraseQueryWithSlop(100, seqField,
-		index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})),
-		index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})))
+	return search.NewPhraseQueryWithTerms(100, seqField, index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})), index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})))
 }
 
 // filteredQuery wraps query in a +query #filter BooleanQuery.
 func (h *seqHarness) filteredQuery(query, filter search.Query) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(query, search.MUST)
 	bq.Add(filter, search.FILTER)
-	return bq
+	return bq.Build()
 }
 
 // docSet returns the matching doc ids of q as a set.

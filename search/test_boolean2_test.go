@@ -40,7 +40,7 @@ func setupBoolean2Index(t *testing.T) (index.IndexReaderInterface, *IndexSearche
 	t.Helper()
 
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -55,7 +55,7 @@ func setupBoolean2Index(t *testing.T) (index.IndexReaderInterface, *IndexSearche
 			t.Fatalf("AddDocument: %v", addErr)
 		}
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {
@@ -95,10 +95,10 @@ func TestBoolean2_Queries01(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), MUST)
-	assertHitCount(t, searcher, bq, 2)
+	assertHitCount(t, searcher, bq.Build(), 2)
 }
 
 // TestBoolean2_Queries02 mirrors testQueries02: w3 MUST xx SHOULD → 4 hits (docs 0,1,2,3).
@@ -107,10 +107,10 @@ func TestBoolean2_Queries02(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), SHOULD)
-	assertHitCount(t, searcher, bq, 4)
+	assertHitCount(t, searcher, bq.Build(), 4)
 }
 
 // TestBoolean2_Queries03 mirrors testQueries03: w3 SHOULD xx SHOULD → 4 hits.
@@ -119,10 +119,10 @@ func TestBoolean2_Queries03(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), SHOULD)
 	bq.Add(boolean2Term("xx"), SHOULD)
-	assertHitCount(t, searcher, bq, 4)
+	assertHitCount(t, searcher, bq.Build(), 4)
 }
 
 // TestBoolean2_Queries04 mirrors testQueries04: w3 SHOULD xx MUST_NOT → 2 hits (docs 0,1).
@@ -131,10 +131,10 @@ func TestBoolean2_Queries04(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), SHOULD)
 	bq.Add(boolean2Term("xx"), MUST_NOT)
-	assertHitCount(t, searcher, bq, 2)
+	assertHitCount(t, searcher, bq.Build(), 2)
 }
 
 // TestBoolean2_Queries05 mirrors testQueries05: w3 MUST xx MUST_NOT → 2 hits (docs 0,1).
@@ -143,10 +143,10 @@ func TestBoolean2_Queries05(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), MUST_NOT)
-	assertHitCount(t, searcher, bq, 2)
+	assertHitCount(t, searcher, bq.Build(), 2)
 }
 
 // TestBoolean2_Queries06 mirrors testQueries06: w3 MUST xx MUST_NOT w5 MUST_NOT → 1 hit (doc 1).
@@ -155,11 +155,11 @@ func TestBoolean2_Queries06(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), MUST_NOT)
 	bq.Add(boolean2Term("w5"), MUST_NOT)
-	assertHitCount(t, searcher, bq, 1)
+	assertHitCount(t, searcher, bq.Build(), 1)
 }
 
 // TestBoolean2_Queries07 mirrors testQueries07: all MUST_NOT → 0 hits.
@@ -168,11 +168,11 @@ func TestBoolean2_Queries07(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST_NOT)
 	bq.Add(boolean2Term("xx"), MUST_NOT)
 	bq.Add(boolean2Term("w5"), MUST_NOT)
-	assertHitCount(t, searcher, bq, 0)
+	assertHitCount(t, searcher, bq.Build(), 0)
 }
 
 // TestBoolean2_Queries08 mirrors testQueries08: w3 MUST xx SHOULD w5 MUST_NOT → 3 hits (docs 1,2,3).
@@ -181,11 +181,11 @@ func TestBoolean2_Queries08(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), SHOULD)
 	bq.Add(boolean2Term("w5"), MUST_NOT)
-	assertHitCount(t, searcher, bq, 3)
+	assertHitCount(t, searcher, bq.Build(), 3)
 }
 
 // TestBoolean2_Queries09 mirrors testQueries09:
@@ -195,12 +195,12 @@ func TestBoolean2_Queries09(t *testing.T) {
 	defer cleanup()
 	_ = reader
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(boolean2Term("w3"), MUST)
 	bq.Add(boolean2Term("xx"), MUST)
 	bq.Add(boolean2Term("w2"), MUST)
 	bq.Add(boolean2Term("zz"), SHOULD)
-	assertHitCount(t, searcher, bq, 2)
+	assertHitCount(t, searcher, bq.Build(), 2)
 }
 
 // TestBoolean2_RandomQueries mirrors testRandomQueries.
@@ -235,12 +235,12 @@ func TestBoolean2_RandomQueries(t *testing.T) {
 		}
 	}
 
-// boolean2RandBoolQuery builds a random BooleanQuery tree, mirroring the static
-// randBoolQuery helper in TestBoolean2.java. The tree is reproducible for the
-// same rng seed.
+	// boolean2RandBoolQuery builds a random BooleanQuery tree, mirroring the static
+	// randBoolQuery helper in TestBoolean2.java. The tree is reproducible for the
+	// same rng seed.
 }
 func boolean2RandBoolQuery(rng *rand.Rand, allowMust bool, level int, field string, vals []string) *BooleanQuery {
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	numClauses := rng.Intn(len(vals)) + 1
 	for i := 0; i < numClauses; i++ {
 		var occur Occur
@@ -265,5 +265,5 @@ func boolean2RandBoolQuery(rng *rand.Rand, allowMust bool, level int, field stri
 		}
 		bq.Add(q, occur)
 	}
-	return bq
+	return bq.Build()
 }

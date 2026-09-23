@@ -17,6 +17,7 @@
 package search
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -70,6 +71,32 @@ type fixedScoreSimScorer struct{ score float32 }
 
 func (f *fixedScoreSimScorer) Score(_ int, _ float32, _ int64) float32 { return f.score }
 
+// Score104 returns the constant score, as Sim1/Sim2's SimScorer.score(freq,
+// norm) does in TestSimilarityProvider.
+func (f *fixedScoreSimScorer) Score104(_ float32, _ int64) float32 { return f.score }
+
+// AsBulkSimScorer carries the default body Lucene gives
+// SimScorer.asBulkSimScorer.
+func (f *fixedScoreSimScorer) AsBulkSimScorer() BulkSimScorer { return NewDefaultBulkSimScorer(f) }
+
+// Explain104 carries the default body Lucene gives SimScorer.explain.
+func (f *fixedScoreSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, f.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}
+
+// Scorer104 is abstract in Lucene's Similarity; this double does not support it.
+func (s *sim1) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	panic("sim1.Scorer104: unsupported operation")
+}
+
+// Scorer104 is abstract in Lucene's Similarity; this double does not support it.
+func (s *sim2) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	panic("sim2.Scorer104: unsupported operation")
+}
+
 var _ Similarity = (*sim1)(nil)
 var _ Similarity = (*sim2)(nil)
 var _ SimScorer = (*fixedScoreSimScorer)(nil)
@@ -91,7 +118,7 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 	defer dir.Close()
 
 	// Build an index with two fields carrying the same content.
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -109,7 +136,7 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 	addDoc("quick brown fox", "quick brown fox")
 	addDoc("jumps over lazy brown dog", "jumps over lazy brown dog")
 
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {

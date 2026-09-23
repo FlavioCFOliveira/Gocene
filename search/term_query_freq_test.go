@@ -37,7 +37,7 @@ func TestTermQuery_FreqVariesWithTf(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	// Isolate the postings encoding from compound-file packing, matching the
 	// task's reproduction recipe.
 	config.SetUseCompoundFile(false)
@@ -69,7 +69,7 @@ func TestTermQuery_FreqVariesWithTf(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -107,7 +107,7 @@ func TestTermQuery_FreqVariesWithTf(t *testing.T) {
 	// (b) Per-doc freq via TermWeight.Explain must equal the true tf for that
 	// doc. The weight is built exactly as IndexSearcher.searchLeaf does (scoring
 	// weight over the segment-level leaf context).
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}

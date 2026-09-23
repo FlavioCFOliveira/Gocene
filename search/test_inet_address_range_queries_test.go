@@ -166,7 +166,7 @@ func verifyIPRanges(t *testing.T, seed int64, docRanges [][]ipRange) {
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -183,7 +183,7 @@ func verifyIPRanges(t *testing.T, seed int64, docRanges [][]ipRange) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	defer func() { _ = w.Close() }()

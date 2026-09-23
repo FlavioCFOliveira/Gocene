@@ -42,8 +42,16 @@ func TestReqOptSumScorer_BasicsMust(t *testing.T) {
 	if err != nil || doc != 1 {
 		t.Fatalf("NextDoc() = (%d, %v), want (1, nil)", doc, err)
 	}
-	if want := float32(1.5); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	v45_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(1.5); math.Abs(float64(v45_44-want)) > 1e-6 {
+		v46_52, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at doc %d = %v, want %v", doc, v46_52, want)
 	}
 
 	// doc 3: only req matches -> 2.0
@@ -51,8 +59,16 @@ func TestReqOptSumScorer_BasicsMust(t *testing.T) {
 	if err != nil || doc != 3 {
 		t.Fatalf("NextDoc() = (%d, %v), want (3, nil)", doc, err)
 	}
-	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	v54_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(2.0); math.Abs(float64(v54_44-want)) > 1e-6 {
+		v55_52, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at doc %d = %v, want %v", doc, v55_52, want)
 	}
 
 	// doc 5: both match -> 3.0 + 2.0 = 5.0
@@ -60,8 +76,16 @@ func TestReqOptSumScorer_BasicsMust(t *testing.T) {
 	if err != nil || doc != 5 {
 		t.Fatalf("NextDoc() = (%d, %v), want (5, nil)", doc, err)
 	}
-	if want := float32(5.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	v63_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(5.0); math.Abs(float64(v63_44-want)) > 1e-6 {
+		v64_52, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at doc %d = %v, want %v", doc, v64_52, want)
 	}
 
 	// exhausted
@@ -104,8 +128,16 @@ func TestReqOptSumScorer_MaxBlock(t *testing.T) {
 	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
 
 	// Max score = max(req) + max(opt) = 4.0 + 2.0 = 6.0
-	if want := float32(6.0); math.Abs(float64(scorer.GetMaxScore(search.NO_MORE_DOCS)-want)) > 1e-6 {
-		t.Errorf("GetMaxScore() = %v, want %v", scorer.GetMaxScore(search.NO_MORE_DOCS), want)
+	v107_44, err := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("scorer.GetMaxScore: %v", err)
+	}
+	if want := float32(6.0); math.Abs(float64(v107_44-want)) > 1e-6 {
+		v108_43, err := scorer.GetMaxScore(search.NO_MORE_DOCS)
+		if err != nil {
+			t.Fatalf("scorer.GetMaxScore: %v", err)
+		}
+		t.Errorf("GetMaxScore() = %v, want %v", v108_43, want)
 	}
 }
 
@@ -122,8 +154,16 @@ func TestReqOptSumScorer_MaxScoreSegment(t *testing.T) {
 		t.Fatalf("Advance(5) = (%d, %v), want (7, nil)", doc, err)
 	}
 	// Score at doc 7: 1.0 + 2.0 = 3.0
-	if want := float32(3.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at Advance(5) = %v, want %v", scorer.Score(), want)
+	v125_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(3.0); math.Abs(float64(v125_44-want)) > 1e-6 {
+		v126_51, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at Advance(5) = %v, want %v", v126_51, want)
 	}
 }
 
@@ -139,8 +179,16 @@ func TestReqOptSumScorer_MustRandomFrequentOpt(t *testing.T) {
 			t.Fatalf("NextDoc() at iter %d = (%d, %v), want (%d, nil)", i, doc, err, i)
 		}
 		want := float32(i) + float32(i)*0.1
-		if math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-			t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+		v142_23, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		if math.Abs(float64(v142_23-want)) > 1e-6 {
+			v143_53, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			t.Errorf("Score() at doc %d = %v, want %v", doc, v143_53, want)
 		}
 	}
 	doc, err := scorer.NextDoc()
@@ -167,8 +215,16 @@ func TestReqOptSumScorer_MustRandomRareOpt(t *testing.T) {
 		if err != nil || doc != i {
 			t.Fatalf("NextDoc() at iter %d = (%d, %v), want (%d, nil)", i, doc, err, i)
 		}
-		if math.Abs(float64(scorer.Score()-expected[doc])) > 1e-6 {
-			t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), expected[doc])
+		v170_23, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		if math.Abs(float64(v170_23-expected[doc])) > 1e-6 {
+			v171_53, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			t.Errorf("Score() at doc %d = %v, want %v", doc, v171_53, expected[doc])
 		}
 	}
 }
@@ -183,16 +239,32 @@ func TestReqOptSumScorer_FilterRandomFrequentOpt(t *testing.T) {
 	if err != nil || doc != 3 {
 		t.Fatalf("NextDoc() = (%d, %v), want (3, nil)", doc, err)
 	}
-	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	v186_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(2.0); math.Abs(float64(v186_44-want)) > 1e-6 {
+		v187_52, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at doc %d = %v, want %v", doc, v187_52, want)
 	}
 
 	doc, err = scorer.NextDoc()
 	if err != nil || doc != 6 {
 		t.Fatalf("NextDoc() = (%d, %v), want (6, nil)", doc, err)
 	}
-	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	v194_44, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if want := float32(2.0); math.Abs(float64(v194_44-want)) > 1e-6 {
+		v195_52, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		t.Errorf("Score() at doc %d = %v, want %v", doc, v195_52, want)
 	}
 
 	doc, err = scorer.NextDoc()
@@ -218,8 +290,16 @@ func TestReqOptSumScorer_FilterRandomRareOpt(t *testing.T) {
 		}
 		docs = append(docs, doc)
 		// Since opt never matches, score should be only req score.
-		if want := float32(5.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
-			t.Errorf("Score() at doc %d = %v, want %v (req only)", doc, scorer.Score(), want)
+		v221_45, err := scorer.Score()
+		if err != nil {
+			t.Fatalf("scorer.Score: %v", err)
+		}
+		if want := float32(5.0); math.Abs(float64(v221_45-want)) > 1e-6 {
+			v222_64, err := scorer.Score()
+			if err != nil {
+				t.Fatalf("scorer.Score: %v", err)
+			}
+			t.Errorf("Score() at doc %d = %v, want %v (req only)", doc, v222_64, want)
 		}
 	}
 	if len(docs) != 3 || docs[0] != 2 || docs[1] != 4 || docs[2] != 6 {
@@ -281,8 +361,8 @@ func (s *rosFixedScorer) DocIDRunEnd() (int, error) {
 	}
 	return doc + 1, nil
 }
-func (s *rosFixedScorer) Score() float32            { return s.currentScore() }
-func (s *rosFixedScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *rosFixedScorer) Score() (float32, error)            { return s.currentScore(), nil }
+func (s *rosFixedScorer) GetMaxScore(_ int) (float32, error) { return s.maxScore, nil }
 func (s *rosFixedScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
@@ -315,7 +395,10 @@ func TestReqOptSumScorer_ReqOnlyScoring(t *testing.T) {
 	if err != nil || doc != 1 {
 		t.Fatalf("NextDoc() = (%d, %v), want (1, nil)", doc, err)
 	}
-	got := scorer.Score()
+	got, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
 	if math.Abs(float64(got-2.0)) > 1e-6 {
 		t.Errorf("Score() = %v, want 2.0 (req only)", got)
 	}
@@ -331,7 +414,10 @@ func TestReqOptSumScorer_SumWhenBothMatch(t *testing.T) {
 	if err != nil || doc != 5 {
 		t.Fatalf("NextDoc() = (%d, %v), want (5, nil)", doc, err)
 	}
-	got := scorer.Score()
+	got, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
 	want := float32(4.5)
 	if math.Abs(float64(got-want)) > 1e-6 {
 		t.Errorf("Score() = %v, want %v (req + opt)", got, want)
@@ -371,7 +457,10 @@ func TestReqOptSumScorer_Advance(t *testing.T) {
 		t.Fatalf("Advance(5) = (%d, %v), want (5, nil)", doc, err)
 	}
 	// Both match doc 5: req=2.0, opt=0.5
-	got := scorer.Score()
+	got, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
 	want := float32(2.5)
 	if math.Abs(float64(got-want)) > 1e-6 {
 		t.Errorf("Score() after Advance(5) = %v, want %v", got, want)
@@ -384,7 +473,10 @@ func TestReqOptSumScorer_GetMaxScore(t *testing.T) {
 	opt := newROSFixedScorer([]int{1}, []float32{2.0})
 	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
 
-	max := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	max, err := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("scorer.GetMaxScore: %v", err)
+	}
 	// Both scorers start at docID -1 which is ≤ NO_MORE_DOCS; expect 5.0.
 	if math.Abs(float64(max-5.0)) > 1e-6 {
 		t.Errorf("GetMaxScore() = %v, want 5.0", max)
@@ -396,4 +488,35 @@ func TestReqOptSumScorer_GetMaxScore(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *rosFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *rosFixedScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
+func (s *rosFixedScorer) Iterator() search.DocIdSetIterator {
+	return s
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *rosFixedScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *rosFixedScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *rosFixedScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *rosFixedScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
 }

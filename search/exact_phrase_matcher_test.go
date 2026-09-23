@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 type mockPostings struct {
@@ -33,7 +34,7 @@ func (m *mockPostings) Advance(target int) (int, error) {
 	return m.curDoc, nil
 }
 
-func (m *mockPostings) DocID() int { return m.curDoc }
+func (m *mockPostings) DocID() int         { return m.curDoc }
 func (m *mockPostings) Freq() (int, error) { return m.freq, nil }
 func (m *mockPostings) NextPosition() (int, error) {
 	if m.curPos >= len(m.positions) {
@@ -56,7 +57,7 @@ func (m *mockPostings) EndOffset() (int, error) {
 	return m.offsets[m.curPos-1] + 1, nil
 }
 func (m *mockPostings) GetPayload() ([]byte, error) { return nil, nil }
-func (m *mockPostings) Cost() int64 { return 1 }
+func (m *mockPostings) Cost() int64                 { return 1 }
 
 // Also implement ImpactsSource to be an ImpactsEnum
 func (m *mockPostings) AdvanceShallow(target int) error { return nil }
@@ -64,11 +65,21 @@ func (m *mockPostings) GetImpacts() (index.Impacts, error) {
 	return &mockImpacts{postings: m}, nil
 }
 
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (m *mockPostings) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (m *mockPostings) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
 type mockImpacts struct {
 	postings *mockPostings
 }
 
-func (m *mockImpacts) NumLevels() int { return 1 }
+func (m *mockImpacts) NumLevels() int             { return 1 }
 func (m *mockImpacts) GetDocIDUpTo(level int) int { return m.postings.docID }
 func (m *mockImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	buf := index.NewFreqAndNormBuffer()
@@ -76,9 +87,23 @@ func (m *mockImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	return buf
 }
 
+// toPostingsAndFreq renders each (postings, offset) pair as Lucene's
+// PhraseQuery.PostingsAndFreq(postings, impacts, position): no impacts, the
+// offset as the phrase position.
+func toPostingsAndFreq(ps []struct {
+	postings index.PostingsEnum
+	offset   int
+}) []*postingsAndFreq {
+	out := make([]*postingsAndFreq, len(ps))
+	for i, p := range ps {
+		out[i] = NewPostingsAndFreq(p.postings, nil, p.offset)
+	}
+	return out
+}
+
 func TestExactPhraseMatcher_NextMatch(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		postings []struct {
 			postings index.PostingsEnum
 			offset   int
@@ -128,7 +153,7 @@ func TestExactPhraseMatcher_NextMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			matcher := NewExactPhraseMatcher(tt.postings, ScoreModeComplete, nil, 1.0)
+			matcher := NewExactPhraseMatcher(toPostingsAndFreq(tt.postings), ScoreModeComplete, nil, 1.0)
 			matcher.ResetPositions()
 			match, err := matcher.NextMatch()
 			if err != nil {
@@ -155,7 +180,7 @@ func TestExactPhraseMatcher_Offsets(t *testing.T) {
 		{postings: &mockPostings{docID: 1, freq: 1, positions: []int{10}, offsets: []int{100}, curDoc: -1, curPos: 0}, offset: 0},
 		{postings: &mockPostings{docID: 1, freq: 1, positions: []int{11}, offsets: []int{110}, curDoc: -1, curPos: 0}, offset: 1},
 	}
-	matcher := NewExactPhraseMatcher(postings, ScoreModeComplete, nil, 1.0)
+	matcher := NewExactPhraseMatcher(toPostingsAndFreq(postings), ScoreModeComplete, nil, 1.0)
 	matcher.ResetPositions()
 	matcher.NextMatch()
 

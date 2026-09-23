@@ -21,11 +21,13 @@
 package search_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestElevationComparator_Sorting(t *testing.T) {
@@ -43,13 +45,13 @@ func runElevationTest(t *testing.T, reversed bool) {
 	defer cleanup()
 
 	// BooleanQuery: SHOULD(title:ipod) OR SHOULD(elevated id query, boost 0).
-	newq := search.NewBooleanQuery()
+	newq := search.NewBooleanQueryBuilder()
 	newq.Add(search.NewTermQuery(index.NewTerm("title", "ipod")), search.SHOULD)
 	newq.Add(getElevatedQuery(priority, []string{"id", "a", "id", "x"}), search.SHOULD)
 
 	// Sort: [elevation(id) ascending, SCORE].
 	elevation := search.NewSortFieldCustom("id", &elevationComparatorSource{priority: priority}, false)
-	scoreSort := &search.SortField{Type: search.SortFieldTypeScore, Reverse: reversed}
+	scoreSort := &search.SortField{Type: spi.SortFieldTypeScore, Reverse: reversed}
 	sort := search.NewSort(elevation, scoreSort)
 
 	mgr, err := search.NewTopFieldCollectorManager(sort, 50, nil, 1<<30)
@@ -60,7 +62,7 @@ func runElevationTest(t *testing.T, reversed bool) {
 	if err != nil {
 		t.Fatalf("NewCollector: %v", err)
 	}
-	if err := searcher.SearchWithCollector(newq, collector); err != nil {
+	if err := searcher.SearchWithCollector(newq.Build(), collector); err != nil {
 		t.Fatalf("SearchWithCollector: %v", err)
 	}
 	topDocs, err := mgr.Reduce([]*search.TopFieldCollector{collector})
@@ -138,14 +140,14 @@ func buildElevationIndex(t *testing.T) (*search.IndexSearcher, func()) {
 // priorities for each value, and wraps the result in a zero-boost BoostQuery so
 // the elevated clause contributes matches without scores.
 func getElevatedQuery(priority map[string]int, vals []string) search.Query {
-	b := search.NewBooleanQuery()
+	b := search.NewBooleanQueryBuilder()
 	max := (len(vals) / 2) + 5
 	for i := 0; i < len(vals)-1; i += 2 {
 		b.Add(search.NewTermQuery(index.NewTerm(vals[i], vals[i+1])), search.SHOULD)
 		priority[vals[i+1]] = max
 		max--
 	}
-	return search.NewBoostQuery(b, 0)
+	return search.NewBoostQuery(b.Build(), 0)
 }
 
 // elevationComparatorSource is the Go port of the anonymous
@@ -158,82 +160,128 @@ type elevationComparatorSource struct {
 
 func (s *elevationComparatorSource) NewComparator(fieldname string, numHits int, pruning search.Pruning, reversed bool) search.FieldComparator {
 	return &elevationComparator{
-		priority: s.priority,
-		field:    field.GetField(),
-		values:   make([]int, numHits),
+		priority:  s.priority,
+		fieldname: fieldname,
+		values:    make([]int, numHits),
 	}
 }
 
-// elevationComparator mirrors the FieldComparator<Integer> returned by
-// ElevationComparatorSource. It caches per-slot priorities and, via the optional
-// SetReader hook, binds to each leaf's SortedDocValues.
+// elevationComparator mirrors the anonymous FieldComparator<Integer> returned
+// by ElevationComparatorSource.newComparator.
 type elevationComparator struct {
-	priority map[string]int
-	field    string
-	values   []int
-	bottom   int
-	dv       index.SortedDocValues
+	priority  map[string]int
+	fieldname string
+	values    []int
+	bottomVal int
 }
 
-// SetReader is the optional leaf-binding hook (search.leafBindingComparator):
-// the collector calls it per segment so the comparator can resolve the field's
-// SortedDocValues, mirroring DocValues.getSorted(context.reader(), field).
-func (c *elevationComparator) SetReader(reader search.IndexReader) error {
-	c.dv = nil
-	if r, ok := reader.(interface {
-		GetSortedDocValues(field string) (index.SortedDocValues, error)
-	}); ok {
-		dv, err := r.GetSortedDocValues(c.field)
-		if err != nil {
-			return err
-		}
-		c.dv = dv
-	}
-	return nil
+// GetLeafComparator mirrors the anonymous LeafFieldComparator of the upstream
+// comparator, bound to context.
+func (c *elevationComparator) GetLeafComparator(context *index.LeafReaderContext) (search.LeafFieldComparator, error) {
+	return &elevationLeafComparator{parent: c, context: context}, nil
 }
 
-// docVal returns the elevation priority recorded for doc's id term, or 0 when
-// the document has no id value or no recorded priority.
-func (c *elevationComparator) docVal(doc int) int {
-	if c.dv == nil {
-		return 0
-	}
-	advanced, err := c.dv.Advance(doc)
-	if err != nil || advanced != doc {
-		return 0
-	}
-	ord, err := c.dv.OrdValue()
-	if err != nil {
-		return 0
-	}
-	term, err := c.dv.LookupOrd(ord)
-	if err != nil {
-		return 0
-	}
-	if prio, ok := c.priority[string(term)]; ok {
-		return prio
-	}
-	return 0
-}
-
-// Compare orders slots by priority descending (values[slot2] - values[slot1]),
-// matching the upstream comparator.
+// Compare orders slots by priority descending; values are small enough that
+// there is no overflow concern.
 func (c *elevationComparator) Compare(slot1, slot2 int) int {
 	return c.values[slot2] - c.values[slot1]
 }
 
-func (c *elevationComparator) SetBottom(slot int) { c.bottom = c.values[slot] }
+// CompareValues orders priorities descending; values are small enough that
+// there is no overflow concern.
+func (c *elevationComparator) CompareValues(first, second any) int {
+	return second.(int) - first.(int)
+}
 
-func (c *elevationComparator) CompareBottom(doc int) int { return c.docVal(doc) - c.bottom }
+// SetTopValue throws UnsupportedOperationException upstream.
+func (c *elevationComparator) SetTopValue(value any) {
+	panic("elevationComparator.SetTopValue: unsupported operation")
+}
 
-func (c *elevationComparator) Copy(slot, doc int) { c.values[slot] = c.docVal(doc) }
-
-func (c *elevationComparator) SetScorer(_ search.Scorer) {}
-
-// Value exposes the per-slot priority for FieldDoc.Fields (search.valueComparator).
+// Value returns the per-slot priority.
 func (c *elevationComparator) Value(slot int) any { return c.values[slot] }
+
+// SetSingleSort carries the default body Lucene gives FieldComparator.setSingleSort.
+func (c *elevationComparator) SetSingleSort() {}
+
+// DisableSkipping carries the default body Lucene gives FieldComparator.disableSkipping.
+func (c *elevationComparator) DisableSkipping() {}
+
+// elevationLeafComparator mirrors the anonymous LeafFieldComparator.
+type elevationLeafComparator struct {
+	parent  *elevationComparator
+	context *index.LeafReaderContext
+}
+
+func (l *elevationLeafComparator) SetBottom(slot int) error {
+	l.parent.bottomVal = l.parent.values[slot]
+	return nil
+}
+
+// CompareTop throws UnsupportedOperationException upstream.
+func (l *elevationLeafComparator) CompareTop(doc int) (int, error) {
+	return 0, errors.New("elevationLeafComparator.CompareTop: unsupported operation")
+}
+
+// docVal returns the elevation priority recorded for doc's id term, or 0 when
+// the document has no id value or no recorded priority.
+func (l *elevationLeafComparator) docVal(doc int) (int, error) {
+	idIndex, err := index.GetSorted(l.context.LeafReader(), l.parent.fieldname)
+	if err != nil {
+		return 0, err
+	}
+	advanced, err := idIndex.Advance(doc)
+	if err != nil {
+		return 0, err
+	}
+	if advanced != doc {
+		return 0, nil
+	}
+	ord, err := idIndex.OrdValue()
+	if err != nil {
+		return 0, err
+	}
+	term, err := idIndex.LookupOrd(ord)
+	if err != nil {
+		return 0, err
+	}
+	if prio, ok := l.parent.priority[string(term)]; ok {
+		return prio, nil
+	}
+	return 0, nil
+}
+
+func (l *elevationLeafComparator) CompareBottom(doc int) (int, error) {
+	v, err := l.docVal(doc)
+	if err != nil {
+		return 0, err
+	}
+	return v - l.parent.bottomVal, nil
+}
+
+func (l *elevationLeafComparator) Copy(slot, doc int) error {
+	v, err := l.docVal(doc)
+	if err != nil {
+		return err
+	}
+	l.parent.values[slot] = v
+	return nil
+}
+
+func (l *elevationLeafComparator) SetScorer(scorer search.Scorable) error { return nil }
+
+// CompetitiveIterator carries the default body Lucene gives
+// LeafFieldComparator.competitiveIterator.
+func (l *elevationLeafComparator) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// SetHitsThresholdReached carries the default body Lucene gives
+// LeafFieldComparator.setHitsThresholdReached.
+func (l *elevationLeafComparator) SetHitsThresholdReached() error { return nil }
 
 var (
 	_ search.FieldComparatorSource = (*elevationComparatorSource)(nil)
 	_ search.FieldComparator       = (*elevationComparator)(nil)
+	_ search.LeafFieldComparator   = (*elevationLeafComparator)(nil)
 )

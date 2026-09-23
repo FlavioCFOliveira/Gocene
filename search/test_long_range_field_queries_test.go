@@ -29,16 +29,13 @@ const longRangeFieldName = "longRangeField"
 
 func buildLongRangeBasicsIndex(t *testing.T, dir store.Directory) *index.DirectoryReader {
 	t.Helper()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	add := func(min, max []int64) {
 		doc := document.NewDocument()
-		f, err := document.NewLongRange(longRangeFieldName, min, max)
-		if err != nil {
-			t.Fatalf("NewLongRange(%v,%v): %v", min, max, err)
-		}
+		f := document.NewLongRange(longRangeFieldName, min, max)
 		doc.Add(f)
 		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
@@ -54,7 +51,7 @@ func buildLongRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Directo
 	add([]int64{math.MinInt64, 1}, []int64{-11, 29}) // intersects (crosses)
 	add([]int64{-11, -15}, []int64{15, 20})          // equal
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	t.Cleanup(func() { _ = w.Close() })

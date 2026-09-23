@@ -102,13 +102,14 @@ func (s *slowIndexInput) ReadByte() (byte, error) {
 	return s.FilterIndexInput.ReadByte()
 }
 
-func (s *slowIndexInput) ReadBytes(b []byte) error {
+func (s *slowIndexInput) ReadBytes(bBuf []byte, offset, length int) error {
+	b := bBuf[offset : offset+length]
 	if s.numRead >= ioSleepThreshold {
 		s.dir.doSleep(len(b))
 		s.numRead = 0
 	}
 	s.numRead += len(b)
-	return s.FilterIndexInput.ReadBytes(b)
+	return s.FilterIndexInput.ReadBytes(b, 0, len(b))
 }
 
 // ---------------------------------------------------------------------------
@@ -138,11 +139,12 @@ func (s *slowIndexOutput) WriteByte(b byte) error {
 	return s.FilterIndexOutput.WriteByte(b)
 }
 
-func (s *slowIndexOutput) WriteBytes(b []byte) error {
+func (s *slowIndexOutput) WriteBytes(bBuf []byte, offset, length int) error {
+	b := bBuf[offset : offset+length]
 	if s.numWrote >= ioSleepThreshold {
 		s.dir.doSleep(len(b))
 		s.numWrote = 0
 	}
 	s.numWrote += len(b)
-	return s.FilterIndexOutput.WriteBytes(b)
+	return s.FilterIndexOutput.WriteBytes(b, 0, len(b))
 }

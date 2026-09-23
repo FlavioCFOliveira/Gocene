@@ -94,7 +94,7 @@ func TestKnnByteVectorQuery_GetTarget(t *testing.T) {
 // Lucene's "KnnByteVectorQuery:field[0,...][10]".
 func TestKnnByteVectorQuery_ToString(t *testing.T) {
 	q := search.NewKnnByteVectorQuery("field", floatToBytes([]float32{0, 1}), 10)
-	s := q.String()
+	s := q.ToString("")
 	for _, want := range []string{"KnnByteVectorQuery", "field", "10"} {
 		if !containsToken(s, want) {
 			t.Fatalf("String() %q missing %q", s, want)

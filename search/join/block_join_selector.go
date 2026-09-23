@@ -140,3 +140,11 @@ func WrapNumericDocValuesWithMissing(values index.NumericDocValues, selection Bl
 	}
 	return wrapNumeric(values, selection, parents, children, missingValue)
 }
+
+// toIter creates an iterator for the given bitset.
+//
+// Renders the protected static BitSetIterator toIter(BitSet children):
+// new BitSetIterator(children, 0).
+func toIter(children util.BitSet) *util.BitSetIterator {
+	return util.NewBitSetIterator(children, 0)
+}

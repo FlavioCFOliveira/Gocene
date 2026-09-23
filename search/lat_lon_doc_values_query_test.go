@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // testLatLonGeoRect builds a Rectangle covering [minLat..maxLat] x
@@ -318,6 +319,16 @@ func (f *fakeSortedNumeric) LongValue() (int64, error) {
 
 func (f *fakeSortedNumeric) Cost() int64 { return int64(len(f.docIDs)) }
 
+// DocIDRunEnd carries the default body Lucene gives SortedNumericDocValues.DocIDRunEnd.
+func (f *fakeSortedNumeric) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedNumericDocValues.IntoBitSet.
+func (f *fakeSortedNumeric) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
 // TestMatchesIntersects covers the intersects() match path: a doc with
 // at least one value inside the shape matches; a doc with no value
 // inside does not.
@@ -473,7 +484,7 @@ func TestCreateWeight_CacheableHook(t *testing.T) {
 	t.Parallel()
 	rect := testLatLonGeoRect(t, -10, 10, -20, 20)
 	q, _ := NewLatLonDocValuesQuery("loc", document.QueryRelationIntersects, rect)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -489,7 +500,7 @@ func TestCreateWeight_NilField(t *testing.T) {
 	t.Parallel()
 	rect := testLatLonGeoRect(t, -10, 10, -20, 20)
 	q, _ := NewLatLonDocValuesQuery("loc", document.QueryRelationIntersects, rect)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -532,8 +543,8 @@ func TestSortedNumericApproximation_Iteration(t *testing.T) {
 		t.Fatalf("Cost: got %d, want 10", approx.Cost())
 	}
 
-// TestIsDocValuesCacheable_NilContext returns true for a nil
-// LeafReaderContext (the safe default the helper documents).
+	// TestIsDocValuesCacheable_NilContext returns true for a nil
+	// LeafReaderContext (the safe default the helper documents).
 }
 func TestIsDocValuesCacheable_NilContext(t *testing.T) {
 	t.Parallel()

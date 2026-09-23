@@ -212,7 +212,7 @@ func TestSearchAfterScoreDoc_PageConsistencyVariedSizes(t *testing.T) {
 func TestSearchAfterScoreDoc_CrossSegmentTieBreak(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -225,7 +225,7 @@ func TestSearchAfterScoreDoc_CrossSegmentTieBreak(t *testing.T) {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 	for i := 0; i < 20; i++ {
@@ -233,7 +233,7 @@ func TestSearchAfterScoreDoc_CrossSegmentTieBreak(t *testing.T) {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -314,7 +314,7 @@ func TestSearchAfterScoreDoc_BeyondEndIsEmpty(t *testing.T) {
 func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -341,7 +341,7 @@ func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -399,11 +399,11 @@ func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 		}
 	}
 
-// TestSearchAfterScoreDoc_InvalidArguments verifies the error contract matching
-// Lucene 10.4.0: n<=0 is rejected (TopScoreDocCollectorManager requires
-// numHits>0) and after.Doc beyond the reader's maxDoc is rejected.
-//
-// Source: IndexSearcher.searchAfter (IndexSearcher.java lines 582-596).
+	// TestSearchAfterScoreDoc_InvalidArguments verifies the error contract matching
+	// Lucene 10.4.0: n<=0 is rejected (TopScoreDocCollectorManager requires
+	// numHits>0) and after.Doc beyond the reader's maxDoc is rejected.
+	//
+	// Source: IndexSearcher.searchAfter (IndexSearcher.java lines 582-596).
 }
 func TestSearchAfterScoreDoc_InvalidArguments(t *testing.T) {
 	_, reader, cleanup := setupTestIndexN(t, 30)

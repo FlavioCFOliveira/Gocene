@@ -34,7 +34,7 @@ func makeDMScorer(
 	}
 	var totalCost int64
 	for _, sc := range scorers {
-		totalCost += sc.Cost()
+		totalCost += sc.Iterator().Cost()
 	}
 	sc, err := search.NewDisjunctionMaxScorer(tieBreaker, scorers, search.COMPLETE, totalCost)
 	if err != nil {
@@ -51,7 +51,11 @@ func collectDM(t *testing.T, sc *search.DisjunctionMaxScorer) ([]int, []float32)
 	doc, err := sc.NextDoc()
 	for err == nil && doc != search.NO_MORE_DOCS {
 		docs = append(docs, doc)
-		scores = append(scores, sc.Score())
+		v54_27, err := sc.Score()
+		if err != nil {
+			t.Fatalf("sc.Score: %v", err)
+		}
+		scores = append(scores, v54_27)
 		doc, err = sc.NextDoc()
 	}
 	if err != nil {
@@ -178,7 +182,7 @@ func TestDisjunctionMaxScorer_ThreeClauses(t *testing.T) {
 		t.Errorf("score=%v, want %v", scores[0], want)
 	}
 
-// TestDisjunctionMaxScorer_Cost verifies Cost() is non-zero.
+	// TestDisjunctionMaxScorer_Cost verifies Cost() is non-zero.
 }
 func TestDisjunctionMaxScorer_Cost(t *testing.T) {
 	sc := makeDMScorer(t, 0, []struct {

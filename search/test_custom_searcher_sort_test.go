@@ -42,13 +42,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so postings / doc-values are flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Register the production codec so postings / doc-values are flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 const customSearcherSortIndexSize = 2000
@@ -67,10 +67,10 @@ func newCustomSearcher(searcher *search.IndexSearcher, switcher int) *customSear
 
 // wrap builds the mandant-constrained BooleanQuery the overrides build.
 func (c *customSearcher) wrap(query search.Query) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(query, search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("mandant", fmt.Sprintf("%d", c.switcher))), search.MUST)
-	return bq
+	return bq.Build()
 }
 
 // search mirrors CustomSearcher.search(query, nDocs).
@@ -80,14 +80,14 @@ func (c *customSearcher) search(query search.Query, nDocs int) (*search.TopDocs,
 
 // searchWithSort mirrors CustomSearcher.search(query, nDocs, sort).
 func (c *customSearcher) searchWithSort(query search.Query, nDocs int, srt *search.Sort) (*search.TopFieldDocs, error) {
-	return c.searcher.SearchWithSort(c.wrap(query), nDocs, srt)
+	return c.searcher.SearchWithSort(c.wrap(query), nDocs, srt, false)
 }
 
 // buildCustomSearcherSortIndex indexes the fixture and returns a reader.
 func buildCustomSearcherSortIndex(t *testing.T) (*index.DirectoryReader, store.Directory) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -116,7 +116,7 @@ func buildCustomSearcherSortIndex(t *testing.T) (*index.DirectoryReader, store.D
 			t.Fatalf("doc %d AddDocument: %v", i, aerr)
 		}
 	}
-	if cerr := w.Commit(); cerr != nil {
+	if _, cerr := w.Commit(); cerr != nil {
 		t.Fatalf("Commit: %v", cerr)
 	}
 	if cerr := w.Close(); cerr != nil {
@@ -184,8 +184,8 @@ func matchCustomSearcherHits(t *testing.T, c *customSearcher, srt *search.Sort) 
 // customSearcherSort builds the (publicationDate_ STRING, FIELD_SCORE) sort.
 func customSearcherSort() *search.Sort {
 	return search.NewSort(
-		search.NewSortField("publicationDate_", search.SortFieldTypeString),
-		search.NewSortField("", search.SortFieldTypeScore),
+		search.NewSortField("publicationDate_", spi.SortFieldTypeString),
+		search.NewSortField("", spi.SortFieldTypeScore),
 	)
 }
 

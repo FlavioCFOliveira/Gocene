@@ -2,211 +2,211 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package search
+// Port of
+// lucene/core/src/test/org/apache/lucene/search/similarities/TestClassicSimilarity.java
+// (Apache Lucene 10.5.0).
+//
+// TestClassicSimilarity extends
+// org.apache.lucene.tests.search.similarities.BaseSimilarityTestCase, whose
+// inherited tests call getSimilarity(Random) (here: new ClassicSimilarity()).
+// setUp builds its searcher with LuceneTestCase.newSearcher, which JUnit runs
+// before every test method, including the inherited ones.
+
+package search_test
 
 import (
 	"math"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-func TestClassicSimilarity_Tf(t *testing.T) {
-	sim := NewClassicSimilarity()
+// classicSimilarityFixture holds the fields of TestClassicSimilarity.
+type classicSimilarityFixture struct {
+	directory     store.Directory
+	indexReader   *index.DirectoryReader
+	indexSearcher *search.IndexSearcher
+}
 
-	tests := []struct {
-		freq     float64
-		expected float64
-	}{
-		{1, 1.0},
-		{4, 2.0},
-		{9, 3.0},
-		{0, 0.0},
-		{100, 10.0},
+// setUpClassicSimilarity renders TestClassicSimilarity.setUp(); tearDown is
+// registered with t.Cleanup.
+func setUpClassicSimilarity(t *testing.T) *classicSimilarityFixture {
+	t.Helper()
+	f := &classicSimilarityFixture{}
+	f.directory = newDirectory()
+	indexWriter := mustNewIndexWriter(t, f.directory, newIndexWriterConfig())
+	doc := document.NewDocument()
+	doc.Add(mustStringField(t, "test", "hit", false))
+	mustAddDocument(t, indexWriter, doc)
+	if _, err := indexWriter.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
+	mustClose(t, indexWriter)
+	f.indexReader = mustOpenDirectoryReader(t, f.directory)
+	t.Cleanup(func() {
+		if err := f.indexReader.Close(); err != nil {
+			t.Errorf("close reader: %v", err)
+		}
+		if err := f.directory.Close(); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	})
+	f.indexSearcher = newSearcher(t, f.indexReader)
+	f.indexSearcher.SetSimilarity(search.NewClassicSimilarity())
+	return f
+}
 
-	for _, test := range tests {
-		result := sim.Tf(test.freq)
-		if math.Abs(result-test.expected) > 0.0001 {
-			t.Errorf("Tf(%f) = %f, expected %f", test.freq, result, test.expected)
+func assertClassicHit(t *testing.T, topDocs *search.TopDocs) {
+	t.Helper()
+	if topDocs.TotalHits.Value != 1 {
+		t.Fatalf("totalHits: expected 1, got %d", topDocs.TotalHits.Value)
+	}
+	if len(topDocs.ScoreDocs) != 1 {
+		t.Fatalf("scoreDocs: expected 1, got %d", len(topDocs.ScoreDocs))
+	}
+	if topDocs.ScoreDocs[0].Score == 0 {
+		t.Fatal("score must not be 0")
+	}
+}
+
+func TestClassicSimilarityHit(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewTermQuery(index.NewTerm("test", "hit"))
+	topDocs := mustSearch(t, f.indexSearcher, query, 1)
+	assertClassicHit(t, topDocs)
+}
+
+func TestClassicSimilarityMiss(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewTermQuery(index.NewTerm("test", "miss"))
+	topDocs := mustSearch(t, f.indexSearcher, query, 1)
+	if topDocs.TotalHits.Value != 0 {
+		t.Fatalf("expected 0, got %d", topDocs.TotalHits.Value)
+	}
+}
+
+func TestClassicSimilarityEmpty(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewTermQuery(index.NewTerm("empty", "miss"))
+	topDocs := mustSearch(t, f.indexSearcher, query, 1)
+	if topDocs.TotalHits.Value != 0 {
+		t.Fatalf("expected 0, got %d", topDocs.TotalHits.Value)
+	}
+}
+
+func TestClassicSimilarityBQHit(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewBooleanQueryBuilder().
+		Add(search.NewTermQuery(index.NewTerm("test", "hit")), search.SHOULD).
+		Build()
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilarityBQHitOrMiss(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewBooleanQueryBuilder().
+		Add(search.NewTermQuery(index.NewTerm("test", "hit")), search.SHOULD).
+		Add(search.NewTermQuery(index.NewTerm("test", "miss")), search.SHOULD).
+		Build()
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilarityBQHitOrEmpty(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewBooleanQueryBuilder().
+		Add(search.NewTermQuery(index.NewTerm("test", "hit")), search.SHOULD).
+		Add(search.NewTermQuery(index.NewTerm("empty", "miss")), search.SHOULD).
+		Build()
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilarityDMQHit(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewDisjunctionMaxQuery([]search.Query{search.NewTermQuery(index.NewTerm("test", "hit"))}, 0)
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilarityDMQHitOrMiss(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewDisjunctionMaxQuery(
+		[]search.Query{
+			search.NewTermQuery(index.NewTerm("test", "hit")), search.NewTermQuery(index.NewTerm("test", "miss")),
+		},
+		0)
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilarityDMQHitOrEmpty(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	query := search.NewDisjunctionMaxQuery(
+		[]search.Query{
+			search.NewTermQuery(index.NewTerm("test", "hit")), search.NewTermQuery(index.NewTerm("empty", "miss")),
+		},
+		0)
+	assertClassicHit(t, mustSearch(t, f.indexSearcher, query, 1))
+}
+
+func TestClassicSimilaritySaneNormValues(t *testing.T) {
+	f := setUpClassicSimilarity(t)
+	sim := search.NewClassicSimilarity()
+	collectionStats, err := f.indexSearcher.CollectionStatistics("test")
+	if err != nil {
+		t.Fatalf("collectionStatistics: %v", err)
+	}
+	normTable := search.TFIDFScorerNormTable(sim.Scorer104(1, collectionStats))
+	for i := 0; i < 256; i++ {
+		boost := normTable[i]
+		if boost < 0.0 {
+			t.Fatalf("negative boost: %v, byte=%d", boost, i)
+		}
+		if math.IsInf(float64(boost), 0) {
+			t.Fatalf("inf bost: %v, byte=%d", boost, i)
+		}
+		if math.IsNaN(float64(boost)) {
+			t.Fatalf("nan boost for byte=%d", i)
+		}
+		if i > 0 {
+			if !(boost < normTable[i-1]) {
+				t.Fatalf("boost is not decreasing: %v,byte=%d", boost, i)
+			}
 		}
 	}
 }
 
-func TestClassicSimilarity_Idf(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	tests := []struct {
-		totalDocs int
-		docFreq   int
-		expected  float64
-	}{
-		{100, 1, 1.0 + math.Log(101.0/2.0)},
-		{100, 10, 1.0 + math.Log(101.0/11.0)},
-		{100, 50, 1.0 + math.Log(101.0/51.0)},
-		{100, 100, 1.0 + math.Log(101.0/101.0)},
-		{1000, 10, 1.0 + math.Log(1001.0/11.0)},
-	}
-
-	for _, test := range tests {
-		result := sim.Idf(test.totalDocs, test.docFreq)
-		expected := test.expected
-		if math.Abs(result-expected) > 0.0001 {
-			t.Errorf("Idf(%d, %d) = %f, expected %f", test.totalDocs, test.docFreq, result, expected)
+func TestClassicSimilaritySameNormsAsBM25(t *testing.T) {
+	setUpClassicSimilarity(t)
+	sim1 := search.NewClassicSimilarity()
+	sim2 := search.NewLuceneBM25Similarity()
+	for iter := 0; iter < 100; iter++ {
+		length := nextInt(1, 1000)
+		position := random().Intn(length)
+		numOverlaps := random().Intn(length)
+		maxTermFrequency := 1
+		uniqueTermCount := 1
+		state := index.NewFieldInvertStateFull(
+			util.Latest.Major,
+			"foo",
+			index.IndexOptionsDocsAndFreqs,
+			position,
+			length,
+			numOverlaps,
+			100,
+			maxTermFrequency,
+			uniqueTermCount)
+		if got, want := sim1.ComputeNormFromInvertState(state), sim2.ComputeNormFromInvertState(state); got != want {
+			t.Fatalf("computeNorm: ClassicSimilarity %d, BM25Similarity %d", got, want)
 		}
 	}
 }
 
-func TestClassicSimilarity_LengthNorm(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	tests := []struct {
-		numTerms int
-		expected float64
-	}{
-		{1, 1.0},
-		{4, 0.5},
-		{9, 1.0 / 3.0},
-		{100, 0.1},
-	}
-
-	for _, test := range tests {
-		result := sim.LengthNorm(test.numTerms)
-		if math.Abs(result-test.expected) > 0.0001 {
-			t.Errorf("LengthNorm(%d) = %f, expected %f", test.numTerms, result, test.expected)
-		}
-	}
-}
-
-func TestClassicSimilarity_ScoreTfIdf(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	// Test with freq=4, totalDocs=100, docFreq=10, numTerms=4, boost=1.0
-	// tf = sqrt(4) = 2
-	// idf = 1 + log((100+1)/(10+1)) ≈ 3.217
-	// lengthNorm = 1/sqrt(4) = 0.5
-	// score = 2 * 3.217 * 1.0 * 0.5 ≈ 3.217
-	score := sim.ScoreTfIdf(4, 100, 10, 4, 1.0)
-	expected := 2.0 * (1.0 + math.Log(101.0/11.0)) * 0.5
-	if math.Abs(score-expected) > 0.0001 {
-		t.Errorf("ScoreTfIdf(4, 100, 10, 4, 1.0) = %f, expected %f", score, expected)
-	}
-}
-
-func TestClassicSimilarity_QueryNorm(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	// QueryNorm(4) = 1/sqrt(4) = 0.5
-	result := sim.QueryNorm(4.0)
-	expected := float32(0.5)
-	if math.Abs(float64(result-expected)) > 0.0001 {
-		t.Errorf("QueryNorm(4.0) = %f, expected %f", result, expected)
-	}
-
-	// QueryNorm(1) = 1/sqrt(1) = 1.0
-	result = sim.QueryNorm(1.0)
-	expected = float32(1.0)
-	if math.Abs(float64(result-expected)) > 0.0001 {
-		t.Errorf("QueryNorm(1.0) = %f, expected %f", result, expected)
-	}
-}
-
-func TestClassicSimilarity_Coord(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	tests := []struct {
-		overlap    int
-		maxOverlap int
-		expected   float32
-	}{
-		{1, 1, 1.0},
-		{2, 3, float32(2.0 / 3.0)},
-		{3, 3, 1.0},
-		{0, 5, 0.0},
-	}
-
-	for _, test := range tests {
-		result := sim.Coord(test.overlap, test.maxOverlap)
-		if math.Abs(float64(result-test.expected)) > 0.0001 {
-			t.Errorf("Coord(%d, %d) = %f, expected %f", test.overlap, test.maxOverlap, result, test.expected)
-		}
-	}
-}
-
-func TestClassicSimilarity_SloppyFreq(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	tests := []struct {
-		distance int
-		expected float64
-	}{
-		{0, 1.0},
-		{1, 0.5},
-		{2, 1.0 / 3.0},
-		{9, 0.1},
-	}
-
-	for _, test := range tests {
-		result := sim.SloppyFreq(test.distance)
-		if math.Abs(result-test.expected) > 0.0001 {
-			t.Errorf("SloppyFreq(%d) = %f, expected %f", test.distance, result, test.expected)
-		}
-	}
-}
-
-func TestClassicSimilarity_EncodeDecodeNorm(t *testing.T) {
-	sim := NewClassicSimilarity()
-
-	tests := []struct {
-		norm float64
-	}{
-		{0.0},
-		{0.5},
-		{1.0},
-		{0.25},
-		{0.75},
-	}
-
-	for _, test := range tests {
-		encoded := sim.EncodeNorm(test.norm)
-		decoded := sim.DecodeNorm(encoded)
-		// Allow for some precision loss due to byte encoding
-		if math.Abs(decoded-test.norm) > 0.01 {
-			t.Errorf("Encode/Decode norm %f: decoded %f, expected close to %f", test.norm, decoded, test.norm)
-		}
-	}
-}
-
-func TestClassicSimilarity_String(t *testing.T) {
-	sim := NewClassicSimilarity()
-	if sim.String() != "ClassicSimilarity" {
-		t.Errorf("String() = %s, expected ClassicSimilarity", sim.String())
-	}
-
-}
-func TestClassicSimilarity_CompareWithBM25(t *testing.T) {
-	// Compare scoring between ClassicSimilarity and BM25Similarity
-	classic := NewClassicSimilarity()
-	bm25 := NewBM25Similarity()
-
-	// Both should produce reasonable scores, but with different formulas
-	// TF/IDF: tf = sqrt(freq), idf = log(N/n)
-	// BM25: uses saturation and length normalization
-
-	// Test with same parameters
-	freq := float64(3)
-	totalDocs := 100
-	docFreq := 10
-
-	classicScore := classic.Score(freq, totalDocs, docFreq)
-	bm25Score := bm25.ScoreBM25(freq, 100, 100, bm25.InverseDocumentFrequency(totalDocs, docFreq))
-
-	// Both should produce positive scores
-	if classicScore <= 0 {
-		t.Error("ClassicSimilarity should produce positive scores")
-	}
-	if bm25Score <= 0 {
-		t.Error("BM25Similarity should produce positive scores")
-	}
-
-	// Log the difference for information
-	t.Logf("Classic score: %f, BM25 score: %f", classicScore, bm25Score)
+// TestClassicSimilarityBaseSimilarityTestCase stands for the test methods
+// TestClassicSimilarity inherits from BaseSimilarityTestCase (testRandomScoring
+// over getSimilarity(random())).
+func TestClassicSimilarityBaseSimilarityTestCase(t *testing.T) {
+	setUpClassicSimilarity(t)
+	t.Fatal("requires org.apache.lucene.tests.search.similarities.BaseSimilarityTestCase (not ported)")
 }

@@ -19,16 +19,16 @@ type stubLeafComparator struct {
 	threshold bool
 }
 
-func (s *stubLeafComparator) SetBottom(slot int) error        { s.bottom = slot; return nil }
+func (s *stubLeafComparator) SetBottom(slot int) error         { s.bottom = slot; return nil }
 func (s *stubLeafComparator) CompareBottom(_ int) (int, error) { return s.cmpBottom, nil }
-func (s *stubLeafComparator) CompareTop(_ int) (int, error)   { return s.cmpTop, nil }
+func (s *stubLeafComparator) CompareTop(_ int) (int, error)    { return s.cmpTop, nil }
 func (s *stubLeafComparator) Copy(slot, doc int) error {
 	s.copies = append(s.copies, [2]int{slot, doc})
 	return nil
 }
-func (s *stubLeafComparator) SetScorer(_ Scorable) error { return nil }
+func (s *stubLeafComparator) SetScorer(_ Scorable) error                     { return nil }
 func (s *stubLeafComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (s *stubLeafComparator) SetHitsThresholdReached()                       { s.threshold = true }
+func (s *stubLeafComparator) SetHitsThresholdReached() error                 { s.threshold = true; return nil }
 
 // TestMultiLeafFieldComparator_MismatchedLengthsReturnsError verifies the
 // constructor rejects slice length mismatches.
@@ -126,7 +126,7 @@ func TestMultiLeafFieldComparator_SetHitsThresholdReachedOnlyFirst(t *testing.T)
 		t.Fatal("expected second comparator threshold=false")
 	}
 
-// TestMultiLeafFieldComparator_CompareTopFirstWins verifies CompareTop short-circuit.
+	// TestMultiLeafFieldComparator_CompareTopFirstWins verifies CompareTop short-circuit.
 }
 func TestMultiLeafFieldComparator_CompareTopFirstWins(t *testing.T) {
 	a := &stubLeafComparator{cmpTop: -1}

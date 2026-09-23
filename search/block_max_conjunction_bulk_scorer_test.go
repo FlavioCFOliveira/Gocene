@@ -30,8 +30,8 @@ func newBMCFixedScorer(score float32, docs ...int) *bmcFixedScorer {
 	return &bmcFixedScorer{docs: docs, score: score, idx: -1}
 }
 
-func (s *bmcFixedScorer) Score() float32            { return s.score }
-func (s *bmcFixedScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *bmcFixedScorer) Score() (float32, error)            { return s.score, nil }
+func (s *bmcFixedScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
 func (s *bmcFixedScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
@@ -65,15 +65,19 @@ var _ search.Scorer = (*bmcFixedScorer)(nil)
 // bmcLeafCollector collects (doc, score) pairs and satisfies both
 // LeafCollector and Collector so BlockMaxConjunctionBulkScorer.Score can use it.
 type bmcLeafCollector struct {
-	scorer search.Scorer
+	scorer search.Scorable
 	docs   []int
 	scores []float32
 }
 
-func (c *bmcLeafCollector) SetScorer(s search.Scorer) error { c.scorer = s; return nil }
+func (c *bmcLeafCollector) SetScorer(s search.Scorable) error { c.scorer = s; return nil }
 func (c *bmcLeafCollector) Collect(doc int) error {
 	c.docs = append(c.docs, doc)
-	c.scores = append(c.scores, c.scorer.Score())
+	v76_30, err := c.scorer.Score()
+	if err != nil {
+		return err
+	}
+	c.scores = append(c.scores, v76_30)
 	return nil
 }
 func (c *bmcLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
@@ -196,4 +200,60 @@ func TestBlockMaxConjunctionBulkScorer_ImplementsBulkScorer(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *bmcFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *bmcFixedScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
+func (s *bmcFixedScorer) Iterator() search.DocIdSetIterator {
+	return s
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *bmcFixedScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *bmcFixedScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *bmcFixedScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *bmcFixedScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *bmcLeafCollector) SetWeight(weight search.Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *bmcLeafCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *bmcLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *bmcLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *bmcLeafCollector) Finish() error {
+	return nil
 }

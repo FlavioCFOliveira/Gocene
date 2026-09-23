@@ -38,7 +38,7 @@ func phraseSlop(slop int, field string, words ...string) *search.PhraseQuery {
 	for i, w := range words {
 		terms[i] = index.NewTerm(field, w)
 	}
-	return search.NewPhraseQueryWithSlop(slop, field, terms...)
+	return search.NewPhraseQueryWithTerms(slop, field, terms...)
 }
 
 /* simple term tests */
@@ -74,13 +74,13 @@ func TestSimpleExplanations_MA2(t *testing.T) {
 func TestSimpleExplanations_P1(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	tc.qtest(search.NewPhraseQueryWithStrings(explField, "w1", "w2"), []int{0})
+	tc.qtest(search.NewPhraseQuery(0, explField, "w1", "w2"), []int{0})
 }
 
 func TestSimpleExplanations_P2(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	tc.qtest(search.NewPhraseQueryWithStrings(explField, "w1", "w3"), []int{1, 3})
+	tc.qtest(search.NewPhraseQuery(0, explField, "w1", "w3"), []int{1, 3})
 }
 
 func TestSimpleExplanations_P3(t *testing.T) {
@@ -141,87 +141,78 @@ func TestSimpleExplanations_CSQ3(t *testing.T) {
 func TestSimpleExplanations_DMQ1(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{simpleTerm("w1"), simpleTerm("w5")}, 0.0)
+	q := search.NewDisjunctionMaxQuery([]search.Query{simpleTerm("w1"), simpleTerm("w5")}, 0.0)
 	tc.qtest(q, []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_DMQ2(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{simpleTerm("w1"), simpleTerm("w5")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{simpleTerm("w1"), simpleTerm("w5")}, 0.5)
 	tc.qtest(q, []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_DMQ3(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{simpleTerm("QQ"), simpleTerm("w5")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{simpleTerm("QQ"), simpleTerm("w5")}, 0.5)
 	tc.qtest(q, []int{0})
 }
 
 func TestSimpleExplanations_DMQ4(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{simpleTerm("QQ"), simpleTerm("xx")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{simpleTerm("QQ"), simpleTerm("xx")}, 0.5)
 	tc.qtest(q, []int{2, 3})
 }
 
 func TestSimpleExplanations_DMQ5(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(simpleTerm("yy"), search.SHOULD)
 	bq.Add(simpleTerm("QQ"), search.MUST_NOT)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{bq, simpleTerm("xx")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{bq.Build(), simpleTerm("xx")}, 0.5)
 	tc.qtest(q, []int{2, 3})
 }
 
 func TestSimpleExplanations_DMQ6(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(simpleTerm("yy"), search.MUST_NOT)
 	bq.Add(simpleTerm("w3"), search.SHOULD)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{bq, simpleTerm("xx")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{bq.Build(), simpleTerm("xx")}, 0.5)
 	tc.qtest(q, []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_DMQ7(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(simpleTerm("yy"), search.MUST_NOT)
 	bq.Add(simpleTerm("w3"), search.SHOULD)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{bq, simpleTerm("w2")}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{bq.Build(), simpleTerm("w2")}, 0.5)
 	tc.qtest(q, []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_DMQ8(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(simpleTerm("yy"), search.SHOULD)
 	bq.Add(search.NewBoostQuery(simpleTerm("w5"), 100), search.SHOULD)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{bq, search.NewBoostQuery(simpleTerm("xx"), 100000)}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{bq.Build(), search.NewBoostQuery(simpleTerm("xx"), 100000)}, 0.5)
 	tc.qtest(q, []int{0, 2, 3})
 }
 
 func TestSimpleExplanations_DMQ9(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(simpleTerm("yy"), search.SHOULD)
 	bq.Add(search.NewBoostQuery(simpleTerm("w5"), 100), search.SHOULD)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{bq, search.NewBoostQuery(simpleTerm("xx"), 0)}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{bq.Build(), search.NewBoostQuery(simpleTerm("xx"), 0)}, 0.5)
 	tc.qtest(q, []int{0, 2, 3})
 }
 
@@ -288,258 +279,258 @@ func TestSimpleExplanations_MPQ6(t *testing.T) {
 func TestSimpleExplanations_BQ1(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.MUST)
 	query.Add(simpleTerm("w2"), search.MUST)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ2(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("yy"), search.MUST)
 	query.Add(simpleTerm("w3"), search.MUST)
-	tc.qtest(query, []int{2, 3})
+	tc.qtest(query.Build(), []int{2, 3})
 }
 
 func TestSimpleExplanations_BQ3(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("yy"), search.SHOULD)
 	query.Add(simpleTerm("w3"), search.MUST)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ4(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("xx"), search.MUST_NOT)
 	innerQuery.Add(simpleTerm("w2"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ5(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.MUST)
 	innerQuery.Add(simpleTerm("w2"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ6(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.MUST_NOT)
 	innerQuery.Add(simpleTerm("w5"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.MUST_NOT)
-	tc.qtest(outerQuery, []int{1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.MUST_NOT)
+	tc.qtest(outerQuery.Build(), []int{1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ7(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.SHOULD)
 	childLeft.Add(simpleTerm("w2"), search.MUST_NOT)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.SHOULD)
-	outerQuery.Add(innerQuery, search.MUST)
-	tc.qtest(outerQuery, []int{0})
+	innerQuery.Add(childRight.Build(), search.SHOULD)
+	outerQuery.Add(innerQuery.Build(), search.MUST)
+	tc.qtest(outerQuery.Build(), []int{0})
 }
 
 func TestSimpleExplanations_BQ8(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.SHOULD)
 	childLeft.Add(simpleTerm("w2"), search.MUST_NOT)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	innerQuery.Add(childRight.Build(), search.SHOULD)
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ9(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.MUST_NOT)
 	childLeft.Add(simpleTerm("w2"), search.SHOULD)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.MUST_NOT)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	innerQuery.Add(childRight.Build(), search.MUST_NOT)
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ10(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.MUST_NOT)
 	childLeft.Add(simpleTerm("w2"), search.SHOULD)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.MUST_NOT)
-	outerQuery.Add(innerQuery, search.MUST)
-	tc.qtest(outerQuery, []int{1})
+	innerQuery.Add(childRight.Build(), search.MUST_NOT)
+	outerQuery.Add(innerQuery.Build(), search.MUST)
+	tc.qtest(outerQuery.Build(), []int{1})
 }
 
 func TestSimpleExplanations_BQ11(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.SHOULD)
 	query.Add(search.NewBoostQuery(simpleTerm("w1"), 1000), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ14(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(simpleTerm("QQQQQ"), search.SHOULD)
 	q.Add(simpleTerm("w1"), search.SHOULD)
-	tc.qtest(q, []int{0, 1, 2, 3})
+	tc.qtest(q.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ15(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(simpleTerm("QQQQQ"), search.MUST_NOT)
 	q.Add(simpleTerm("w1"), search.SHOULD)
-	tc.qtest(q, []int{0, 1, 2, 3})
+	tc.qtest(q.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ16(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(simpleTerm("QQQQQ"), search.SHOULD)
-	booleanQuery := search.NewBooleanQuery()
+	booleanQuery := search.NewBooleanQueryBuilder()
 	booleanQuery.Add(simpleTerm("w1"), search.SHOULD)
 	booleanQuery.Add(simpleTerm("xx"), search.MUST_NOT)
-	q.Add(booleanQuery, search.SHOULD)
-	tc.qtest(q, []int{0, 1})
+	q.Add(booleanQuery.Build(), search.SHOULD)
+	tc.qtest(q.Build(), []int{0, 1})
 }
 
 func TestSimpleExplanations_BQ17(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(simpleTerm("w2"), search.SHOULD)
-	booleanQuery := search.NewBooleanQuery()
+	booleanQuery := search.NewBooleanQueryBuilder()
 	booleanQuery.Add(simpleTerm("w1"), search.SHOULD)
 	booleanQuery.Add(simpleTerm("xx"), search.MUST_NOT)
-	q.Add(booleanQuery, search.SHOULD)
-	tc.qtest(q, []int{0, 1, 2, 3})
+	q.Add(booleanQuery.Build(), search.SHOULD)
+	tc.qtest(q.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ19(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("yy"), search.MUST_NOT)
 	query.Add(simpleTerm("w3"), search.SHOULD)
-	tc.qtest(query, []int{0, 1})
+	tc.qtest(query.Build(), []int{0, 1})
 }
 
 func TestSimpleExplanations_BQ20(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.SetMinimumNumberShouldMatch(2)
 	q.Add(simpleTerm("QQQQQ"), search.SHOULD)
 	q.Add(simpleTerm("yy"), search.SHOULD)
 	q.Add(simpleTerm("zz"), search.SHOULD)
 	q.Add(simpleTerm("w5"), search.SHOULD)
 	q.Add(simpleTerm("w4"), search.SHOULD)
-	tc.qtest(q, []int{0, 3})
+	tc.qtest(q.Build(), []int{0, 3})
 }
 
 func TestSimpleExplanations_BQ21(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(simpleTerm("yy"), search.SHOULD)
 	q.Add(simpleTerm("zz"), search.SHOULD)
-	tc.qtest(q, []int{1, 2, 3})
+	tc.qtest(q.Build(), []int{1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ23(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.FILTER)
 	query.Add(simpleTerm("w2"), search.FILTER)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ24(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.FILTER)
 	query.Add(simpleTerm("w2"), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ25(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.FILTER)
 	query.Add(simpleTerm("w2"), search.MUST)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_BQ26(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.FILTER)
 	query.Add(simpleTerm("xx"), search.MUST_NOT)
-	tc.qtest(query, []int{0, 1})
+	tc.qtest(query.Build(), []int{0, 1})
 }
 
 /* BQ of TQ: using alt so some fields have zero boost and some don't */
@@ -547,140 +538,140 @@ func TestSimpleExplanations_BQ26(t *testing.T) {
 func TestSimpleExplanations_MultiFieldBQ1(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("w1"), search.MUST)
 	query.Add(simpleAltTerm("w2"), search.MUST)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ2(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("yy"), search.MUST)
 	query.Add(simpleAltTerm("w3"), search.MUST)
-	tc.qtest(query, []int{2, 3})
+	tc.qtest(query.Build(), []int{2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ3(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(simpleTerm("yy"), search.SHOULD)
 	query.Add(simpleAltTerm("w3"), search.MUST)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ4(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("xx"), search.MUST_NOT)
 	innerQuery.Add(simpleAltTerm("w2"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ5(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleAltTerm("qq"), search.MUST)
 	innerQuery.Add(simpleAltTerm("w2"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ6(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.SHOULD)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleAltTerm("qq"), search.MUST_NOT)
 	innerQuery.Add(simpleAltTerm("w5"), search.SHOULD)
-	outerQuery.Add(innerQuery, search.MUST_NOT)
-	tc.qtest(outerQuery, []int{1, 2, 3})
+	outerQuery.Add(innerQuery.Build(), search.MUST_NOT)
+	tc.qtest(outerQuery.Build(), []int{1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ7(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleAltTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleAltTerm("xx"), search.SHOULD)
 	childLeft.Add(simpleAltTerm("w2"), search.MUST_NOT)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleAltTerm("w3"), search.MUST)
 	childRight.Add(simpleAltTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.SHOULD)
-	outerQuery.Add(innerQuery, search.MUST)
-	tc.qtest(outerQuery, []int{0})
+	innerQuery.Add(childRight.Build(), search.SHOULD)
+	outerQuery.Add(innerQuery.Build(), search.MUST)
+	tc.qtest(outerQuery.Build(), []int{0})
 }
 
 func TestSimpleExplanations_MultiFieldBQ8(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleAltTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleAltTerm("xx"), search.SHOULD)
 	childLeft.Add(simpleTerm("w2"), search.MUST_NOT)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleAltTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.SHOULD)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	innerQuery.Add(childRight.Build(), search.SHOULD)
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ9(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleAltTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.MUST_NOT)
 	childLeft.Add(simpleTerm("w2"), search.SHOULD)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleAltTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.MUST_NOT)
-	outerQuery.Add(innerQuery, search.SHOULD)
-	tc.qtest(outerQuery, []int{0, 1, 2, 3})
+	innerQuery.Add(childRight.Build(), search.MUST_NOT)
+	outerQuery.Add(innerQuery.Build(), search.SHOULD)
+	tc.qtest(outerQuery.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQ10(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	outerQuery := search.NewBooleanQuery()
+	outerQuery := search.NewBooleanQueryBuilder()
 	outerQuery.Add(simpleTerm("w1"), search.MUST)
-	innerQuery := search.NewBooleanQuery()
+	innerQuery := search.NewBooleanQueryBuilder()
 	innerQuery.Add(simpleAltTerm("qq"), search.SHOULD)
-	childLeft := search.NewBooleanQuery()
+	childLeft := search.NewBooleanQueryBuilder()
 	childLeft.Add(simpleTerm("xx"), search.MUST_NOT)
 	childLeft.Add(simpleAltTerm("w2"), search.SHOULD)
-	innerQuery.Add(childLeft, search.SHOULD)
-	childRight := search.NewBooleanQuery()
+	innerQuery.Add(childLeft.Build(), search.SHOULD)
+	childRight := search.NewBooleanQueryBuilder()
 	childRight.Add(simpleAltTerm("w3"), search.MUST)
 	childRight.Add(simpleTerm("w4"), search.MUST)
-	innerQuery.Add(childRight, search.MUST_NOT)
-	outerQuery.Add(innerQuery, search.MUST)
-	tc.qtest(outerQuery, []int{1})
+	innerQuery.Add(childRight.Build(), search.MUST_NOT)
+	outerQuery.Add(innerQuery.Build(), search.MUST)
+	tc.qtest(outerQuery.Build(), []int{1})
 }
 
 /* BQ of PQ: using alt so some fields have zero boost and some don't */
@@ -688,64 +679,64 @@ func TestSimpleExplanations_MultiFieldBQ10(t *testing.T) {
 func TestSimpleExplanations_MultiFieldBQofPQ1(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
-	query.Add(search.NewPhraseQueryWithStrings(explField, "w1", "w2"), search.SHOULD)
-	query.Add(search.NewPhraseQueryWithStrings(explAltField, "w1", "w2"), search.SHOULD)
-	tc.qtest(query, []int{0})
+	query := search.NewBooleanQueryBuilder()
+	query.Add(search.NewPhraseQuery(0, explField, "w1", "w2"), search.SHOULD)
+	query.Add(search.NewPhraseQuery(0, explAltField, "w1", "w2"), search.SHOULD)
+	tc.qtest(query.Build(), []int{0})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ2(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
-	query.Add(search.NewPhraseQueryWithStrings(explField, "w1", "w3"), search.SHOULD)
-	query.Add(search.NewPhraseQueryWithStrings(explAltField, "w1", "w3"), search.SHOULD)
-	tc.qtest(query, []int{1, 3})
+	query := search.NewBooleanQueryBuilder()
+	query.Add(search.NewPhraseQuery(0, explField, "w1", "w3"), search.SHOULD)
+	query.Add(search.NewPhraseQuery(0, explAltField, "w1", "w3"), search.SHOULD)
+	tc.qtest(query.Build(), []int{1, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ3(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(phraseSlop(1, explField, "w1", "w2"), search.SHOULD)
 	query.Add(phraseSlop(1, explAltField, "w1", "w2"), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2})
+	tc.qtest(query.Build(), []int{0, 1, 2})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ4(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(phraseSlop(1, explField, "w2", "w3"), search.SHOULD)
 	query.Add(phraseSlop(1, explAltField, "w2", "w3"), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ5(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(phraseSlop(1, explField, "w3", "w2"), search.SHOULD)
 	query.Add(phraseSlop(1, explAltField, "w3", "w2"), search.SHOULD)
-	tc.qtest(query, []int{1, 3})
+	tc.qtest(query.Build(), []int{1, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ6(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(phraseSlop(2, explField, "w3", "w2"), search.SHOULD)
 	query.Add(phraseSlop(2, explAltField, "w3", "w2"), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 3})
+	tc.qtest(query.Build(), []int{0, 1, 3})
 }
 
 func TestSimpleExplanations_MultiFieldBQofPQ7(t *testing.T) {
 	tc := newExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(phraseSlop(3, explField, "w3", "w2"), search.SHOULD)
 	query.Add(phraseSlop(1, explAltField, "w3", "w2"), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestSimpleExplanations_SynonymQuery(t *testing.T) {

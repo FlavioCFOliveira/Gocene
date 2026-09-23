@@ -77,7 +77,7 @@ func TestPatienceFloatVectorQuery_ToString(t *testing.T) {
 	}
 
 	// The wrapped query must still rewrite to a runnable DocAndScoreQuery.
-	rewritten, err := q.Rewrite(s.GetIndexReader())
+	rewritten, err := q.Rewrite(s)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}

@@ -145,7 +145,7 @@ func TestTaxonomyFacetAssociations_IntSum(t *testing.T) {
 	config.SetIndexFieldName("int", "$facets.int")
 	config.SetMultiValued("int", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestTaxonomyFacetAssociations_IntSum(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -230,7 +230,7 @@ func TestTaxonomyFacetAssociations_IntMax(t *testing.T) {
 	config.SetIndexFieldName("int", "$facets.int")
 	config.SetMultiValued("int", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestTaxonomyFacetAssociations_IntMax(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -313,7 +313,7 @@ func TestTaxonomyFacetAssociations_FloatSum(t *testing.T) {
 	config.SetIndexFieldName("float", "$facets.float")
 	config.SetMultiValued("float", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestTaxonomyFacetAssociations_FloatSum(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -396,7 +396,7 @@ func TestTaxonomyFacetAssociations_FloatMax(t *testing.T) {
 	config.SetIndexFieldName("float", "$facets.float")
 	config.SetMultiValued("float", true)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestTaxonomyFacetAssociations_FloatMax(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {

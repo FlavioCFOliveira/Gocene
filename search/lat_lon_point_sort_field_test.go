@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -54,8 +55,8 @@ func TestLatLonPointSortField_Constructor_DefaultsCustomAndAscending(t *testing.
 	if sf.SortField.Field != "loc" {
 		t.Errorf("Field = %q, want %q", sf.SortField.Field, "loc")
 	}
-	if sf.SortField.Type != SortFieldTypeCustom {
-		t.Errorf("Type = %v, want SortFieldTypeCustom", sf.SortField.Type)
+	if sf.SortField.Type != spi.SortFieldTypeCustom {
+		t.Errorf("Type = %v, want spi.SortFieldTypeCustom", sf.SortField.Type)
 	}
 	if sf.SortField.Reverse {
 		t.Errorf("Reverse must default to false (ascending: closest first)")
@@ -186,9 +187,13 @@ func TestLatLonPointSortField_GetComparator_SizesSlots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ctor: %v", err)
 	}
-	cmp := sf.GetComparator(8, PruningNone)
-	if cmp == nil {
+	fc := sf.GetComparator(8, PruningNone)
+	if fc == nil {
 		t.Fatalf("GetComparator returned nil")
+	}
+	cmp, ok := fc.(*LatLonPointDistanceComparator)
+	if !ok {
+		t.Fatalf("GetComparator returned %T, want *LatLonPointDistanceComparator", fc)
 	}
 	if got := len(cmp.values); got != 8 {
 		t.Errorf("values slot count = %d, want 8", got)
@@ -306,6 +311,16 @@ func (f *distanceFakeSortedNumeric) DocValueCount() (int, error) {
 	return len(f.values[f.idx]), nil
 }
 
+// DocIDRunEnd carries the default body Lucene gives SortedNumericDocValues.DocIDRunEnd.
+func (f *distanceFakeSortedNumeric) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedNumericDocValues.IntoBitSet.
+func (f *distanceFakeSortedNumeric) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
 func encodeDistancePoint(lat, lon float64) int64 {
 	latBits := int64(geo.EncodeLatitude(lat)) & 0xFFFFFFFF
 	lonBits := int64(geo.EncodeLongitude(lon)) & 0xFFFFFFFF
@@ -350,10 +365,10 @@ func TestLatLonPointDistanceComparator_CopyAndCompareOrderClosestFirst(t *testin
 	}
 
 	// Value returns metres; the origin slot should round to ~0 metres.
-	if got := cmp.Value(0); got > 1.0 {
+	if got := cmp.Value(0).(float64); got > 1.0 {
 		t.Errorf("Value(self) = %v, want ~0 m", got)
 	}
-	if got := cmp.Value(2); got < 1_400_000 || got > 1_500_000 {
+	if got := cmp.Value(2).(float64); got < 1_400_000 || got > 1_500_000 {
 		t.Errorf("Value(Paris) = %v, want ~1450 km", got)
 	}
 }
@@ -372,7 +387,7 @@ func TestLatLonPointDistanceComparator_MultiValued_PicksClosestPoint(t *testing.
 	if err := cmp.Copy(0, 0); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	got := cmp.Value(0)
+	got := cmp.Value(0).(float64)
 	if got > 1.0 {
 		t.Errorf("multi-valued doc Value = %v m, want ~0 m (closest point wins)", got)
 	}
@@ -387,7 +402,7 @@ func TestLatLonPointDistanceComparator_MissingDoc_ReturnsInfinity(t *testing.T) 
 	if err := cmp.Copy(0, 5); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	if got := cmp.Value(0); !math.IsInf(got, 1) {
+	if got := cmp.Value(0).(float64); !math.IsInf(got, 1) {
 		t.Errorf("Value(missing) = %v, want +Inf", got)
 	}
 }
@@ -399,7 +414,7 @@ func TestLatLonPointDistanceComparator_NilDocs_ReturnsInfinity(t *testing.T) {
 	if err := cmp.Copy(0, 0); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	if got := cmp.Value(0); !math.IsInf(got, 1) {
+	if got := cmp.Value(0).(float64); !math.IsInf(got, 1) {
 		t.Errorf("Value(nil docs) = %v, want +Inf", got)
 	}
 }
@@ -561,9 +576,9 @@ func TestFormatJavaDouble_IntegralAndSpecial(t *testing.T) {
 		t.Errorf("formatJavaDouble(NaN) = %q, want NaN", got)
 	}
 
-// Make sure the comparator is wired so a real LatLonDocValuesField-encoded
-// value round-trips through Copy/Value into the right ballpark of metres,
-// regardless of the encoding helper used at insert time.
+	// Make sure the comparator is wired so a real LatLonDocValuesField-encoded
+	// value round-trips through Copy/Value into the right ballpark of metres,
+	// regardless of the encoding helper used at insert time.
 }
 func TestLatLonPointDistanceComparator_MatchesLatLonDocValuesFieldEncoding(t *testing.T) {
 	t.Parallel()
@@ -577,7 +592,7 @@ func TestLatLonPointDistanceComparator_MatchesLatLonDocValuesFieldEncoding(t *te
 	if err := cmp.Copy(0, 0); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	got := cmp.Value(0)
+	got := cmp.Value(0).(float64)
 	if got < 450_000 || got > 600_000 {
 		t.Errorf("Madrid distance = %v, want in [450 km, 600 km]", got)
 	}

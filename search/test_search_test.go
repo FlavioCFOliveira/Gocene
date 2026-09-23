@@ -22,6 +22,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // testSearchDocs is the seven-document corpus from the upstream test. The
@@ -82,13 +83,13 @@ func doTestSearch(t *testing.T, forceMerge bool) string {
 	defer cleanup()
 
 	sort := search.NewSort(
-		&search.SortField{Type: search.SortFieldTypeScore, Reverse: true},
-		search.NewSortField("id", search.SortFieldTypeInt),
+		&search.SortField{Type: spi.SortFieldTypeScore, Reverse: true},
+		search.NewSortField("id", spi.SortFieldTypeInt),
 	)
 
 	var out strings.Builder
 	for _, q := range buildTestSearchQueries() {
-		top, err := searcher.SearchWithSort(q, 1000, sort)
+		top, err := searcher.SearchWithSort(q, 1000, sort, false)
 		if err != nil {
 			t.Fatalf("SearchWithSort(%v): %v", q, err)
 		}
@@ -114,21 +115,21 @@ func doTestSearch(t *testing.T, forceMerge bool) string {
 func buildTestSearchQueries() []search.Query {
 	term := func(t string) *index.Term { return index.NewTerm("contents", t) }
 
-	booleanAB := search.NewBooleanQuery()
+	booleanAB := search.NewBooleanQueryBuilder()
 	booleanAB.Add(search.NewTermQuery(term("a")), search.SHOULD)
 	booleanAB.Add(search.NewTermQuery(term("b")), search.SHOULD)
 
-	phraseAB := search.NewPhraseQuery("contents", term("a"), term("b"))
-	phraseABC := search.NewPhraseQuery("contents", term("a"), term("b"), term("c"))
+	phraseAB := search.NewPhraseQueryWithTerms(0, "contents", term("a"), term("b"))
+	phraseABC := search.NewPhraseQueryWithTerms(0, "contents", term("a"), term("b"), term("c"))
 
-	booleanAC := search.NewBooleanQuery()
+	booleanAC := search.NewBooleanQueryBuilder()
 	booleanAC.Add(search.NewTermQuery(term("a")), search.SHOULD)
 	booleanAC.Add(search.NewTermQuery(term("c")), search.SHOULD)
 
-	phraseAC := search.NewPhraseQuery("contents", term("a"), term("c"))
-	phraseACE := search.NewPhraseQuery("contents", term("a"), term("c"), term("e"))
+	phraseAC := search.NewPhraseQueryWithTerms(0, "contents", term("a"), term("c"))
+	phraseACE := search.NewPhraseQueryWithTerms(0, "contents", term("a"), term("c"), term("e"))
 
 	return []search.Query{
-		booleanAB, phraseAB, phraseABC, booleanAC, phraseAC, phraseACE,
+		booleanAB.Build(), phraseAB, phraseABC, booleanAC.Build(), phraseAC, phraseACE,
 	}
 }

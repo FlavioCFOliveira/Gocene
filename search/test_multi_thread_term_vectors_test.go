@@ -35,12 +35,11 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so term vectors are flushed and read back.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Register the production codec so term vectors are flushed and read back.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 const (
@@ -131,13 +130,10 @@ func mttvIntToEnglish(i int) string {
 
 // mttvTermVectorFieldType mirrors the FieldType the reference builds:
 // TextField.TYPE_STORED with tokenized=false and term vectors enabled.
-func mttvTermVectorFieldType() *index.FieldType {
-	ft := document.NewFieldType()
-	ft.Indexed = true
-	ft.Stored = true
-	ft.Tokenized = false
-	ft.IndexOptions = index.IndexOptionsDocsAndFreqsAndPositions
-	ft.StoreTermVectors = true
+func mttvTermVectorFieldType() *document.FieldType {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+	ft.SetTokenized(false)
+	ft.SetStoreTermVectors(true)
 	return ft
 }
 
@@ -146,7 +142,7 @@ func mttvTermVectorFieldType() *index.FieldType {
 func buildMultiThreadTermVectorsIndex(t *testing.T) store.Directory {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -278,7 +274,7 @@ func TestMultiThreadTermVectors_Concurrency(t *testing.T) {
 					}
 					mttvVerifyVector(t, vector, docID)
 				}
-		}
+			}
 		}()
 	}
 	wg.Wait()

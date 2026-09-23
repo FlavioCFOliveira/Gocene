@@ -29,13 +29,22 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ---- typed point query helpers (the analogues of IntPoint.newRangeQuery /
 // newExactQuery / newSetQuery and friends) ----
 
-func pqEncodeInt(v int32) []byte  { b := make([]byte, 4); document.EncodeDimensionIntLucene(v, b, 0); return b }
-func pqEncodeLong(v int64) []byte { b := make([]byte, 8); document.EncodeDimensionLongLucene(v, b, 0); return b }
+func pqEncodeInt(v int32) []byte {
+	b := make([]byte, 4)
+	document.EncodeDimensionIntLucene(v, b, 0)
+	return b
+}
+func pqEncodeLong(v int64) []byte {
+	b := make([]byte, 8)
+	document.EncodeDimensionLongLucene(v, b, 0)
+	return b
+}
 func pqEncodeFloat(v float32) []byte {
 	b := make([]byte, 4)
 	document.EncodeDimensionFloatLucene(v, b, 0)
@@ -79,8 +88,10 @@ func pqDoubleRange(t *testing.T, field string, lo, hi float64) search.Query {
 	}
 	return q
 }
-func pqIntExact(t *testing.T, field string, v int32) search.Query  { return pqIntRange(t, field, v, v) }
-func pqLongExact(t *testing.T, field string, v int64) search.Query { return pqLongRange(t, field, v, v) }
+func pqIntExact(t *testing.T, field string, v int32) search.Query { return pqIntRange(t, field, v, v) }
+func pqLongExact(t *testing.T, field string, v int64) search.Query {
+	return pqLongRange(t, field, v, v)
+}
 func pqFloatExact(t *testing.T, field string, v float32) search.Query {
 	return pqFloatRange(t, field, v, v)
 }
@@ -93,28 +104,28 @@ func pqIntSet(field string, vals ...int32) search.Query {
 	for i, v := range vals {
 		packed[i] = pqEncodeInt(v)
 	}
-	return search.NewPointInSetQuery(field, 1, 4, packed)
+	return pqPointInSetQuery(field, 1, 4, packed)
 }
 func pqLongSet(field string, vals ...int64) search.Query {
 	packed := make([][]byte, len(vals))
 	for i, v := range vals {
 		packed[i] = pqEncodeLong(v)
 	}
-	return search.NewPointInSetQuery(field, 1, 8, packed)
+	return pqPointInSetQuery(field, 1, 8, packed)
 }
 func pqFloatSet(field string, vals ...float32) search.Query {
 	packed := make([][]byte, len(vals))
 	for i, v := range vals {
 		packed[i] = pqEncodeFloat(v)
 	}
-	return search.NewPointInSetQuery(field, 1, 4, packed)
+	return pqPointInSetQuery(field, 1, 4, packed)
 }
 func pqDoubleSet(field string, vals ...float64) search.Query {
 	packed := make([][]byte, len(vals))
 	for i, v := range vals {
 		packed[i] = pqEncodeDouble(v)
 	}
-	return search.NewPointInSetQuery(field, 1, 8, packed)
+	return pqPointInSetQuery(field, 1, 8, packed)
 }
 
 func pqCount(t *testing.T, s *search.IndexSearcher, q search.Query) int64 {
@@ -331,10 +342,7 @@ func TestPointQueries_BasicSortedSet(t *testing.T) {
 	ix := newIntegrationIndex(t)
 	for _, v := range []string{"abc", "def"} {
 		doc := document.NewDocument()
-		bp, err := document.NewBinaryPoint("value", []byte(v))
-		if err != nil {
-			t.Fatalf("NewBinaryPoint: %v", err)
-		}
+		bp := document.NewBinaryPoint("value", []byte(v))
 		doc.Add(bp)
 		ix.addDoc(doc)
 	}
@@ -356,10 +364,7 @@ func TestPointQueries_SortedSetNoOrdsMatch(t *testing.T) {
 	ix := newIntegrationIndex(t)
 	for _, v := range []string{"a", "z"} {
 		doc := document.NewDocument()
-		bp, err := document.NewBinaryPoint("value", []byte(v))
-		if err != nil {
-			t.Fatalf("NewBinaryPoint: %v", err)
-		}
+		bp := document.NewBinaryPoint("value", []byte(v))
 		doc.Add(bp)
 		ix.addDoc(doc)
 	}
@@ -459,10 +464,7 @@ func TestPointQueries_EmptyPointInSetQuery(t *testing.T) {
 	doc.Add(document.NewLongPoint("long", 17))
 	doc.Add(document.NewFloatPoint("float", 17.0))
 	doc.Add(document.NewDoublePoint("double", 17.0))
-	bp, err := document.NewBinaryPoint("bytes", []byte{0, 17})
-	if err != nil {
-		t.Fatalf("NewBinaryPoint: %v", err)
-	}
+	bp := document.NewBinaryPoint("bytes", []byte{0, 17})
 	doc.Add(bp)
 	ix.addDoc(doc)
 	s, cleanup := ix.searcher()
@@ -498,7 +500,7 @@ func pqMultiDimIntSet(field string, numDims int, vals ...int32) search.Query {
 		}
 		packed[i] = p
 	}
-	return search.NewPointInSetQuery(field, numDims, 4, packed)
+	return pqPointInSetQuery(field, numDims, 4, packed)
 }
 
 func TestPointQueries_BasicMultiDimPointInSetQuery(t *testing.T) {
@@ -722,4 +724,25 @@ func TestPointQueries_WrongNumBytes(t *testing.T) {
 	if _, err := search.NewPointRangeQueryMultiDim("value", make([]byte, 9), make([]byte, 9), 2); err == nil {
 		t.Errorf("expected an error for a length not divisible by numDims")
 	}
+}
+
+// pqPointInSetQuery builds a PointInSetQuery over the given sorted packed
+// points, streaming them in order as Lucene's PointInSetQuery.Stream does.
+func pqPointInSetQuery(field string, numDims, bytesPerDim int, packed [][]byte) search.Query {
+	upto := 0
+	stream := util.BytesRefIteratorFunc(func() (*util.BytesRef, error) {
+		if upto == len(packed) {
+			return nil, nil
+		}
+		b := util.NewBytesRef(packed[upto])
+		upto++
+		return b, nil
+	})
+	q, err := search.NewPointInSetQuery(field, numDims, bytesPerDim, stream, func(value []byte) string {
+		return util.NewBytesRef(value).String()
+	})
+	if err != nil {
+		panic(err)
+	}
+	return q
 }

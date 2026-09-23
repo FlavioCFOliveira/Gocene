@@ -1,7 +1,6 @@
 package search
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ─── stub PostingsEnum ────────────────────────────────────────────────────────
@@ -28,8 +29,8 @@ type postingEntry struct {
 // stubPostingsEnum implements index.PostingsEnum over a fixed list of entries.
 type stubPostingsEnum struct {
 	entries []postingEntry
-	cur     int  // index into entries (-1 = before start)
-	posIdx  int  // position cursor within current entry
+	cur     int // index into entries (-1 = before start)
+	posIdx  int // position cursor within current entry
 	cost    int64
 }
 
@@ -85,10 +86,20 @@ func (s *stubPostingsEnum) NextPosition() (int, error) {
 	return p, nil
 }
 
-func (s *stubPostingsEnum) StartOffset() (int, error) { return -1, nil }
-func (s *stubPostingsEnum) EndOffset() (int, error)   { return -1, nil }
+func (s *stubPostingsEnum) StartOffset() (int, error)   { return -1, nil }
+func (s *stubPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (s *stubPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
-func (s *stubPostingsEnum) Cost() int64               { return s.cost }
+func (s *stubPostingsEnum) Cost() int64                 { return s.cost }
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (s *stubPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (s *stubPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
 
 // Compile-time assertion.
 var _ index.PostingsEnum = (*stubPostingsEnum)(nil)
@@ -156,10 +167,11 @@ func TestMultiPhraseEnum_OneDocument(t *testing.T) {
 // (Lucene 10.4.0).
 //
 // Models four documents after forceMerge:
-//   doc 0: "foo"     → p1 posts doc 0 pos 0; p2 absent
-//   doc 1: ""        → both absent
-//   doc 2: "foo bar" → p1 posts doc 2 pos 0; p2 posts doc 2 pos 1
-//   doc 3: "bar"     → p2 posts doc 3 pos 0; p1 absent
+//
+//	doc 0: "foo"     → p1 posts doc 0 pos 0; p2 absent
+//	doc 1: ""        → both absent
+//	doc 2: "foo bar" → p1 posts doc 2 pos 0; p2 posts doc 2 pos 1
+//	doc 3: "bar"     → p2 posts doc 3 pos 0; p1 absent
 func TestMultiPhraseEnum_SomeDocuments(t *testing.T) {
 	p1 := newStubPostingsEnum([]postingEntry{
 		{docID: 0, pos: []int{0}},
@@ -273,8 +285,8 @@ func TestMultiPhraseEnum_Cost(t *testing.T) {
 		t.Fatalf("expected cost %d, got %d", p1.Cost()+p2.Cost(), got)
 	}
 
-// TestMultiPhraseEnum_PositionsSorted verifies that positions are returned in
-// ascending order even when the subs contribute them in mixed order.
+	// TestMultiPhraseEnum_PositionsSorted verifies that positions are returned in
+	// ascending order even when the subs contribute them in mixed order.
 }
 func TestMultiPhraseEnum_PositionsSorted(t *testing.T) {
 	// p1 posts doc 0 at position 2; p2 posts doc 0 at position 0.

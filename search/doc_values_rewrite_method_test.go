@@ -2,89 +2,177 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// No direct Java test peer for DocValuesRewriteMethod; the Java suite
-// tests it indirectly via TestDocValuesRangeQuery and
-// BaseDocValuesFormatTestCase. These tests cover the Go port's
-// constructor/equality contract, the alwaysExhaustedDISI helper, and
-// the dvwScorerSupplierImpl ScorerSupplier contract.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestDocValuesRewriteMethod.java
+// (Apache Lucene 10.5.0): tests the DocValuesRewriteMethod.
 
 package search_test
 
 import (
+	"strconv"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
-// ─── DocValuesRewriteMethod identity / equality ────────────────────────────
+// sortedSetIndexedFieldBlocker names the production member setUp calls.
+const sortedSetIndexedFieldBlocker = "requires org.apache.lucene.document.SortedSetDocValuesField.indexedField(" +
+	"String, BytesRef) (not ported)"
 
-func TestDocValuesRewriteMethod_Equality(t *testing.T) {
-	a := search.NewDocValuesRewriteMethod()
-	b := search.NewDocValuesRewriteMethod()
+// docValuesRewriteMethodFixture holds the fields of TestDocValuesRewriteMethod.
+type docValuesRewriteMethodFixture struct {
+	searcher  *search.IndexSearcher
+	fieldName string
+}
 
-	if !a.Equals(a) {
-		t.Errorf("a.Equals(a) = false (identity)")
+// setUpDocValuesRewriteMethod renders TestDocValuesRewriteMethod.setUp();
+// tearDown is registered with t.Cleanup.
+func setUpDocValuesRewriteMethod(t *testing.T) *docValuesRewriteMethodFixture {
+	t.Helper()
+	f := &docValuesRewriteMethodFixture{}
+	dir := newDirectory()
+	t.Cleanup(func() {
+		if err := dir.Close(); err != nil {
+			t.Errorf("close dir: %v", err)
+		}
+	})
+	if random().Intn(2) == 0 {
+		f.fieldName = "field"
+	} else {
+		f.fieldName = "" // sometimes use an empty string as field name
 	}
-	if !a.Equals(b) {
-		t.Errorf("a.Equals(b) = false (value equality)")
+	iwc := newIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzer(testanalysis.KEYWORD, false, 0, nil, true))
+	iwc.SetMaxBufferedDocs(nextInt(50, 1000))
+	writer := newRandomIndexWriterWithConfig(t, dir, iwc)
+	var terms []string
+	num := atLeast(200)
+	for i := 0; i < num; i++ {
+		doc := document.NewDocument()
+		doc.Add(newStringField(t, "id", strconv.Itoa(i), false))
+		numTerms := random().Intn(4)
+		for j := 0; j < numTerms; j++ {
+			s := randomUnicodeString(random())
+			doc.Add(newStringField(t, f.fieldName, s, false))
+			dv, err := document.NewSortedSetDocValuesField(f.fieldName, [][]byte{[]byte(s)})
+			if err != nil {
+				t.Fatalf("new SortedSetDocValuesField: %v", err)
+			}
+			doc.Add(dv)
+			// doc.add(SortedSetDocValuesField.indexedField(fieldName + "_with-skip", new BytesRef(s)));
+			mustClose(t, writer)
+			t.Fatal(sortedSetIndexedFieldBlocker)
+			terms = append(terms, s)
+		}
+		mustAddDocument(t, writer, doc)
 	}
-	if a.Equals(nil) {
-		t.Errorf("a.Equals(nil) = true")
+
+	numDeletions := random().Intn(num / 10)
+	for i := 0; i < numDeletions; i++ {
+		if _, err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(random().Intn(num)))); err != nil {
+			t.Fatalf("deleteDocuments: %v", err)
+		}
 	}
-	if a.Equals("not-a-method") {
-		t.Errorf("a.Equals(string) = true")
+
+	reader := mustGetReader(t, writer)
+	t.Cleanup(func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("close reader: %v", err)
+		}
+	})
+	f.searcher = newSearcher(t, reader)
+	mustClose(t, writer)
+	return f
+}
+
+// test a bunch of random regular expressions
+func TestDocValuesRewriteMethodRegexps(t *testing.T) {
+	f := setUpDocValuesRewriteMethod(t)
+	num := atLeast(1000)
+	for i := 0; i < num; i++ {
+		t.Fatal("requires org.apache.lucene.tests.util.automaton.AutomatonTestUtil.randomRegexp(Random) (not ported)")
+		f.assertSame(t, "")
 	}
 }
 
-func TestDocValuesRewriteMethod_HashCode(t *testing.T) {
-	a := search.NewDocValuesRewriteMethod()
-	b := search.NewDocValuesRewriteMethod()
-	if a.HashCode() != b.HashCode() {
-		t.Errorf("equal instances produced different hash codes: %d vs %d",
-			a.HashCode(), b.HashCode())
-	}
+// assertSame checks that the # of hits is the same as if the query is run
+// against the inverted index.
+func (f *docValuesRewriteMethodFixture) assertSame(t *testing.T, regexp string) {
+	t.Helper()
+	docValues := search.NewRegexpQueryFull(
+		index.NewTerm(f.fieldName, regexp),
+		automaton.RegExpNone,
+		0,
+		nil,
+		automaton.DefaultDeterminizeWorkLimit,
+		search.NewDocValuesRewriteMethod(),
+		true)
+	docValuesWithSkip := search.NewRegexpQueryFull(
+		index.NewTerm(f.fieldName+"_with-skip", regexp),
+		automaton.RegExpNone,
+		0,
+		nil,
+		automaton.DefaultDeterminizeWorkLimit,
+		search.NewDocValuesRewriteMethod(),
+		true)
+	inverted := search.NewRegexpQueryWithFlags(index.NewTerm(f.fieldName, regexp), automaton.RegExpNone)
+
+	invertedDocs := mustSearch(t, f.searcher, inverted, 25)
+	docValuesDocs := mustSearch(t, f.searcher, docValues, 25)
+	docValuesWithSkipDocs := mustSearch(t, f.searcher, docValuesWithSkip, 25)
+
+	testsearch.CheckEqual(t, inverted, invertedDocs.ScoreDocs, docValuesDocs.ScoreDocs)
+	testsearch.CheckEqual(t, inverted, invertedDocs.ScoreDocs, docValuesWithSkipDocs.ScoreDocs)
 }
 
-func TestDocValuesRewriteMethod_DefaultInstance(t *testing.T) {
-	if search.DefaultDocValuesRewriteMethod == nil {
-		t.Fatal("DefaultDocValuesRewriteMethod is nil")
-	}
-	if !search.NewDocValuesRewriteMethod().Equals(search.DefaultDocValuesRewriteMethod) {
-		t.Errorf("DefaultDocValuesRewriteMethod should be equal to any instance")
+func TestDocValuesRewriteMethodEquals(t *testing.T) {
+	f := setUpDocValuesRewriteMethod(t)
+	{
+		a1 := search.NewRegexpQueryWithFlags(index.NewTerm(f.fieldName, "[aA]"), automaton.RegExpNone)
+		a2 := search.NewRegexpQueryWithFlags(index.NewTerm(f.fieldName, "[aA]"), automaton.RegExpNone)
+		b := search.NewRegexpQueryWithFlags(index.NewTerm(f.fieldName, "[bB]"), automaton.RegExpNone)
+		if !a1.Equals(a2) {
+			t.Fatal("a1 != a2")
+		}
+		if a1.Equals(b) {
+			t.Fatal("a1 == b")
+		}
 	}
 
-// ─── Optional interfaces exported for interop ─────────────────────────────
-
-// TestDocValuesRewriteMethod_OptionalInterfaceTypes verifies that the
-// optional interfaces exported by this port compile and are usable from
-// outside the search package. We declare typed nil values to verify the
-// type names are accessible.
-}
-func TestDocValuesRewriteMethod_OptionalInterfaceTypes(_ *testing.T) {
-	// These zero-value type assertions confirm the interface types are
-	// exported and structurally non-empty.
-	var _ search.TermsEnumWithOrd
-	var _ search.SortedDocValuesWithOrd
-	var _ search.SortedSetDocValuesWithTermsEnum
-	var _ search.SortedSetDocValuesOrdIterable
-	var _ search.DocValuesSkipperProvider
-	var _ search.MultiTermQueryTermsEnumProvider
-}
-
-// ─── Rewrite produces ConstantScoreQuery ──────────────────────────────────
-
-func TestDocValuesRewriteMethod_RewriteProducesConstantScoreQuery(t *testing.T) {
-	m := search.NewDocValuesRewriteMethod()
-	q := search.NewMultiTermQuery("myField", nil)
-	result, err := m.Rewrite(nil, q)
-	if err != nil {
-		t.Fatalf("Rewrite() error: %v", err)
-	}
-	if result == nil {
-		t.Fatal("Rewrite() returned nil query")
-	}
-	// The wrapped query must be a ConstantScoreQuery.
-	if _, ok := result.(*search.ConstantScoreQuery); !ok {
-		t.Errorf("Rewrite() returned %T, want *search.ConstantScoreQuery", result)
+	{
+		a1 := search.NewRegexpQueryFull(
+			index.NewTerm(f.fieldName, "[aA]"),
+			automaton.RegExpNone,
+			0,
+			nil,
+			automaton.DefaultDeterminizeWorkLimit,
+			search.NewDocValuesRewriteMethod(),
+			true)
+		a2 := search.NewRegexpQueryFull(
+			index.NewTerm(f.fieldName, "[aA]"),
+			automaton.RegExpNone,
+			0,
+			nil,
+			automaton.DefaultDeterminizeWorkLimit,
+			search.NewDocValuesRewriteMethod(),
+			true)
+		b := search.NewRegexpQueryFull(
+			index.NewTerm(f.fieldName, "[bB]"),
+			automaton.RegExpNone,
+			0,
+			nil,
+			automaton.DefaultDeterminizeWorkLimit,
+			search.NewDocValuesRewriteMethod(),
+			true)
+		if !a1.Equals(a2) {
+			t.Fatal("a1 != a2")
+		}
+		if a1.Equals(b) {
+			t.Fatal("a1 == b")
+		}
+		queryUtilsCheck(t, a1)
 	}
 }

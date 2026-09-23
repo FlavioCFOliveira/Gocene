@@ -22,10 +22,9 @@ func (p *classicSimilarityProvider) Idf(docFreq, docCount int64) float32 {
 	return float32(math.Log(float64(docCount+1)/float64(docFreq+1)) + 1.0)
 }
 
+// LengthNorm mirrors ClassicSimilarity.lengthNorm(int numTerms):
+// (float) (1.0 / Math.sqrt(numTerms)), which is +Inf for numTerms == 0.
 func (p *classicSimilarityProvider) LengthNorm(length int) float32 {
-	if length <= 0 {
-		return 1.0
-	}
 	return float32(1.0 / math.Sqrt(float64(length)))
 }
 

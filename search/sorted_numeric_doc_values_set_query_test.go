@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestNewSortedNumericDocValuesSetQuery_DefensiveCopyAndSort covers
@@ -120,7 +121,7 @@ func TestSortedNumericDocValuesSetQuery_Equals(t *testing.T) {
 	if a.Equals(d) {
 		t.Error("a should not equal d (different field)")
 	}
-	if a.Equals(NewMatchNoDocsQuery()) {
+	if a.Equals(NewMatchNoDocsQuery("")) {
 		t.Error("a should not equal MatchNoDocsQuery (different type)")
 	}
 }
@@ -443,8 +444,8 @@ func runSortedNumericSetQueryWithDV(
 		}
 	}
 
-	tpi := NewTwoPhaseIterator(approx, matchFn)
-	disi := tpi.AsDocIdSetIterator()
+	tpi := NewTwoPhaseIteratorWithMatchCost(approx, matchFn, 5) // SortedNumericDocValuesSetQuery: matchCost 5
+	disi := AsDocIdSetIterator(tpi)
 
 	var matched []int
 	for {
@@ -521,6 +522,16 @@ func (f *fakeNumeric) AdvanceExact(target int) (bool, error) {
 
 func (f *fakeNumeric) LongValue() (int64, error) {
 	return f.values[f.docID], nil
+}
+
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (f *fakeNumeric) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (f *fakeNumeric) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
 }
 
 // sliceEqualInt is a tiny equality helper. Kept local so it stays

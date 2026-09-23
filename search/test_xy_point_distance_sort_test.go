@@ -85,7 +85,7 @@ func TestXYPointDistanceSort_DistanceSort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewXYDocValuesDistanceSort: %v", err)
 	}
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 3, search.NewSort(sf))
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 3, search.NewSort(sf), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestXYPointDistanceSort_MissingLast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewXYDocValuesDistanceSort: %v", err)
 	}
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 3, search.NewSort(sf))
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 3, search.NewSort(sf), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestXYPointDistanceSort_Random(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewXYDocValuesDistanceSort: %v", err)
 	}
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), len(pts), search.NewSort(sf))
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), len(pts), search.NewSort(sf), false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}

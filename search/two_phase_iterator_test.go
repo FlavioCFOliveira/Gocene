@@ -55,6 +55,11 @@ func (m *mockDocIdSetIterator) Cost() int64 {
 	return 1
 }
 
+// IntoBitSet carries the default body Lucene gives DocIdSetIterator.IntoBitSet.
+func (m *mockDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
 type mockVerifier struct {
 	matches func(doc int) bool
 }

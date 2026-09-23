@@ -34,12 +34,11 @@ import (
 	"strconv"
 	"testing"
 
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // mtqrReaders builds the three readers the reference uses: a single-segment
@@ -50,7 +49,7 @@ func mtqrReaders(t *testing.T) (single, multi, multiDupls index.IndexReaderInter
 
 	build := func(values []int) (store.Directory, *index.DirectoryReader) {
 		dir := store.NewByteBuffersDirectory()
-		w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(nil))
+		w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(nil))
 		if err != nil {
 			t.Fatalf("NewIndexWriter: %v", err)
 		}
@@ -116,7 +115,7 @@ func rewriteToConvergence(t *testing.T, q search.Query, reader index.IndexReader
 	t.Helper()
 	current := q
 	for {
-		next, err := current.Rewrite(reader)
+		next, err := current.Rewrite(search.NewIndexSearcher(reader))
 		if err != nil {
 			t.Fatalf("Rewrite: %v", err)
 		}

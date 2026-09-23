@@ -28,11 +28,11 @@ func TestConstantScoreScorer_Score_ConstantAcrossAllDocs(t *testing.T) {
 		if doc == NO_MORE_DOCS {
 			break
 		}
-		if got := s.Score(); got != score {
-			t.Fatalf("Score at doc %d: got %v, want %v", doc, got, score)
+		if got, err := s.Score(); err != nil || got != score {
+			t.Fatalf("Score at doc %d: got %v, want %v (err: %v)", doc, got, score, err)
 		}
-		if got := s.GetMaxScore(doc + 1); got != score {
-			t.Fatalf("GetMaxScore at doc %d: got %v, want %v", doc, got, score)
+		if got, err := s.GetMaxScore(doc + 1); err != nil || got != score {
+			t.Fatalf("GetMaxScore at doc %d: got %v, want %v (err: %v)", doc, got, score, err)
 		}
 	}
 }
@@ -60,8 +60,8 @@ func TestConstantScoreScorer_DocID_ForwardsIterator(t *testing.T) {
 	if doc, err := s.Advance(5); err != nil || doc != 5 {
 		t.Fatalf("Advance(5): doc=%d err=%v, want doc=5 err=nil", doc, err)
 	}
-	if got := s.DocIDRunEnd(); got != 10 {
-		t.Fatalf("DocIDRunEnd: got %d, want 10", got)
+	if got, err := s.DocIDRunEnd(); err != nil || got != 10 {
+		t.Fatalf("DocIDRunEnd: got %d, want 10 (err: %v)", got, err)
 	}
 }
 

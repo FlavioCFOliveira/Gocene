@@ -55,7 +55,7 @@ func TestBaseFacetBuilderConfig_DefaultSortByCount(t *testing.T) {
 		t.Errorf("Dim = %q; want %q", fr.Dim, "dim")
 	}
 	if fr.Value != 18 {
-		t.Errorf("Value = %d; want 18", fr.Value)
+		t.Errorf("Value = %v; want 18", fr.Value)
 	}
 	if len(fr.LabelValues) != 3 {
 		t.Fatalf("LabelValues len = %d; want 3", len(fr.LabelValues))

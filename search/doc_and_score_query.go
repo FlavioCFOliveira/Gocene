@@ -377,3 +377,9 @@ var _ DocIdSetIterator = (*docAndScoreIterator)(nil)
 var _ Query = (*DocAndScoreQuery)(nil)
 var _ Weight = (*DocAndScoreWeight)(nil)
 var _ Scorer = (*DocAndScoreScorer)(nil)
+
+// Rewrite renders the inherited Query.rewrite(IndexSearcher), which returns
+// this; DocAndScoreQuery does not override it.
+func (q *DocAndScoreQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q, nil
+}

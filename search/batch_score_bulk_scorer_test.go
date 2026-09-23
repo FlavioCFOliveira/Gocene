@@ -40,22 +40,46 @@ func bitsOf(length int, docs ...int) util.Bits {
 
 // batchLeafCollector is a minimal LeafCollector that records docs/scores.
 type batchLeafCollector struct {
-	scorer search.Scorer
+	scorer search.Scorable
 	docs   []int
 	scores []float32
 }
 
-func (c *batchLeafCollector) SetScorer(s search.Scorer) error { c.scorer = s; return nil }
+func (c *batchLeafCollector) SetScorer(s search.Scorable) error { c.scorer = s; return nil }
 func (c *batchLeafCollector) Collect(doc int) error {
 	c.docs = append(c.docs, doc)
 	if c.scorer != nil {
-		c.scores = append(c.scores, c.scorer.Score())
+		v52_31, err := c.scorer.Score()
+		if err != nil {
+			return err
+		}
+		c.scores = append(c.scores, v52_31)
 	}
 	return nil
 }
 func (c *batchLeafCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }
 func (c *batchLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *batchLeafCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *batchLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *batchLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *batchLeafCollector) Finish() error {
+	return nil
 }
 
 // batchLeafCollectorWithError returns an error on the first Collect call.
@@ -156,4 +180,5 @@ func TestBatchScoreBulkScorer_AcceptDocsFilters(t *testing.T) {
 		if lc.docs[i] != d {
 			t.Errorf("docs[%d]=%d, want %d", i, lc.docs[i], d)
 		}
-}	}
+	}
+}

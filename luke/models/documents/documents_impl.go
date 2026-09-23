@@ -71,14 +71,14 @@ func (d *DocumentsImpl) GetDocumentFields(docid int) ([]*DocumentField, error) {
 	for _, finfo := range fieldInfos.Infos() {
 		fields := doc.GetFieldsByName(finfo.Name())
 		if len(fields) == 0 {
-			df, err := NewDocumentField(*finfo, nil, d.reader, docid)
+			df, err := NewDocumentField(finfo, nil, d.reader, docid)
 			if err != nil {
 				return nil, err
 			}
 			res = append(res, df)
 		} else {
 			for _, field := range fields {
-				df, err := NewDocumentField(*finfo, field, d.reader, docid)
+				df, err := NewDocumentField(finfo, field, d.reader, docid)
 				if err != nil {
 					return nil, err
 				}

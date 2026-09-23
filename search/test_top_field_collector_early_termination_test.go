@@ -30,6 +30,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestTopFieldCollectorEarlyTermination_EarlyTermination(t *testing.T) {
@@ -47,8 +48,8 @@ func TestTopFieldCollectorEarlyTermination_EarlyTermination(t *testing.T) {
 	searcher, cleanup := ix.searcher()
 	defer cleanup()
 
-	sort := search.NewSort(search.NewSortField("ndv1", search.SortFieldTypeLong))
-	td, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort)
+	sort := search.NewSort(search.NewSortField("ndv1", spi.SortFieldTypeLong))
+	td, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -72,8 +73,8 @@ func TestTopFieldCollectorEarlyTermination_EarlyTerminationWhenPaging(t *testing
 	searcher, cleanup := ix.searcher()
 	defer cleanup()
 
-	sort := search.NewSort(search.NewSortField("ndv1", search.SortFieldTypeLong))
-	td, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 5, sort)
+	sort := search.NewSort(search.NewSortField("ndv1", spi.SortFieldTypeLong))
+	td, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 5, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -85,9 +86,9 @@ func TestTopFieldCollectorEarlyTermination_EarlyTerminationWhenPaging(t *testing
 // TestTopFieldCollectorEarlyTermination_CanEarlyTerminateOnDocId mirrors
 // testCanEarlyTerminateOnDocId.
 func TestTopFieldCollectorEarlyTermination_CanEarlyTerminateOnDocId(t *testing.T) {
-	fieldDoc := func() *search.SortField { return &search.SortField{Type: search.SortFieldTypeDoc} }
-	longA := func() *search.SortField { return search.NewSortField("a", search.SortFieldTypeLong) }
-	longB := func() *search.SortField { return search.NewSortField("b", search.SortFieldTypeLong) }
+	fieldDoc := func() *search.SortField { return &search.SortField{Type: spi.SortFieldTypeDoc} }
+	longA := func() *search.SortField { return search.NewSortField("a", spi.SortFieldTypeLong) }
+	longB := func() *search.SortField { return search.NewSortField("b", spi.SortFieldTypeLong) }
 
 	assertTrue(t, search.CanEarlyTerminate(search.NewSort(fieldDoc()), search.NewSort(fieldDoc())))
 	assertTrue(t, search.CanEarlyTerminate(search.NewSort(fieldDoc()), nil))
@@ -102,11 +103,11 @@ func TestTopFieldCollectorEarlyTermination_CanEarlyTerminateOnDocId(t *testing.T
 // TestTopFieldCollectorEarlyTermination_CanEarlyTerminateOnPrefix mirrors
 // testCanEarlyTerminateOnPrefix.
 func TestTopFieldCollectorEarlyTermination_CanEarlyTerminateOnPrefix(t *testing.T) {
-	longA := func() *search.SortField { return search.NewSortField("a", search.SortFieldTypeLong) }
-	strB := func() *search.SortField { return search.NewSortField("b", search.SortFieldTypeString) }
-	strC := func() *search.SortField { return search.NewSortField("c", search.SortFieldTypeString) }
-	longARev := func() *search.SortField { return search.NewSortFieldReverse("a", search.SortFieldTypeLong) }
-	longC := func() *search.SortField { return search.NewSortField("c", search.SortFieldTypeLong) }
+	longA := func() *search.SortField { return search.NewSortField("a", spi.SortFieldTypeLong) }
+	strB := func() *search.SortField { return search.NewSortField("b", spi.SortFieldTypeString) }
+	strC := func() *search.SortField { return search.NewSortField("c", spi.SortFieldTypeString) }
+	longARev := func() *search.SortField { return search.NewSortFieldWithReverse("a", spi.SortFieldTypeLong, true) }
+	longC := func() *search.SortField { return search.NewSortField("c", spi.SortFieldTypeLong) }
 
 	assertTrue(t, search.CanEarlyTerminate(search.NewSort(longA()), search.NewSort(longA())))
 	assertTrue(t, search.CanEarlyTerminate(search.NewSort(longA(), strB()), search.NewSort(longA(), strB())))

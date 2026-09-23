@@ -52,21 +52,27 @@ func makeSloppyDocument(docText string) *document.Document {
 // makePhraseQuery creates a PhraseQuery from space-separated terms.
 func makeSloppyPhraseQuery(terms string) *search.PhraseQuery {
 	t := strings.Fields(terms)
-	return search.NewPhraseQueryWithStrings("f", t...)
+	return search.NewPhraseQuery(0, "f", t...)
 }
 
 // checkPhraseQuery executes a phrase query with the given slop and returns the max score.
 func checkPhraseQuery(t *testing.T, doc *document.Document, query *search.PhraseQuery, slop int, expectedNumResults int) float64 {
-	// Clone the query and set slop
-	clonedQuery := query.Clone().(*search.PhraseQuery)
-	clonedQuery.SetSlop(slop)
+	// Rebuild the query with the requested slop, as the Java checkPhraseQuery does.
+	builder := search.NewPhraseQueryBuilder()
+	terms := query.GetTerms()
+	positions := query.GetPositions()
+	for i := 0; i < len(terms); i++ {
+		builder.AddWithPosition(terms[i], positions[i])
+	}
+	builder.SetSlop(slop)
+	clonedQuery := builder.Build()
 
 	// Create in-memory directory
 	dir := store.NewByteBuffersDirectory()
 
 	// Create analyzer and index writer
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -100,7 +106,7 @@ func checkPhraseQuery(t *testing.T, doc *document.Document, query *search.Phrase
 	// Verify hit count
 	if int(topDocs.TotalHits.Value) != expectedNumResults {
 		t.Errorf("slop: %d query: %s doc: %s - Expected %d hits, got %d",
-			slop, clonedQuery.String(), doc.String(), expectedNumResults, topDocs.TotalHits.Value)
+			slop, clonedQuery.ToString(""), doc.String(), expectedNumResults, topDocs.TotalHits.Value)
 	}
 
 	// Calculate max score
@@ -233,7 +239,7 @@ func TestSloppyPhraseQuery_Doc5_Query5_AnySlopShouldBeConsistent(t *testing.T) {
 func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -280,8 +286,8 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 	// Build phrase query with holes: "drug" at position 1, "drug" at position 4
 	// This is like "drug the drug" (2 missing words between)
 	builder := search.NewPhraseQueryBuilder()
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 4)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 4)
 
 	// Test with slop 0 - should match only "drug drug" (exactly 3 positions apart)
 	pq := builder.Build()
@@ -314,7 +320,7 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -346,8 +352,8 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 
 	// Build phrase query: "drug" at position 1, "drug" at position 3, slop 1
 	builder := search.NewPhraseQueryBuilder()
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 3)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 3)
 	builder.SetSlop(1)
 	pq := builder.Build()
 
@@ -399,7 +405,7 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -431,8 +437,8 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 
 	// Build phrase query: "drug" at position 1, "drug" at position 4, slop 5
 	builder := search.NewPhraseQueryBuilder()
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-	builder.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 4)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+	builder.AddWithPosition(index.NewTerm("lyrics", "drug"), 4)
 	builder.SetSlop(5)
 	pq := builder.Build()
 
@@ -480,7 +486,7 @@ func assertSubsetOf(t *testing.T, searcher *search.IndexSearcher, q1, q2 search.
 func createTestIndex(t *testing.T) (store.Directory, *search.IndexSearcher, func()) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -538,12 +544,8 @@ func TestSloppyPhraseQuery2_IncreasingSloppiness(t *testing.T) {
 	defer cleanup()
 
 	for i := 0; i < 10; i++ {
-		q1 := search.NewPhraseQueryWithSlop(i, "field",
-			index.NewTerm("field", "a"),
-			index.NewTerm("field", "b"))
-		q2 := search.NewPhraseQueryWithSlop(i+1, "field",
-			index.NewTerm("field", "a"),
-			index.NewTerm("field", "b"))
+		q1 := search.NewPhraseQueryWithTerms(i, "field", index.NewTerm("field", "a"), index.NewTerm("field", "b"))
+		q2 := search.NewPhraseQueryWithTerms(i+1, "field", index.NewTerm("field", "a"), index.NewTerm("field", "b"))
 		assertSubsetOf(t, searcher, q1, q2)
 	}
 }
@@ -556,14 +558,14 @@ func TestSloppyPhraseQuery2_IncreasingSloppinessWithHoles(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		builder1 := search.NewPhraseQueryBuilder()
-		builder1.AddTermAtPosition(index.NewTerm("field", "a"), 0)
-		builder1.AddTermAtPosition(index.NewTerm("field", "b"), 2)
+		builder1.AddWithPosition(index.NewTerm("field", "a"), 0)
+		builder1.AddWithPosition(index.NewTerm("field", "b"), 2)
 		builder1.SetSlop(i)
 		q1 := builder1.Build()
 
 		builder2 := search.NewPhraseQueryBuilder()
-		builder2.AddTermAtPosition(index.NewTerm("field", "a"), 0)
-		builder2.AddTermAtPosition(index.NewTerm("field", "b"), 2)
+		builder2.AddWithPosition(index.NewTerm("field", "a"), 0)
+		builder2.AddWithPosition(index.NewTerm("field", "b"), 2)
 		builder2.SetSlop(i + 1)
 		q2 := builder2.Build()
 
@@ -577,14 +579,8 @@ func TestSloppyPhraseQuery2_IncreasingSloppiness3(t *testing.T) {
 	defer cleanup()
 
 	for i := 0; i < 10; i++ {
-		q1 := search.NewPhraseQueryWithSlop(i, "field",
-			index.NewTerm("field", "a"),
-			index.NewTerm("field", "b"),
-			index.NewTerm("field", "c"))
-		q2 := search.NewPhraseQueryWithSlop(i+1, "field",
-			index.NewTerm("field", "a"),
-			index.NewTerm("field", "b"),
-			index.NewTerm("field", "c"))
+		q1 := search.NewPhraseQueryWithTerms(i, "field", index.NewTerm("field", "a"), index.NewTerm("field", "b"), index.NewTerm("field", "c"))
+		q2 := search.NewPhraseQueryWithTerms(i+1, "field", index.NewTerm("field", "a"), index.NewTerm("field", "b"), index.NewTerm("field", "c"))
 		assertSubsetOf(t, searcher, q1, q2)
 	}
 }
@@ -597,16 +593,16 @@ func TestSloppyPhraseQuery2_IncreasingSloppiness3WithHoles(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		builder1 := search.NewPhraseQueryBuilder()
-		builder1.AddTermAtPosition(index.NewTerm("field", "a"), 0)
-		builder1.AddTermAtPosition(index.NewTerm("field", "b"), 2)
-		builder1.AddTermAtPosition(index.NewTerm("field", "c"), 4)
+		builder1.AddWithPosition(index.NewTerm("field", "a"), 0)
+		builder1.AddWithPosition(index.NewTerm("field", "b"), 2)
+		builder1.AddWithPosition(index.NewTerm("field", "c"), 4)
 		builder1.SetSlop(i)
 		q1 := builder1.Build()
 
 		builder2 := search.NewPhraseQueryBuilder()
-		builder2.AddTermAtPosition(index.NewTerm("field", "a"), 0)
-		builder2.AddTermAtPosition(index.NewTerm("field", "b"), 2)
-		builder2.AddTermAtPosition(index.NewTerm("field", "c"), 4)
+		builder2.AddWithPosition(index.NewTerm("field", "a"), 0)
+		builder2.AddWithPosition(index.NewTerm("field", "b"), 2)
+		builder2.AddWithPosition(index.NewTerm("field", "c"), 4)
 		builder2.SetSlop(i + 1)
 		q2 := builder2.Build()
 
@@ -621,8 +617,8 @@ func TestSloppyPhraseQuery2_RepetitiveIncreasingSloppiness(t *testing.T) {
 
 	term := index.NewTerm("field", "a")
 	for i := 0; i < 10; i++ {
-		q1 := search.NewPhraseQueryWithSlop(i, "field", term, term)
-		q2 := search.NewPhraseQueryWithSlop(i+1, "field", term, term)
+		q1 := search.NewPhraseQueryWithTerms(i, "field", term, term)
+		q2 := search.NewPhraseQueryWithTerms(i+1, "field", term, term)
 		assertSubsetOf(t, searcher, q1, q2)
 	}
 }
@@ -636,14 +632,14 @@ func TestSloppyPhraseQuery2_RepetitiveIncreasingSloppinessWithHoles(t *testing.T
 	term := index.NewTerm("field", "a")
 	for i := 0; i < 10; i++ {
 		builder1 := search.NewPhraseQueryBuilder()
-		builder1.AddTermAtPosition(term, 0)
-		builder1.AddTermAtPosition(term, 2)
+		builder1.AddWithPosition(term, 0)
+		builder1.AddWithPosition(term, 2)
 		builder1.SetSlop(i)
 		q1 := builder1.Build()
 
 		builder2 := search.NewPhraseQueryBuilder()
-		builder2.AddTermAtPosition(term, 0)
-		builder2.AddTermAtPosition(term, 2)
+		builder2.AddWithPosition(term, 0)
+		builder2.AddWithPosition(term, 2)
 		builder2.SetSlop(i + 1)
 		q2 := builder2.Build()
 
@@ -658,8 +654,8 @@ func TestSloppyPhraseQuery2_RepetitiveIncreasingSloppiness3(t *testing.T) {
 
 	term := index.NewTerm("field", "a")
 	for i := 0; i < 10; i++ {
-		q1 := search.NewPhraseQueryWithSlop(i, "field", term, term, term)
-		q2 := search.NewPhraseQueryWithSlop(i+1, "field", term, term, term)
+		q1 := search.NewPhraseQueryWithTerms(i, "field", term, term, term)
+		q2 := search.NewPhraseQueryWithTerms(i+1, "field", term, term, term)
 		assertSubsetOf(t, searcher, q1, q2)
 	}
 }
@@ -673,62 +669,19 @@ func TestSloppyPhraseQuery2_RepetitiveIncreasingSloppiness3WithHoles(t *testing.
 	term := index.NewTerm("field", "a")
 	for i := 0; i < 10; i++ {
 		builder1 := search.NewPhraseQueryBuilder()
-		builder1.AddTermAtPosition(term, 0)
-		builder1.AddTermAtPosition(term, 2)
-		builder1.AddTermAtPosition(term, 4)
+		builder1.AddWithPosition(term, 0)
+		builder1.AddWithPosition(term, 2)
+		builder1.AddWithPosition(term, 4)
 		builder1.SetSlop(i)
 		q1 := builder1.Build()
 
 		builder2 := search.NewPhraseQueryBuilder()
-		builder2.AddTermAtPosition(term, 0)
-		builder2.AddTermAtPosition(term, 2)
-		builder2.AddTermAtPosition(term, 4)
+		builder2.AddWithPosition(term, 0)
+		builder2.AddWithPosition(term, 2)
+		builder2.AddWithPosition(term, 4)
 		builder2.SetSlop(i + 1)
 		q2 := builder2.Build()
 
 		assertSubsetOf(t, searcher, q1, q2)
 	}
-}
-
-// PhraseQueryBuilder provides a builder pattern for constructing PhraseQueries.
-// This is a helper type for test construction.
-type PhraseQueryBuilder struct {
-	field     string
-	terms     []*index.Term
-	positions []int
-	slop      int
-}
-
-// NewPhraseQueryBuilder creates a new PhraseQueryBuilder.
-func NewPhraseQueryBuilder() *PhraseQueryBuilder {
-	return &PhraseQueryBuilder{
-		terms:     make([]*index.Term, 0),
-		positions: make([]int, 0),
-		slop:      0,
-	}
-}
-
-// AddTermAtPosition adds a term at the specified position.
-func (b *PhraseQueryBuilder) AddTermAtPosition(term *index.Term, position int) *PhraseQueryBuilder {
-	b.terms = append(b.terms, term)
-	b.positions = append(b.positions, position)
-	if b.field == "" {
-		b.field = term.Field
-	}
-	return b
-}
-
-// SetSlop sets the slop value.
-func (b *PhraseQueryBuilder) SetSlop(slop int) *PhraseQueryBuilder {
-	b.slop = slop
-	return b
-}
-
-// Build creates the PhraseQuery.
-func (b *PhraseQueryBuilder) Build() *search.PhraseQuery {
-	// For now, create a simple phrase query and set slop
-	// In a full implementation, this would handle positions
-	query := search.NewPhraseQuery(b.field, b.terms...)
-	query.SetSlop(b.slop)
-	return query
 }

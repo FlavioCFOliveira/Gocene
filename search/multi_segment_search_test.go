@@ -12,7 +12,7 @@ import (
 func setupMultiSegmentIndex(t *testing.T) (*index.IndexWriter, store.Directory, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	iwc := index.NewIndexWriterConfig(nil)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
 	iwc.SetMaxBufferedDocs(1)
 	writer, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
@@ -26,7 +26,7 @@ func setupMultiSegmentIndex(t *testing.T) (*index.IndexWriter, store.Directory, 
 			t.Fatalf("AddDocument: %v", err)
 		}
 		if i%2 == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 		}
@@ -40,7 +40,7 @@ func setupMultiSegmentIndex(t *testing.T) (*index.IndexWriter, store.Directory, 
 func TestMultiSegment_ReaderHasSubReaders(t *testing.T) {
 	writer, dir, cleanup := setupMultiSegmentIndex(t)
 	defer cleanup()
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	reader, err := index.OpenDirectoryReader(dir)

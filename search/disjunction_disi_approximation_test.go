@@ -46,7 +46,10 @@ func TestDisjunctionDISIApproximation_DocIDRunEnd(t *testing.T) {
 	}
 
 	// Test: docIDRunEnd() should return 30000 (end of clause1's range)
-	runEnd := iterator.DocIDRunEnd()
+	runEnd, err := iterator.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iterator.DocIDRunEnd: %v", err)
+	}
 	if runEnd != 30000 {
 		t.Errorf("Expected docIDRunEnd() = 30000, got %d", runEnd)
 	}
@@ -61,7 +64,11 @@ func TestDisjunctionDISIApproximation_DocIDRunEnd(t *testing.T) {
 	}
 
 	// Test: docIDRunEnd() should return 50000 (end of clause2's range)
-	runEnd = iterator.DocIDRunEnd()
+	v64, err := iterator.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iterator.DocIDRunEnd: %v", err)
+	}
+	runEnd = v64
 	if runEnd != 50000 {
 		t.Errorf("Expected docIDRunEnd() = 50000, got %d", runEnd)
 	}
@@ -76,7 +83,11 @@ func TestDisjunctionDISIApproximation_DocIDRunEnd(t *testing.T) {
 	}
 
 	// Test: docIDRunEnd() should return 60001 (end of clause3's range)
-	runEnd = iterator.DocIDRunEnd()
+	v79, err := iterator.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iterator.DocIDRunEnd: %v", err)
+	}
+	runEnd = v79
 	if runEnd != 60001 {
 		t.Errorf("Expected docIDRunEnd() = 60001, got %d", runEnd)
 	}
@@ -156,7 +167,10 @@ func TestDisjunctionDISIApproximation_Empty(t *testing.T) {
 	}
 
 	// Check run end at boundary
-	runEnd := iterator.DocIDRunEnd()
+	runEnd, err := iterator.DocIDRunEnd()
+	if err != nil {
+		t.Fatalf("iterator.DocIDRunEnd: %v", err)
+	}
 	if runEnd != 5 {
 		t.Errorf("Expected run end = 5, got %d", runEnd)
 	}

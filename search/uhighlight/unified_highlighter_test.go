@@ -7,7 +7,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func TestUnifiedHighlighter_Basic(t *testing.T) {

@@ -46,15 +46,15 @@ func TestMaxClauseLimit_FlattenInnerDisjunctions(t *testing.T) {
 	reader := newEmptyReader(t)
 	defer func() { _ = reader.Close() }()
 
-	inner := search.NewBooleanQuery()
+	inner := search.NewBooleanQueryBuilder()
 	for i := 0; i < 1024; i++ {
 		inner.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
 	}
-	query := search.NewBooleanQuery()
-	query.Add(inner, search.SHOULD)
+	query := search.NewBooleanQueryBuilder()
+	query.Add(inner.Build(), search.SHOULD)
 	query.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
 
-	rewritten := rewriteToConvergence(t, query, reader)
+	rewritten := rewriteToConvergence(t, query.Build(), reader)
 	if rewritten == nil {
 		t.Fatal("rewrite returned nil")
 	}
@@ -66,19 +66,19 @@ func TestMaxClauseLimit_LargeTermsNestedFirst(t *testing.T) {
 	reader := newEmptyReader(t)
 	defer func() { _ = reader.Close() }()
 
-	nested := search.NewBooleanQuery()
+	nested := search.NewBooleanQueryBuilder()
 	nested.SetMinimumNumberShouldMatch(5)
 	for i := 0; i < 600; i++ {
 		nested.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
 	}
-	mixed := search.NewBooleanQuery()
-	mixed.Add(nested, search.SHOULD)
+	mixed := search.NewBooleanQueryBuilder()
+	mixed.Add(nested.Build(), search.SHOULD)
 	mixed.SetMinimumNumberShouldMatch(5)
 	for i := 0; i < 600; i++ {
 		mixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
 	}
 
-	rewritten := rewriteToConvergence(t, mixed, reader)
+	rewritten := rewriteToConvergence(t, mixed.Build(), reader)
 	if rewritten == nil {
 		t.Fatal("rewrite returned nil")
 	}
@@ -90,19 +90,19 @@ func TestMaxClauseLimit_LargeTermsNestedLast(t *testing.T) {
 	reader := newEmptyReader(t)
 	defer func() { _ = reader.Close() }()
 
-	nested := search.NewBooleanQuery()
+	nested := search.NewBooleanQueryBuilder()
 	nested.SetMinimumNumberShouldMatch(5)
 	for i := 0; i < 600; i++ {
 		nested.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
 	}
-	mixed := search.NewBooleanQuery()
+	mixed := search.NewBooleanQueryBuilder()
 	mixed.SetMinimumNumberShouldMatch(5)
 	for i := 0; i < 600; i++ {
 		mixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
 	}
-	mixed.Add(nested, search.SHOULD)
+	mixed.Add(nested.Build(), search.SHOULD)
 
-	rewritten := rewriteToConvergence(t, mixed, reader)
+	rewritten := rewriteToConvergence(t, mixed.Build(), reader)
 	if rewritten == nil {
 		t.Fatal("rewrite returned nil")
 	}
@@ -118,9 +118,9 @@ func TestMaxClauseLimit_LargeDisjunctionMaxQuery(t *testing.T) {
 	for i := 0; i < 1049; i++ {
 		clauses = append(clauses, search.NewTermQuery(index.NewTerm("field", "a")))
 	}
-	pq := search.NewPhraseQuery("field")
+	pq := search.NewPhraseQuery(0, "field")
 	clauses = append(clauses, pq)
-	dmq := search.NewDisjunctionMaxQueryWithTieBreaker(clauses, 0.5)
+	dmq := search.NewDisjunctionMaxQuery(clauses, 0.5)
 
 	rewritten := rewriteToConvergence(t, dmq, reader)
 	if rewritten == nil {

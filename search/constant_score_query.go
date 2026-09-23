@@ -5,9 +5,9 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -71,13 +71,13 @@ func (q *ConstantScoreQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 		return NewConstantScoreQuery(bq.Query()), nil
 	}
 
-	return q.BaseQuery.Rewrite(searcher)
+	// super.rewrite(indexSearcher): Query.rewrite returns this.
+	return q, nil
 }
 
 // Visit walks the query tree.
 func (q *ConstantScoreQuery) Visit(visitor QueryVisitor) {
-	// In Lucene: query.visit(visitor.getSubVisitor(BooleanClause.Occur.FILTER, this));
-	q.query.Visit(visitor.GetSubVisitor(MUST, q))
+	q.query.Visit(visitor.GetSubVisitor(FILTER, q))
 }
 
 // CreateWeight creates a Weight for this query.
@@ -145,7 +145,7 @@ func (w *constantScoreQueryWeight) scorerSupplier(ctx *index.LeafReaderContext) 
 	}
 	return &constantScoreQueryScorerSupplier{
 		innerSupplier: innerSupplier,
-		weight:         w,
+		weight:        w,
 	}, nil
 }
 

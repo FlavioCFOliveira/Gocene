@@ -123,11 +123,11 @@ func TestMultiTermConstantScore_EqualScoresWhenNoHits(t *testing.T) {
 	defer cleanup()
 
 	dummyTerm := search.NewTermQuery(index.NewTerm("data", "1"))
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(dummyTerm, search.SHOULD)                          // hits one doc
 	bq.Add(csrq("data", "#", "#", true, true), search.SHOULD) // hits no docs
 
-	top, err := s.Search(bq, 1000)
+	top, err := s.Search(bq.Build(), 1000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -150,11 +150,11 @@ func TestMultiTermConstantScore_BooleanOrderUnAffected(t *testing.T) {
 	}
 	numHits := len(expected.ScoreDocs)
 
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(rq, search.MUST)
 	q.Add(csrq("data", "1", "6", true, true), search.MUST)
 
-	actual, err := s.Search(q, 1000)
+	actual, err := s.Search(q.Build(), 1000)
 	if err != nil {
 		t.Fatalf("Search(q): %v", err)
 	}

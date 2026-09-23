@@ -9,6 +9,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestXYPointSortField_Constructor_RejectsInvalidInputs(t *testing.T) {
@@ -79,8 +81,8 @@ func TestXYPointSortField_Constructor_DefaultsCustomAndAscending(t *testing.T) {
 	if sf.SortField.Field != "loc" {
 		t.Errorf("Field = %q, want %q", sf.SortField.Field, "loc")
 	}
-	if sf.SortField.Type != SortFieldTypeCustom {
-		t.Errorf("Type = %v, want SortFieldTypeCustom", sf.SortField.Type)
+	if sf.SortField.Type != spi.SortFieldTypeCustom {
+		t.Errorf("Type = %v, want spi.SortFieldTypeCustom", sf.SortField.Type)
 	}
 	if sf.SortField.Reverse {
 		t.Errorf("Reverse must default to false (ascending: closest first)")
@@ -211,9 +213,13 @@ func TestXYPointSortField_GetComparator_SizesSlots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ctor: %v", err)
 	}
-	cmp := sf.GetComparator(8, PruningNone)
-	if cmp == nil {
+	fc := sf.GetComparator(8, PruningNone)
+	if fc == nil {
 		t.Fatalf("GetComparator returned nil")
+	}
+	cmp, ok := fc.(*XYPointDistanceComparator)
+	if !ok {
+		t.Fatalf("GetComparator returned %T, want *XYPointDistanceComparator", fc)
 	}
 	if got := len(cmp.values); got != 8 {
 		t.Errorf("values slot count = %d, want 8", got)
@@ -257,7 +263,8 @@ func TestFormatJavaFloat_IntegralAndSpecial(t *testing.T) {
 		if got := formatJavaFloat(tc.in); got != tc.want {
 			t.Errorf("formatJavaFloat(%v) = %q, want %q", tc.in, got, tc.want)
 		}
-	if got := formatJavaFloat(float32(math.NaN())); got != "NaN" {
-		t.Errorf("formatJavaFloat(NaN) = %q, want NaN", got)
+		if got := formatJavaFloat(float32(math.NaN())); got != "NaN" {
+			t.Errorf("formatJavaFloat(NaN) = %q, want NaN", got)
+		}
 	}
-}	}
+}

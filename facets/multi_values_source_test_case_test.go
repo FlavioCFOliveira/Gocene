@@ -19,14 +19,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
-
 	// Blank-import the codec registry so IndexWriter has a default codec able to
 	// persist SortedNumericDocValues to disk.
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90/compressing"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // validateMultiLongValuesMatch checks that a sliceLongValues iterator and a
@@ -176,7 +175,7 @@ func TestMultiValuesSource_IndexIntegration(t *testing.T) {
 	}
 
 	dir := store.NewByteBuffersDirectory()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -192,7 +191,7 @@ func TestMultiValuesSource_IndexIntegration(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

@@ -137,5 +137,25 @@ type collectingLeafCollector struct {
 	collect func(int) error
 }
 
-func (c *collectingLeafCollector) SetScorer(_ search.Scorer) error { return nil }
-func (c *collectingLeafCollector) Collect(doc int) error           { return c.collect(doc) }
+func (c *collectingLeafCollector) SetScorer(_ search.Scorable) error { return nil }
+func (c *collectingLeafCollector) Collect(doc int) error             { return c.collect(doc) }
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *collectingLeafCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *collectingLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *collectingLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *collectingLeafCollector) Finish() error {
+	return nil
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -31,7 +32,7 @@ import (
 func sortOptReader(t *testing.T, numDocs, flushAt int, addFields func(t *testing.T, doc *document.Document, i int)) (*index.DirectoryReader, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -42,12 +43,12 @@ func sortOptReader(t *testing.T, numDocs, flushAt int, addFields func(t *testing
 			t.Fatalf("AddDocument: %v", err)
 		}
 		if flushAt >= 0 && i == flushAt {
-			if err := w.Commit(); err != nil {
+			if _, err := w.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	reader, err := index.OpenDirectoryReader(dir)
@@ -96,9 +97,9 @@ func assertSearchHits(t *testing.T, reader *index.DirectoryReader, query search.
 		err error
 	)
 	if after != nil {
-		td, err = searcher.SearchWithSortAfter(query, n, sort, after)
+		td, err = searcher.SearchWithSortAfter(after, query, n, sort, false)
 	} else {
-		td, err = searcher.SearchWithSort(query, n, sort)
+		td, err = searcher.SearchWithSort(query, n, sort, false)
 	}
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -113,13 +114,13 @@ func sortTopN(t *testing.T, reader *index.DirectoryReader, sort *search.Sort, nu
 }
 
 func longSort(field string, reverse bool) *search.Sort {
-	sf := search.NewSortField(field, search.SortFieldTypeLong)
+	sf := search.NewSortField(field, spi.SortFieldTypeLong)
 	sf.Reverse = reverse
 	return search.NewSort(sf)
 }
 
 func intSort(field string, reverse bool) *search.Sort {
-	sf := search.NewSortField(field, search.SortFieldTypeInt)
+	sf := search.NewSortField(field, spi.SortFieldTypeInt)
 	sf.Reverse = reverse
 	return search.NewSort(sf)
 }
@@ -191,7 +192,7 @@ func TestSortOptimization_WithMissingValuesPointIndex(t *testing.T) {
 	defer cleanup()
 
 	// Sort with missing value = 0 (competitive); first docs should be 0-valued.
-	sf := search.NewSortField("my_field", search.SortFieldTypeLong)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeLong)
 	sf.MissingValue = int64(0)
 	td := sortTopN(t, reader, search.NewSort(sf), 3)
 	if len(td.FieldDocs) != 3 {
@@ -212,7 +213,7 @@ func TestSortOptimization_NumericDVOptimizationWithMissingValuesPointIndex(t *te
 	})
 	defer cleanup()
 
-	sf := search.NewSortField("my_field", search.SortFieldTypeLong)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeLong)
 	sf.Reverse = true
 	sf.MissingValue = int64(0)
 	td := sortTopN(t, reader, search.NewSort(sf), 3)
@@ -247,7 +248,9 @@ func TestSortOptimization_EqualValuesPointIndex(t *testing.T) {
 	}
 }
 
-func TestSortOptimization_EqualValuesSkipperIndex(t *testing.T) { TestSortOptimization_EqualValuesPointIndex(t) }
+func TestSortOptimization_EqualValuesSkipperIndex(t *testing.T) {
+	TestSortOptimization_EqualValuesPointIndex(t)
+}
 
 // ── Float sort ───────────────────────────────────────────────────────────
 
@@ -258,7 +261,7 @@ func TestSortOptimization_FloatSortOptimizationPointIndex(t *testing.T) {
 	})
 	defer cleanup()
 
-	sf := search.NewSortField("my_field", search.SortFieldTypeFloat)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeFloat)
 	td := sortTopN(t, reader, search.NewSort(sf), 3)
 	if len(td.FieldDocs) != 3 {
 		t.Fatalf("float hit count: got %d want %d", len(td.FieldDocs), 3)
@@ -297,11 +300,11 @@ func TestSortOptimization_DocSort(t *testing.T) {
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("lf", "1")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("id", "id3")), search.MUST_NOT)
-	sort := search.NewSort(search.NewSortField("", search.SortFieldTypeDoc))
-	td, err := searcher.SearchWithSort(bq, 10, sort)
+	sort := search.NewSort(search.NewSortField("", spi.SortFieldTypeDoc))
+	td, err := searcher.SearchWithSort(bq.Build(), 10, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -320,7 +323,7 @@ func TestSortOptimization_DocSortOptimization(t *testing.T) {
 	defer cleanup()
 
 	const numHits = 3
-	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", search.SortFieldTypeDoc)), numHits)
+	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", spi.SortFieldTypeDoc)), numHits)
 	if len(td.ScoreDocs) != numHits {
 		t.Fatalf("doc-sort hits: got %d want %d", len(td.ScoreDocs), numHits)
 	}
@@ -340,7 +343,7 @@ func TestSortOptimization_DocSortOptimizationMultipleIndices(t *testing.T) {
 	})
 	defer cleanup()
 
-	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", search.SortFieldTypeDoc)), numDocs)
+	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", spi.SortFieldTypeDoc)), numDocs)
 	if len(td.ScoreDocs) != numDocs {
 		t.Fatalf("doc-sort across segments: got %d want %d", len(td.ScoreDocs), numDocs)
 	}
@@ -362,7 +365,7 @@ func TestSortOptimization_DocSortOptimizationWithAfter(t *testing.T) {
 
 	const numHits = 10
 	for _, searchAfter := range []int{3, 10} {
-		sort := search.NewSort(search.NewSortField("", search.SortFieldTypeDoc))
+		sort := search.NewSort(search.NewSortField("", spi.SortFieldTypeDoc))
 		after := search.NewFieldDocWithFields(searchAfter, float32(math.NaN()), []any{})
 		td := assertSearchHits(t, reader, nil, sort, numHits, after)
 		if len(td.ScoreDocs) != numHits {
@@ -383,7 +386,7 @@ func TestSortOptimization_DocSortOptimizationWithAfterCollectsAllDocs(t *testing
 	defer cleanup()
 
 	// Single batch sort by _doc returns all docs in order.
-	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", search.SortFieldTypeDoc)), numDocs)
+	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", spi.SortFieldTypeDoc)), numDocs)
 	if len(td.ScoreDocs) != numDocs {
 		t.Fatalf("hit count: got %d want %d", len(td.ScoreDocs), numDocs)
 	}
@@ -444,11 +447,11 @@ func TestSortOptimization_OnSortedNumericField(t *testing.T) {
 
 	const numHits = 3
 
-	sfNoOpt := search.NewSortField("my_field", search.SortFieldTypeLong)
+	sfNoOpt := search.NewSortField("my_field", spi.SortFieldTypeLong)
 	sfNoOpt.SetOptimizeSortWithIndexedData(false)
 	unoptimized := sortTopN(t, reader, search.NewSort(sfNoOpt), numHits)
 
-	sfOpt := search.NewSortField("my_field", search.SortFieldTypeLong)
+	sfOpt := search.NewSortField("my_field", spi.SortFieldTypeLong)
 	optimized := sortTopN(t, reader, search.NewSort(sfOpt), numHits)
 
 	if len(unoptimized.FieldDocs) != numHits || len(optimized.FieldDocs) != numHits {
@@ -486,14 +489,14 @@ func TestSortOptimization_PointValidation(t *testing.T) {
 
 	// Basic long sort over long-point field should work.
 	searcher := search.NewIndexSearcher(reader)
-	sf := search.NewSortField("longField", search.SortFieldTypeLong)
-	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sf)); err != nil {
+	sf := search.NewSortField("longField", spi.SortFieldTypeLong)
+	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sf), false); err != nil {
 		t.Fatalf("LONG sort on long-point field: unexpected error: %v", err)
 	}
 
 	// Basic int sort over int-point field should work.
-	sfInt := search.NewSortField("intField", search.SortFieldTypeInt)
-	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sfInt)); err != nil {
+	sfInt := search.NewSortField("intField", spi.SortFieldTypeInt)
+	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sfInt), false); err != nil {
 		t.Fatalf("INT sort on int-point field: unexpected error: %v", err)
 	}
 }
@@ -505,7 +508,7 @@ func TestSortOptimization_PointValidation(t *testing.T) {
 
 func TestSortOptimization_StringSortOptimizationBasedPostings(t *testing.T) {
 	// Verify STRING sort field construction and defaults.
-	sf := search.NewSortField("my_field", search.SortFieldTypeString)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeString)
 	if sf.Reverse {
 		t.Error("expected STRING SortField to default to non-reverse")
 	}
@@ -519,7 +522,7 @@ func TestSortOptimization_StringSortOptimizationBasedDVSkipper(t *testing.T) {
 
 func TestSortOptimization_StringSortOptimizationWithMissingValuesBasedPostings(t *testing.T) {
 	// Verify STRING sort with STRING_FIRST missing value.
-	sf := search.NewSortField("my_field", search.SortFieldTypeString)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeString)
 	sf.MissingValue = search.STRING_FIRST
 	sf.Reverse = true
 	_ = search.NewSort(sf)
@@ -531,7 +534,7 @@ func TestSortOptimization_StringSortOptimizationWithMissingValuesBasedDVSkipper(
 
 func TestSortOptimization_StringSortOptimizationFieldMissingInSegmentBasedPostings(t *testing.T) {
 	// Verify STRING sort optimization API (SetOptimizeSortWithIndexedData).
-	sf := search.NewSortField("my_field", search.SortFieldTypeString)
+	sf := search.NewSortField("my_field", spi.SortFieldTypeString)
 	sf.MissingValue = search.STRING_LAST
 	sf.SetOptimizeSortWithIndexedData(false)
 	_ = search.NewSort(sf)

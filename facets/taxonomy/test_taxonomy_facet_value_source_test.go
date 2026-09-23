@@ -115,7 +115,7 @@ func TestTaxonomyFacetValueSource_Basic(t *testing.T) {
 
 	config := facets.NewFacetsConfig()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestTaxonomyFacetValueSource_Basic(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -175,7 +175,7 @@ func TestTaxonomyFacetValueSource_Basic(t *testing.T) {
 		t.Fatal("nil result")
 	}
 	if result.Value != 5 {
-		t.Errorf("total value: want 5, got %d", result.Value)
+		t.Errorf("total value: want 5, got %v", result.Value)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestTaxonomyFacetValueSource_WithScore(t *testing.T) {
 
 	config := facets.NewFacetsConfig()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("creating index writer: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestTaxonomyFacetValueSource_WithScore(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer commit: %v", err)
 	}
 	if err := taxoWriter.Commit(); err != nil {
@@ -256,6 +256,6 @@ func TestTaxonomyFacetValueSource_WithScore(t *testing.T) {
 		t.Fatal("nil result")
 	}
 	if result.Value != 5 {
-		t.Errorf("total value: want 5, got %d", result.Value)
+		t.Errorf("total value: want 5, got %v", result.Value)
 	}
 }

@@ -30,11 +30,11 @@ func TestNot_TestNot(t *testing.T) {
 	s, cleanup := ix.searcher()
 	defer cleanup()
 
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.SHOULD)
 	q.Add(search.NewTermQuery(index.NewTerm("field", "b")), search.MUST_NOT)
 
-	top, err := s.Search(q, 1000)
+	top, err := s.Search(q.Build(), 1000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

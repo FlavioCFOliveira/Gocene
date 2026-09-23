@@ -48,10 +48,10 @@ func TestComplexExplanations_FQ5(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
 	query := search.NewTermQuery(index.NewTerm(explField, "xx"))
-	filtered := search.NewBooleanQuery()
+	filtered := search.NewBooleanQueryBuilder()
 	filtered.Add(search.NewBoostQuery(query, 0), search.MUST)
 	filtered.Add(tc.matchTheseItems([]int{1, 3}), search.FILTER)
-	tc.bqtest(filtered, []int{3})
+	tc.bqtest(filtered.Build(), []int{3})
 }
 
 func TestComplexExplanations_CSQ4(t *testing.T) {
@@ -64,13 +64,12 @@ func TestComplexExplanations_CSQ4(t *testing.T) {
 func TestComplexExplanations_DMQ10(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewTermQuery(index.NewTerm(explField, "yy")), search.SHOULD)
 	query.Add(search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "w5")), 100), search.SHOULD)
 
 	xxBoosted := search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "xx")), 0)
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(
-		[]search.Query{query, xxBoosted}, 0.5)
+	q := search.NewDisjunctionMaxQuery([]search.Query{query.Build(), xxBoosted}, 0.5)
 	tc.bqtest(search.NewBoostQuery(q, 0), []int{0, 2, 3})
 }
 
@@ -88,46 +87,46 @@ func TestComplexExplanations_BQ12(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
 	// NOTE: using qtest not bqtest
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewTermQuery(index.NewTerm(explField, "w1")), search.SHOULD)
 	query.Add(search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "w2")), 0), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestComplexExplanations_BQ13(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
 	// NOTE: using qtest not bqtest
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewTermQuery(index.NewTerm(explField, "w1")), search.SHOULD)
 	query.Add(search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "w5")), 0), search.MUST_NOT)
-	tc.qtest(query, []int{1, 2, 3})
+	tc.qtest(query.Build(), []int{1, 2, 3})
 }
 
 func TestComplexExplanations_BQ18(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
 	// NOTE: using qtest not bqtest
-	query := search.NewBooleanQuery()
+	query := search.NewBooleanQueryBuilder()
 	query.Add(search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "w1")), 0), search.MUST)
 	query.Add(search.NewTermQuery(index.NewTerm(explField, "w2")), search.SHOULD)
-	tc.qtest(query, []int{0, 1, 2, 3})
+	tc.qtest(query.Build(), []int{0, 1, 2, 3})
 }
 
 func TestComplexExplanations_BQ21(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
-	builder := search.NewBooleanQuery()
+	builder := search.NewBooleanQueryBuilder()
 	builder.Add(search.NewTermQuery(index.NewTerm(explField, "w1")), search.MUST)
 	builder.Add(search.NewTermQuery(index.NewTerm(explField, "w2")), search.SHOULD)
-	tc.bqtest(search.NewBoostQuery(builder, 0), []int{0, 1, 2, 3})
+	tc.bqtest(search.NewBoostQuery(builder.Build(), 0), []int{0, 1, 2, 3})
 }
 
 func TestComplexExplanations_BQ22(t *testing.T) {
 	tc := newComplexExplanationTestCase(t)
 	defer tc.cleanup()
-	builder := search.NewBooleanQuery()
+	builder := search.NewBooleanQueryBuilder()
 	builder.Add(search.NewBoostQuery(search.NewTermQuery(index.NewTerm(explField, "w1")), 0), search.MUST)
 	builder.Add(search.NewTermQuery(index.NewTerm(explField, "w2")), search.SHOULD)
-	tc.bqtest(search.NewBoostQuery(builder, 0), []int{0, 1, 2, 3})
+	tc.bqtest(search.NewBoostQuery(builder.Build(), 0), []int{0, 1, 2, 3})
 }

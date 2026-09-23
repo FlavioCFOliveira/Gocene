@@ -55,17 +55,17 @@ func TestPrefixInBooleanQuery_TermQuery(t *testing.T) {
 func TestPrefixInBooleanQuery_TermBooleanQuery(t *testing.T) {
 	s, done := buildPrefixInBooleanIndex(t)
 	defer done()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(search.NewTermQuery(index.NewTerm(prefixBoolField, "tangfulin")), search.SHOULD)
 	q.Add(search.NewTermQuery(index.NewTerm(prefixBoolField, "notexistnames")), search.SHOULD)
-	assertHitCount(t, s, q, 2)
+	assertHitCount(t, s, q.Build(), 2)
 }
 
 func TestPrefixInBooleanQuery_PrefixBooleanQuery(t *testing.T) {
 	s, done := buildPrefixInBooleanIndex(t)
 	defer done()
-	q := search.NewBooleanQuery()
+	q := search.NewBooleanQueryBuilder()
 	q.Add(search.NewPrefixQuery(index.NewTerm(prefixBoolField, "tang")), search.SHOULD)
 	q.Add(search.NewTermQuery(index.NewTerm(prefixBoolField, "notexistnames")), search.SHOULD)
-	assertHitCount(t, s, q, 2)
+	assertHitCount(t, s, q.Build(), 2)
 }

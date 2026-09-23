@@ -23,14 +23,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // nearestIndex is a small writer harness for the Nearest suite. Unlike the
@@ -46,7 +45,7 @@ type nearestIndex struct {
 func newNearestIndex(t *testing.T) *nearestIndex {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -76,7 +75,7 @@ func (ix *nearestIndex) addPoint(lat, lon float64, id string) {
 // deleteByID deletes every document whose "id" term equals id.
 func (ix *nearestIndex) deleteByID(id string) {
 	ix.t.Helper()
-	if _, err := ix.w.DeleteDocuments(index.NewTerm("id", id)); err != nil {
+	if _, err := ix.w.DeleteDocuments([]index.Term{*index.NewTerm("id", id)}); err != nil {
 		ix.t.Fatalf("DeleteDocuments: %v", err)
 	}
 }
@@ -86,7 +85,7 @@ func (ix *nearestIndex) deleteByID(id string) {
 // the reader only.
 func (ix *nearestIndex) reader() (*search.IndexSearcher, func()) {
 	ix.t.Helper()
-	if err := ix.w.Commit(); err != nil {
+	if _, err := ix.w.Commit(); err != nil {
 		ix.t.Fatalf("Commit: %v", err)
 	}
 	r, err := index.OpenDirectoryReader(ix.dir)

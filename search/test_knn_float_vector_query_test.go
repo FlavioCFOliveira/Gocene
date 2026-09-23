@@ -109,7 +109,7 @@ func TestKnnFloatVectorQuery_ScoreDotProduct(t *testing.T) {
 	defer cleanup()
 
 	q := search.NewKnnFloatVectorQuery("field", l2normalize([]float32{2, 3}), 3)
-	rewritten, err := q.Rewrite(s.GetIndexReader())
+	rewritten, err := q.Rewrite(s)
 	if err != nil {
 		t.Fatalf("rewrite: %v", err)
 	}
@@ -131,24 +131,24 @@ func TestKnnFloatVectorQuery_ScoreDotProduct(t *testing.T) {
 	// score1 = ((2,3)·(2,4)=16)/(||2,3||·||2,4||=sqrt(260)), normalized (1+x)/2.
 	score1 := float32((1 + (2*2+3*4)/math.Sqrt((2*2+3*3)*(2*2+4*4))) / 2)
 
-	if got := scorer.GetMaxScore(search.NO_MORE_DOCS); math.Abs(float64(got-score1)) > 1e-4 {
-		t.Fatalf("getMaxScore = %f, want %f", got, score1)
+	if got, err := scorer.GetMaxScore(search.NO_MORE_DOCS); err != nil || math.Abs(float64(got-score1)) > 1e-4 {
+		t.Fatalf("getMaxScore = %f, want %f (err: %v)", got, score1, err)
 	}
-	doc, _ := scorer.NextDoc()
+	doc, _ := scorer.Iterator().NextDoc()
 	if doc != 0 {
 		t.Fatalf("first doc = %d, want 0", doc)
 	}
-	if got := scorer.Score(); math.Abs(float64(got-score0)) > 1e-4 {
-		t.Fatalf("doc0 score = %f, want %f", got, score0)
+	if got, err := scorer.Score(); err != nil || math.Abs(float64(got-score0)) > 1e-4 {
+		t.Fatalf("doc0 score = %f, want %f (err: %v)", got, score0, err)
 	}
-	adv, _ := scorer.Advance(1)
+	adv, _ := scorer.Iterator().Advance(1)
 	if adv != 1 {
 		t.Fatalf("advance(1) = %d, want 1", adv)
 	}
-	if got := scorer.Score(); math.Abs(float64(got-score1)) > 1e-4 {
-		t.Fatalf("doc1 score = %f, want %f", got, score1)
+	if got, err := scorer.Score(); err != nil || math.Abs(float64(got-score1)) > 1e-4 {
+		t.Fatalf("doc1 score = %f, want %f (err: %v)", got, score1, err)
 	}
-	end, _ := scorer.Advance(4)
+	end, _ := scorer.Iterator().Advance(4)
 	if end != search.NO_MORE_DOCS {
 		t.Fatalf("advance(4) = %d, want NO_MORE_DOCS", end)
 	}

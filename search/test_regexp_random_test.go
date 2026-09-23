@@ -23,6 +23,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -60,10 +61,7 @@ func TestRegexpRandom_Regexps(t *testing.T) {
 	assertPatternHits := func(template string, numHits int64) {
 		t.Helper()
 		pattern := regexpFillPattern(rng, template)
-		wq, err := search.NewRegexpQuery("field", pattern)
-		if err != nil {
-			t.Fatalf("NewRegexpQuery(%q): %v", pattern, err)
-		}
+		wq := search.NewRegexpQuery(index.NewTerm("field", pattern))
 		top, err := s.Search(wq, 25)
 		if err != nil {
 			t.Fatalf("Search(%q): %v", pattern, err)

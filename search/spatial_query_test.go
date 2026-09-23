@@ -374,7 +374,7 @@ func TestSpatialQuery_CreateWeight_BuildsConstantScoreWeight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSpatialQuery: %v", err)
 	}
-	w, err := q.CreateWeight(nil, true, 0.5)
+	w, err := q.CreateWeight(nil, COMPLETE, 0.5)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}

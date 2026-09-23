@@ -21,7 +21,7 @@ func ExampleIndexSearcher() {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		panic(err)
@@ -35,7 +35,7 @@ func ExampleIndexSearcher() {
 	if _, err := w.AddDocument(doc); err != nil {
 		panic(err)
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		panic(err)
 	}
 	if err := w.Close(); err != nil {

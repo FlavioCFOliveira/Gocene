@@ -17,6 +17,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // pbjItoa renders an int as its plain decimal string. The package-level itoa
@@ -103,7 +104,7 @@ func pbjAssertScorerResults(
 		t.Errorf("initial scorer.DocID() = %d, want -1", scorer.DocID())
 	}
 	for i := 0; i < count; i++ {
-		docID, err := scorer.NextDoc()
+		docID, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc[%d]: %v", i, err)
 		}
@@ -119,7 +120,7 @@ func pbjAssertScorerResults(
 		if !ok {
 			t.Fatalf("hit id %q not in expected set %v", id, idToScore)
 		}
-		sc := scorer.Score()
+		sc := mustScorerScore(t, scorer)
 		if diff := sc - want; diff > 1e-4 || diff < -1e-4 {
 			t.Errorf("score for id %q = %v, want %v", id, sc, want)
 		}
@@ -134,7 +135,7 @@ func pbjAssertScorerResults(
 func pbjAddFamily(t *testing.T, w *index.IndexWriter, parentID string, size, dim int) {
 	t.Helper()
 	rng := newPBJRand(int64(hashString(parentID)))
-	var family []index.Document
+	var family []*document.Document
 	for i := 0; i < size; i++ {
 		d := document.NewDocument()
 		vf, err := document.NewKnnFloatVectorFieldEuclidean("field", pbjRandomVector(rng, dim))
@@ -154,7 +155,7 @@ func pbjAddFamily(t *testing.T, w *index.IndexWriter, parentID string, size, dim
 // accepted for symmetry with the search path but unused.
 func pbjAllDocsIterator(_ *search.IndexSearcher, ctx *index.LeafReaderContext, _ search.Query) (util.DocIdSetIterator, error) {
 	maxDoc := ctx.LeafReader().MaxDoc()
-	accept := search.AcceptDocsFromLiveDocs(nil, maxDoc)
+	accept := search.FromLiveDocs(nil, maxDoc)
 	return accept.Iterator()
 }
 

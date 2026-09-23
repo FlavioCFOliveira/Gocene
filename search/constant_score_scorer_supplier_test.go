@@ -45,7 +45,11 @@ func TestConstantScoreScorerSupplier_Get_BuildsConstantScoreScorer(t *testing.T)
 	if !ok {
 		t.Fatalf("scorer type: got %T, want *ConstantScoreScorer", scorer)
 	}
-	if got, want := css.Score(), float32(0.75); got != want {
+	v48_18, err := css.Score()
+	if err != nil {
+		t.Fatalf("css.Score: %v", err)
+	}
+	if got, want := v48_18, float32(0.75); got != want {
 		t.Fatalf("scorer Score: got %v, want %v", got, want)
 	}
 	if got, want := css.GetScoreMode(), COMPLETE; got != want {
@@ -63,7 +67,7 @@ func TestConstantScoreScorerSupplier_NilFactoryFallsBackToEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got, err := scorer.NextDoc(); err != nil || got != NO_MORE_DOCS {
+	if got, err := scorer.Iterator().NextDoc(); err != nil || got != NO_MORE_DOCS {
 		t.Fatalf("scorer NextDoc on fallback: got doc=%d err=%v, want doc=%d", got, err, NO_MORE_DOCS)
 	}
 }
@@ -110,9 +114,9 @@ func TestConstantScoreScorerSupplier_GetPropagatesFactoryError(t *testing.T) {
 		t.Fatalf("Get: err=%v, want wrapped %v", err, target)
 	}
 
-// TestConstantScoreScorerSupplierFromIterator_WrapsIterator confirms
-// the convenience constructor wraps a pre-built iterator and that
-// Cost is propagated from the iterator.
+	// TestConstantScoreScorerSupplierFromIterator_WrapsIterator confirms
+	// the convenience constructor wraps a pre-built iterator and that
+	// Cost is propagated from the iterator.
 }
 func TestConstantScoreScorerSupplierFromIterator_WrapsIterator(t *testing.T) {
 	t.Parallel()
@@ -125,7 +129,11 @@ func TestConstantScoreScorerSupplierFromIterator_WrapsIterator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got, want := scorer.Score(), float32(0.25); got != want {
+	v128_18, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
+	if got, want := v128_18, float32(0.25); got != want {
 		t.Fatalf("scorer Score: got %v, want %v", got, want)
 	}
 }

@@ -1,5 +1,9 @@
 package uhighlight
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
 // Port of
 // org.apache.lucene.search.uhighlight.visibility.TestUnifiedHighlighterExtensibility.
 //
@@ -28,7 +32,7 @@ func newCustomExtensibilityStrategy(field string, source OffsetSource) *customEx
 
 func (s *customExtensibilityStrategy) GetOffsetSource() OffsetSource { return s.source }
 
-func (s *customExtensibilityStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
+func (s *customExtensibilityStrategy) GetOffsetsEnum(_ index.LeafReader, _ int, _ string) (OffsetsEnum, error) {
 	return NewSliceOffsetsEnum(nil), nil
 }
 

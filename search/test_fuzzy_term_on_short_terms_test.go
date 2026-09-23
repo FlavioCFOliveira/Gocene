@@ -31,7 +31,7 @@ func fuzzyCountHits(t *testing.T, docs []string, q *FuzzyQuery, expected int) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -46,7 +46,7 @@ func fuzzyCountHits(t *testing.T, docs []string, q *FuzzyQuery, expected int) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -67,8 +67,8 @@ func fuzzyCountHits(t *testing.T, docs []string, q *FuzzyQuery, expected int) {
 		t.Errorf("%s: hits=%d, want %d", q.String(fuzzyShortField), got, expected)
 	}
 
-// TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms mirrors testFuzzyTermOnShortTerms:
-// the edit-distance bound must allow short terms to match (LUCENE-7439).
+	// TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms mirrors testFuzzyTermOnShortTerms:
+	// the edit-distance bound must allow short terms to match (LUCENE-7439).
 }
 func TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms(t *testing.T) {
 	fz := func(text string, maxEdits int) *FuzzyQuery {

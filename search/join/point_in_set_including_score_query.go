@@ -8,8 +8,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
+	"reflect"
+	"strconv"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -579,4 +584,58 @@ func (v *mergePointVisitor) VisitByIntsRef(ref *util.IntsRef) error {
 // does not override.
 func (v *mergePointVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
 	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// pointInSetIncludingScoreQueryToString renders the package-private static
+// field PointInSetIncludingScoreQuery.toString, a BiFunction<byte[], Class<?
+// extends Number>, String> that decodes a packed point of the given numeric
+// type and renders it with Integer/Long/Float/Double.toString.
+func pointInSetIncludingScoreQueryToString(value []byte, numericType reflect.Type) string {
+	switch numericType {
+	case JoinNumericTypeInteger:
+		return strconv.FormatInt(int64(document.DecodeDimensionIntLucene(value, 0)), 10)
+	case JoinNumericTypeLong:
+		return strconv.FormatInt(document.DecodeDimensionLongLucene(value, 0), 10)
+	case JoinNumericTypeFloat:
+		return javaFloatingToString(float64(document.DecodeDimensionFloatLucene(value, 0)), 32)
+	case JoinNumericTypeDouble:
+		return javaFloatingToString(document.DecodeDimensionDoubleLucene(value, 0), 64)
+	default:
+		panic("unsupported numeric type " + fmt.Sprint(numericType))
+	}
+}
+
+// javaFloatingToString renders Float.toString(float) (bitSize 32) and
+// Double.toString(double) (bitSize 64): the shortest digits that round-trip,
+// in plain notation for magnitudes in [1e-3, 1e7) with at least one fraction
+// digit, and in computerized scientific notation ("1.0E10") otherwise.
+func javaFloatingToString(v float64, bitSize int) string {
+	switch {
+	case math.IsNaN(v):
+		return "NaN"
+	case math.IsInf(v, 1):
+		return "Infinity"
+	case math.IsInf(v, -1):
+		return "-Infinity"
+	case v == 0:
+		if math.Signbit(v) {
+			return "-0.0"
+		}
+		return "0.0"
+	}
+	abs := math.Abs(v)
+	if abs >= 1e-3 && abs < 1e7 {
+		s := strconv.FormatFloat(v, 'f', -1, bitSize)
+		if !strings.Contains(s, ".") {
+			s += ".0"
+		}
+		return s
+	}
+	s := strconv.FormatFloat(v, 'E', -1, bitSize) // e.g. 1E+10, 1.5E-05
+	mantissa, exp, _ := strings.Cut(s, "E")
+	if !strings.Contains(mantissa, ".") {
+		mantissa += ".0"
+	}
+	n, _ := strconv.Atoi(exp) // FormatFloat always emits a valid exponent
+	return mantissa + "E" + strconv.Itoa(n)
 }

@@ -17,10 +17,11 @@
 package search
 
 import (
+	"testing"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"testing"
 )
 
 // TestJustCompileSearch is a marker test confirming that this file compiles.
@@ -59,8 +60,8 @@ func (d *justCompileDISI) DocIDRunEnd() (int, error) { panic("compile check only
 // justCompileScorer embeds justCompileDISI to satisfy the embedded DocIdSetIterator.
 type justCompileScorer struct{ justCompileDISI }
 
-func (s *justCompileScorer) Score() float32            { panic("compile check only") }
-func (s *justCompileScorer) GetMaxScore(_ int) float32 { panic("compile check only") }
+func (s *justCompileScorer) Score() (float32, error)            { panic("compile check only") }
+func (s *justCompileScorer) GetMaxScore(_ int) (float32, error) { panic("compile check only") }
 func (s *justCompileScorer) AdvanceShallow(int) (int, error) {
 	panic("compile check only")
 }
@@ -69,12 +70,42 @@ func (s *justCompileScorer) TwoPhaseIterator() *TwoPhaseIterator { return nil }
 
 type justCompileQuery struct{}
 
-func (q *justCompileQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-func (q *justCompileQuery) Clone() Query                         { return q }
-func (q *justCompileQuery) Equals(_ spi.Query) bool              { return false }
-func (q *justCompileQuery) HashCode() int                        { return 0 }
-func (q *justCompileQuery) CreateWeight(_ *IndexSearcher, _ bool, _ float32) (Weight, error) {
+func (q *justCompileQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
+func (q *justCompileQuery) Clone() Query                            { return q }
+func (q *justCompileQuery) Equals(_ spi.Query) bool                 { return false }
+func (q *justCompileQuery) HashCode() int                           { return 0 }
+func (q *justCompileQuery) CreateWeight(_ *IndexSearcher, _ ScoreMode, _ float32) (Weight, error) {
 	return nil, nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *justCompileCollector) SetWeight(weight Weight) {
+
+}
+
+// Visit is abstract in Lucene's Query; this double does not support it.
+func (q *justCompileQuery) Visit(visitor QueryVisitor) {
+	panic("justCompileQuery.Visit: unsupported operation")
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *justCompileScorer) GetChildren() ([]ChildScorable, error) {
+	return nil, nil
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *justCompileScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *justCompileScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *justCompileScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
 }
 
 // justCompileWeight is not asserted via var _ because Weight has many methods

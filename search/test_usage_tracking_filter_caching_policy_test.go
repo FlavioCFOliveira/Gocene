@@ -125,7 +125,7 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheDocValuesFieldExistsFilter(t
 func TestUsageTrackingFilterCachingPolicy_BooleanQueries(t *testing.T) {
 	// Build a BooleanQuery over SHOULD clauses and verify the policy never caches
 	// it under the standard (non-IndexSearcher) policy path.
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
 
@@ -140,8 +140,8 @@ func TestUsageTrackingFilterCachingPolicy_BooleanQueries(t *testing.T) {
 	}
 	// The BooleanQuery itself may be cacheable under the policy, but without
 	// LRUQueryCache integration it's just classification.
-	policy.OnUse(bq)
-	policy.OnUse(bq)
-	policy.OnUse(bq)
-	policy.OnUse(bq)
+	policy.OnUse(bq.Build())
+	policy.OnUse(bq.Build())
+	policy.OnUse(bq.Build())
+	policy.OnUse(bq.Build())
 }

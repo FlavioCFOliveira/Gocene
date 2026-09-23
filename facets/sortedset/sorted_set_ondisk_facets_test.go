@@ -20,16 +20,15 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Blank-import the codecs so the production Lucene104 codec is registered
+	// as the default; without it flushDocValues is a no-op and the field has
+	// no SortedSetDocValues on read.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/facets/sortedset"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Blank-import the codecs so the production Lucene104 codec is registered
-	// as the default; without it flushDocValues is a no-op and the field has
-	// no SortedSetDocValues on read.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // ssdvTestDoc is a minimal index.Document carrying the supplied fields.
@@ -78,7 +77,7 @@ func TestSortedSetFacets_OnDiskEndToEnd(t *testing.T) {
 	const indexField = "$facets"
 
 	dir := store.NewByteBuffersDirectory()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -173,7 +172,7 @@ func TestSortedSetFacets_OnDiskRespectsBits(t *testing.T) {
 	const indexField = "$facets"
 
 	dir := store.NewByteBuffersDirectory()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

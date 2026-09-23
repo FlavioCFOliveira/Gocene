@@ -22,7 +22,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 
 	query := search.NewTermQuery(index.NewTerm("content", "test"))
 
-	rewritten, err := query.Rewrite(reader)
+	rewritten, err := query.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -96,11 +96,11 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	}
 	defer reader.Close()
 
-	boolQuery := search.NewBooleanQuery()
+	boolQuery := search.NewBooleanQueryBuilder()
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "1")), search.SHOULD)
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "2")), search.SHOULD)
 
-	rewritten, err := boolQuery.Rewrite(reader)
+	rewritten, err := boolQuery.Build().Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite failed: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -141,11 +141,11 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	defer reader.Close()
 
 	phraseQuery := search.NewPhraseQueryBuilder().
-		AddTerm(index.NewTerm("id", "1")).
-		AddTerm(index.NewTerm("id", "2")).
+		Add(index.NewTerm("id", "1")).
+		Add(index.NewTerm("id", "2")).
 		Build()
 
-	rewritten, err := phraseQuery.Rewrite(reader)
+	rewritten, err := phraseQuery.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite failed: %v", err)
 	}
@@ -159,7 +159,7 @@ func BenchmarkQueryExpansion_Rewrite(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 	for i := 0; i < 1000; i++ {
@@ -178,6 +178,6 @@ func BenchmarkQueryExpansion_Rewrite(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		query.Rewrite(reader)
+		query.Rewrite(search.NewIndexSearcher(reader))
 	}
 }

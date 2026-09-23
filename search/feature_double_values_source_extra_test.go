@@ -53,7 +53,7 @@ func buildFeatureIndex(t *testing.T, docSpecs [][]featureSpec) (*index.Directory
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	cfg := index.NewIndexWriterConfig(analyzer)
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -74,7 +74,7 @@ func buildFeatureIndex(t *testing.T, docSpecs [][]featureSpec) (*index.Directory
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge(1): %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -139,12 +139,12 @@ func assertAdvanceMiss(t *testing.T, values *search.FeatureDoubleValues, doc int
 		t.Errorf("AdvanceExact(%d) = true, want false", doc)
 	}
 
-// openValues builds the source and resolves the per-leaf reader for "field"/"name".
-//
-// If GetValues fails with the well-known "core readers are nil" gap (see file
-// header), the test is skipped instead of fatal: the entire roundtrip wiring
-// is otherwise correct and will start passing the moment OpenDirectoryReader
-// switches to NewSegmentReaderWithCore.
+	// openValues builds the source and resolves the per-leaf reader for "field"/"name".
+	//
+	// If GetValues fails with the well-known "core readers are nil" gap (see file
+	// header), the test is skipped instead of fatal: the entire roundtrip wiring
+	// is otherwise correct and will start passing the moment OpenDirectoryReader
+	// switches to NewSegmentReaderWithCore.
 }
 func openValues(t *testing.T, leaf *index.LeafReaderContext) *search.FeatureDoubleValues {
 	t.Helper()

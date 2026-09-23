@@ -22,10 +22,10 @@ func TestSimilarityScoring_BM25Basic(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// Use BM25 similarity
-	bm25Similarity := search.NewBM25Similarity()
+	bm25Similarity := search.NewLuceneBM25Similarity()
 	_ = bm25Similarity // SetSimilarity not yet implemented on IndexWriterConfig
 
 	writer, err := index.NewIndexWriter(dir, config)
@@ -58,7 +58,7 @@ func TestSimilarityScoring_BM25Basic(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// Use TF-IDF similarity
 	tfidfSimilarity := search.NewClassicSimilarity()
@@ -121,7 +121,7 @@ func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestSimilarityScoring_DocumentFrequency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestSimilarityScoring_DocumentFrequency(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestSimilarityScoring_TermFrequency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -235,7 +235,7 @@ func TestSimilarityScoring_TermFrequency(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -257,7 +257,7 @@ func TestSimilarityScoring_FieldLengthNorm(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -289,7 +289,7 @@ func TestSimilarityScoring_FieldLengthNorm(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -311,7 +311,7 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -357,11 +357,11 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Boolean query with SHOULD clauses
-	boolQuery := search.NewBooleanQuery()
+	boolQuery := search.NewBooleanQueryBuilder()
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "lucene")), search.SHOULD)
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "search")), search.SHOULD)
 
-	topDocs, err := searcher.Search(boolQuery, 10)
+	topDocs, err := searcher.Search(boolQuery.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -407,7 +407,7 @@ func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -421,8 +421,8 @@ func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
 
 	// Phrase query
 	phraseQuery := search.NewPhraseQueryBuilder().
-		AddTerm(index.NewTerm("content", "quick")).
-		AddTerm(index.NewTerm("content", "brown")).
+		Add(index.NewTerm("content", "quick")).
+		Add(index.NewTerm("content", "brown")).
 		Build()
 
 	topDocs, err := searcher.Search(phraseQuery, 10)
@@ -438,7 +438,7 @@ func TestSimilarityScoring_ScoreConsistency(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -460,7 +460,7 @@ func TestSimilarityScoring_ScoreConsistency(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -487,10 +487,10 @@ func TestSimilarityScoring_BM25Parameters(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// Test with different BM25 parameters
-	bm25Similarity := search.NewBM25SimilarityWithParams(1.2, 0.75)
+	bm25Similarity := search.NewLuceneBM25SimilarityWithParams(1.2, 0.75)
 	_ = bm25Similarity // SetSimilarity not yet implemented on IndexWriterConfig
 
 	writer, err := index.NewIndexWriter(dir, config)
@@ -513,7 +513,7 @@ func TestSimilarityScoring_BM25Parameters(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -535,8 +535,8 @@ func BenchmarkSimilarityScoring_BM25(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	bm25Similarity := search.NewBM25Similarity()
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
+	bm25Similarity := search.NewLuceneBM25Similarity()
 	_ = bm25Similarity // SetSimilarity not yet implemented on IndexWriterConfig
 
 	writer, _ := index.NewIndexWriter(dir, config)
@@ -572,7 +572,7 @@ func BenchmarkSimilarityScoring_TFIDF(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	tfidfSimilarity := search.NewClassicSimilarity()
 	_ = tfidfSimilarity // SetSimilarity not yet implemented on IndexWriterConfig
 

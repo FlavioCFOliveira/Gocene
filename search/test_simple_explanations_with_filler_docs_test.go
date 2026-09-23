@@ -57,7 +57,7 @@ type fillerExplanationTestCase struct {
 func newFillerExplanationTestCase(t *testing.T) *fillerExplanationTestCase {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -88,7 +88,7 @@ func newFillerExplanationTestCase(t *testing.T) *fillerExplanationTestCase {
 			fillerSeed++
 		}
 	}
-	if err = w.Commit(); err != nil {
+	if _, err = w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err = w.Close(); err != nil {
@@ -122,10 +122,10 @@ func (tc *fillerExplanationTestCase) qtest(q search.Query, expDocNrs []int) {
 	for i, d := range expDocNrs {
 		remapped[i] = fillerPreFillerDocs + (fillerNumFillerDocs+1)*d
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(q, search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm(fillerExtra, fillerExtra)), search.MUST_NOT)
-	wrapped := search.Query(bq)
+	wrapped := search.Query(bq.Build())
 
 	testsearch.CheckHitCollector(tc.t, wrapped, explField, tc.searcher, remapped)
 	testsearch.CheckExplanations(tc.t, wrapped, explField, tc.searcher, true)

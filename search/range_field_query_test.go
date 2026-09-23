@@ -5,6 +5,7 @@
 package search
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -265,7 +266,7 @@ func TestRfqMatches_CONTAINS(t *testing.T) {
 // constructor (no numDims/bytesPerDim) produces a Weight without error.
 func TestRangeFieldQuery_CreateWeight_LegacyNoError(t *testing.T) {
 	q := NewRangeFieldQuery("f", []byte{0, 0, 0, 10}, []byte{0, 0, 0, 20}, RangeFieldQueryTypeIntersects)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -285,7 +286,7 @@ func TestRangeFieldQuery_CreateWeight_FullNoError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRangeFieldQueryFull: %v", err)
 	}
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -302,7 +303,7 @@ func TestRangeFieldQuery_CreateWeight_NoPointValues(t *testing.T) {
 		1, 4,
 		RangeFieldQueryTypeIntersects,
 	)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -368,7 +369,7 @@ func TestRangeFieldQuery_CreateWeight_WithPointValues(t *testing.T) {
 		1, 4,
 		RangeFieldQueryTypeIntersects,
 	)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -398,7 +399,7 @@ func TestRangeFieldQuery_CreateWeight_WithPointValues(t *testing.T) {
 	// Collect matching doc IDs.
 	var got []int
 	for {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
@@ -442,13 +443,15 @@ func (r *stubNoPointValuesLeaf) GetRefCount() int32  { return 1 }
 func (r *stubNoPointValuesLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *stubNoPointValuesLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
-func (r *stubNoPointValuesLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
-func (r *stubNoPointValuesLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}                      { return r }
-func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
-func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)               { return nil, nil }
-func (r *stubNoPointValuesLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
+func (r *stubNoPointValuesLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
+func (r *stubNoPointValuesLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
+func (r *stubNoPointValuesLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}                { return r }
+func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
+func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)         { return nil, nil }
+func (r *stubNoPointValuesLeaf) Postings(_ spi.Term, _ int) (spi.PostingsEnum, error) {
+	return nil, nil
+}
 func (r *stubNoPointValuesLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
@@ -476,15 +479,15 @@ func (r *stubNoPointValuesLeaf) GetFloatVectorValues(_ string) (index.FloatVecto
 func (r *stubNoPointValuesLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
 	return nil, nil
 }
-func (r *stubNoPointValuesLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+func (r *stubNoPointValuesLeaf) GetDocValuesSkipper(_ string) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 func (r *stubNoPointValuesLeaf) CheckIntegrity() error                              { return nil }
 func (r *stubNoPointValuesLeaf) GetMetaData() *index.IndexReaderMetaData            { return nil }
 func (r *stubNoPointValuesLeaf) GetSegmentInfo() *index.SegmentInfo                 { return nil }
 func (r *stubNoPointValuesLeaf) GetPointValues(_ string) (index.PointValues, error) { return nil, nil }
-func (r *stubNoPointValuesLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
-	return index.TopDocs{}, nil
+func (r *stubNoPointValuesLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits, _ int) (spi.TopDocs, error) {
+	return spi.TopDocs{}, nil
 }
 
 var _ index.LeafReaderInterface = (*stubNoPointValuesLeaf)(nil)
@@ -502,6 +505,144 @@ func (r *stubPointValuesLeaf) GetPointValues(field string) (index.PointValues, e
 		return r.pv, nil
 	}
 	return nil, nil
+}
+
+// DocFreq carries the default body Lucene gives LeafReader.DocFreq.
+func (r *stubNoPointValuesLeaf) DocFreq(term spi.Term) (int, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.DocFreq()
+}
+
+// DocID carries the default body Lucene gives LeafReader.DocID.
+func (r *stubNoPointValuesLeaf) DocID() int {
+	return 0
+}
+
+// GetCoreCacheHelper carries the default body Lucene gives LeafReader.GetCoreCacheHelper.
+func (r *stubNoPointValuesLeaf) GetCoreCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// GetFieldInfos carries the default body Lucene gives LeafReader.GetFieldInfos.
+func (r *stubNoPointValuesLeaf) GetFieldInfos() *spi.FieldInfos {
+	return spi.NewFieldInfos()
+}
+
+// GetLiveDocs carries the default body Lucene gives LeafReader.GetLiveDocs.
+func (r *stubNoPointValuesLeaf) GetLiveDocs() util.Bits {
+	return nil
+}
+
+// GetReaderCacheHelper carries the default body Lucene gives LeafReader.GetReaderCacheHelper.
+func (r *stubNoPointValuesLeaf) GetReaderCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// SearchNearestVectorsByteCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubNoPointValuesLeaf) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubNoPointValuesLeaf.SearchNearestVectorsByteCollector: unsupported operation")
+}
+
+// SearchNearestVectorsCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubNoPointValuesLeaf) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubNoPointValuesLeaf.SearchNearestVectorsCollector: unsupported operation")
+}
+
+// TotalTermFreq carries the default body Lucene gives LeafReader.TotalTermFreq.
+func (r *stubNoPointValuesLeaf) TotalTermFreq(term spi.Term) (int64, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.TotalTermFreq()
+}
+
+// DocFreq carries the default body Lucene gives LeafReader.DocFreq.
+func (r *stubPointValuesLeaf) DocFreq(term spi.Term) (int, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.DocFreq()
+}
+
+// DocID carries the default body Lucene gives LeafReader.DocID.
+func (r *stubPointValuesLeaf) DocID() int {
+	return 0
+}
+
+// GetCoreCacheHelper carries the default body Lucene gives LeafReader.GetCoreCacheHelper.
+func (r *stubPointValuesLeaf) GetCoreCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// GetFieldInfos carries the default body Lucene gives LeafReader.GetFieldInfos.
+func (r *stubPointValuesLeaf) GetFieldInfos() *spi.FieldInfos {
+	return spi.NewFieldInfos()
+}
+
+// GetLiveDocs carries the default body Lucene gives LeafReader.GetLiveDocs.
+func (r *stubPointValuesLeaf) GetLiveDocs() util.Bits {
+	return nil
+}
+
+// GetReaderCacheHelper carries the default body Lucene gives LeafReader.GetReaderCacheHelper.
+func (r *stubPointValuesLeaf) GetReaderCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// SearchNearestVectorsByteCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubPointValuesLeaf) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubPointValuesLeaf.SearchNearestVectorsByteCollector: unsupported operation")
+}
+
+// SearchNearestVectorsCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubPointValuesLeaf) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubPointValuesLeaf.SearchNearestVectorsCollector: unsupported operation")
+}
+
+// TotalTermFreq carries the default body Lucene gives LeafReader.TotalTermFreq.
+func (r *stubPointValuesLeaf) TotalTermFreq(term spi.Term) (int64, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.TotalTermFreq()
 }
 
 // stubRangeFieldPointValues is an in-memory index.PointValues. Before the two

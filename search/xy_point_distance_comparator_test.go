@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // xyDistanceFakeSortedNumeric is a minimal SortedNumericDocValues stub used
@@ -104,6 +105,16 @@ func (f *xyDistanceFakeSortedNumeric) DocValueCount() (int, error) {
 	return len(f.values[f.idx]), nil
 }
 
+// DocIDRunEnd carries the default body Lucene gives SortedNumericDocValues.DocIDRunEnd.
+func (f *xyDistanceFakeSortedNumeric) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedNumericDocValues.IntoBitSet.
+func (f *xyDistanceFakeSortedNumeric) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
 // encodeXYPoint packs (x, y) into the same SortedNumeric layout produced by
 // XYDocValuesField — upper 32 bits = encoded x, lower 32 bits = encoded y.
 // Re-implemented locally to keep the search-package test free of a document
@@ -163,7 +174,7 @@ func TestXYPointDistanceComparator_CopyAndCompare_OrderClosestFirst(t *testing.T
 
 	wantDistances := []float64{0, 5, 10, 15}
 	for slot, want := range wantDistances {
-		got := cmp.Value(slot)
+		got := cmp.Value(slot).(float64)
 		if math.Abs(got-want) > 1e-3 {
 			t.Errorf("Value(slot=%d) = %v, want %v", slot, got, want)
 		}
@@ -195,7 +206,7 @@ func TestXYPointDistanceComparator_MultiValued_PicksClosestPoint(t *testing.T) {
 	if err := cmp.Copy(0, 0); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	if got := cmp.Value(0); got > 1e-3 {
+	if got := cmp.Value(0).(float64); got > 1e-3 {
 		t.Errorf("multi-valued doc Value = %v, want ~0 (closest point wins)", got)
 	}
 }
@@ -210,7 +221,7 @@ func TestXYPointDistanceComparator_MissingDoc_ReturnsInfinity(t *testing.T) {
 	if err := cmp.Copy(0, 5); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	if got := cmp.Value(0); !math.IsInf(got, 1) {
+	if got := cmp.Value(0).(float64); !math.IsInf(got, 1) {
 		t.Errorf("Value(missing) = %v, want +Inf", got)
 	}
 }
@@ -222,7 +233,7 @@ func TestXYPointDistanceComparator_NilDocs_ReturnsInfinity(t *testing.T) {
 	if err := cmp.Copy(0, 0); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
-	if got := cmp.Value(0); !math.IsInf(got, 1) {
+	if got := cmp.Value(0).(float64); !math.IsInf(got, 1) {
 		t.Errorf("Value(nil docs) = %v, want +Inf", got)
 	}
 }

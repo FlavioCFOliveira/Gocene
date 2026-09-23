@@ -30,10 +30,10 @@ func TestSimpleSearchEquivalence_TermVersusBooleanOr(t *testing.T) {
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	q1 := sseTermQuery(t1)
-	q2 := search.NewBooleanQuery()
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.SHOULD)
 	q2.Add(sseTermQuery(t2), search.SHOULD)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1, q2.Build())
 }
 
 // TestSimpleSearchEquivalence_TermVersusBooleanReqOpt ports testTermVersusBooleanReqOpt: A ⊆ (+A B).
@@ -43,10 +43,10 @@ func TestSimpleSearchEquivalence_TermVersusBooleanReqOpt(t *testing.T) {
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	q1 := sseTermQuery(t1)
-	q2 := search.NewBooleanQuery()
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.MUST)
 	q2.Add(sseTermQuery(t2), search.SHOULD)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1, q2.Build())
 }
 
 // TestSimpleSearchEquivalence_BooleanReqExclVersusTerm ports testBooleanReqExclVersusTerm: (A -B) ⊆ A.
@@ -55,11 +55,11 @@ func TestSimpleSearchEquivalence_BooleanReqExclVersusTerm(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewBooleanQuery()
+	q1 := search.NewBooleanQueryBuilder()
 	q1.Add(sseTermQuery(t1), search.MUST)
 	q1.Add(sseTermQuery(t2), search.MUST_NOT)
 	q2 := sseTermQuery(t1)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1.Build(), q2)
 }
 
 // TestSimpleSearchEquivalence_BooleanAndVersusBooleanOr ports testBooleanAndVersusBooleanOr: (A B) ⊆ (A B).
@@ -68,13 +68,13 @@ func TestSimpleSearchEquivalence_BooleanAndVersusBooleanOr(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewBooleanQuery()
+	q1 := search.NewBooleanQueryBuilder()
 	q1.Add(sseTermQuery(t1), search.SHOULD)
 	q1.Add(sseTermQuery(t2), search.SHOULD)
-	q2 := search.NewBooleanQuery()
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.SHOULD)
 	q2.Add(sseTermQuery(t2), search.SHOULD)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1.Build(), q2.Build())
 }
 
 // TestSimpleSearchEquivalence_DisjunctionSumVersusDisjunctionMax ports
@@ -84,11 +84,11 @@ func TestSimpleSearchEquivalence_DisjunctionSumVersusDisjunctionMax(t *testing.T
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewBooleanQuery()
+	q1 := search.NewBooleanQueryBuilder()
 	q1.Add(sseTermQuery(t1), search.SHOULD)
 	q1.Add(sseTermQuery(t2), search.SHOULD)
-	q2 := search.NewDisjunctionMaxQueryWithTieBreaker([]search.Query{sseTermQuery(t1), sseTermQuery(t2)}, 0.5)
-	h.seqAssertSameSet(q1, q2)
+	q2 := search.NewDisjunctionMaxQuery([]search.Query{sseTermQuery(t1), sseTermQuery(t2)}, 0.5)
+	h.seqAssertSameSet(q1.Build(), q2)
 }
 
 // TestSimpleSearchEquivalence_ExactPhraseVersusBooleanAnd ports
@@ -98,11 +98,11 @@ func TestSimpleSearchEquivalence_ExactPhraseVersusBooleanAnd(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewPhraseQuery(t1.Field, t1, t2)
-	q2 := search.NewBooleanQuery()
+	q1 := search.NewPhraseQueryWithTerms(0, t1.Field, t1, t2)
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.MUST)
 	q2.Add(sseTermQuery(t2), search.MUST)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1, q2.Build())
 }
 
 // TestSimpleSearchEquivalence_ExactPhraseVersusBooleanAndWithHoles ports
@@ -113,13 +113,13 @@ func TestSimpleSearchEquivalence_ExactPhraseVersusBooleanAndWithHoles(t *testing
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	b := search.NewPhraseQueryBuilder()
-	b.AddTermAtPosition(t1, 0)
-	b.AddTermAtPosition(t2, 2)
+	b.AddWithPosition(t1, 0)
+	b.AddWithPosition(t2, 2)
 	q1 := b.Build()
-	q2 := search.NewBooleanQuery()
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.MUST)
 	q2.Add(sseTermQuery(t2), search.MUST)
-	h.seqAssertSubsetOf(q1, q2)
+	h.seqAssertSubsetOf(q1, q2.Build())
 }
 
 // TestSimpleSearchEquivalence_PhraseVersusSloppyPhrase ports
@@ -129,8 +129,8 @@ func TestSimpleSearchEquivalence_PhraseVersusSloppyPhrase(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewPhraseQuery(t1.Field, t1, t2)
-	q2 := search.NewPhraseQueryWithSlop(1, t1.Field, t1, t2)
+	q1 := search.NewPhraseQueryWithTerms(0, t1.Field, t1, t2)
+	q2 := search.NewPhraseQueryWithTerms(1, t1.Field, t1, t2)
 	h.seqAssertSubsetOf(q1, q2)
 }
 
@@ -142,13 +142,13 @@ func TestSimpleSearchEquivalence_PhraseVersusSloppyPhraseWithHoles(t *testing.T)
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	b := search.NewPhraseQueryBuilder()
-	b.AddTermAtPosition(t1, 0)
-	b.AddTermAtPosition(t2, 2)
+	b.AddWithPosition(t1, 0)
+	b.AddWithPosition(t2, 2)
 	q1 := b.Build()
 	b2 := search.NewPhraseQueryBuilder()
 	b2.SetSlop(2)
-	b2.AddTermAtPosition(t1, 0)
-	b2.AddTermAtPosition(t2, 2)
+	b2.AddWithPosition(t1, 0)
+	b2.AddWithPosition(t2, 2)
 	q2 := b2.Build()
 	h.seqAssertSubsetOf(q1, q2)
 }
@@ -161,7 +161,7 @@ func TestSimpleSearchEquivalence_ExactPhraseVersusMultiPhrase(t *testing.T) {
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	t3 := h.randomTerm()
-	q1 := search.NewPhraseQuery(t1.Field, t1, t2)
+	q1 := search.NewPhraseQueryWithTerms(0, t1.Field, t1, t2)
 	q2b := search.NewMultiPhraseQueryBuilder()
 	q2b.Add(t1)
 	q2b.AddTerms([]*index.Term{t2, t3})
@@ -177,8 +177,8 @@ func TestSimpleSearchEquivalence_ExactPhraseVersusMultiPhraseWithHoles(t *testin
 	t2 := h.randomTerm()
 	t3 := h.randomTerm()
 	b := search.NewPhraseQueryBuilder()
-	b.AddTermAtPosition(t1, 0)
-	b.AddTermAtPosition(t2, 2)
+	b.AddWithPosition(t1, 0)
+	b.AddWithPosition(t2, 2)
 	q1 := b.Build()
 	q2b := search.NewMultiPhraseQueryBuilder()
 	q2b.Add(t1)
@@ -193,11 +193,11 @@ func TestSimpleSearchEquivalence_SloppyPhraseVersusBooleanAnd(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTermDistinct(t1)
-	q1 := search.NewPhraseQueryWithSlop(int(^uint(0)>>1), t1.Field, t1, t2)
-	q2 := search.NewBooleanQuery()
+	q1 := search.NewPhraseQueryWithTerms(int(^uint(0)>>1), t1.Field, t1, t2)
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.MUST)
 	q2.Add(sseTermQuery(t2), search.MUST)
-	h.seqAssertSameSet(q1, q2)
+	h.seqAssertSameSet(q1, q2.Build())
 }
 
 // TestSimpleSearchEquivalence_PhraseRelativePositions ports
@@ -207,10 +207,10 @@ func TestSimpleSearchEquivalence_PhraseRelativePositions(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewPhraseQuery(t1.Field, t1, t2)
+	q1 := search.NewPhraseQueryWithTerms(0, t1.Field, t1, t2)
 	b := search.NewPhraseQueryBuilder()
-	b.AddTermAtPosition(t1, 10000)
-	b.AddTermAtPosition(t2, 10001)
+	b.AddWithPosition(t1, 10000)
+	b.AddWithPosition(t2, 10001)
 	q2 := b.Build()
 	h.seqAssertSameScores(q1, q2)
 }
@@ -222,11 +222,11 @@ func TestSimpleSearchEquivalence_SloppyPhraseRelativePositions(t *testing.T) {
 	defer h.close()
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
-	q1 := search.NewPhraseQueryWithSlop(2, t1.Field, t1, t2)
+	q1 := search.NewPhraseQueryWithTerms(2, t1.Field, t1, t2)
 	b := search.NewPhraseQueryBuilder()
 	b.SetSlop(2)
-	b.AddTermAtPosition(t1, 10000)
-	b.AddTermAtPosition(t2, 10001)
+	b.AddWithPosition(t1, 10000)
+	b.AddWithPosition(t2, 10001)
 	q2 := b.Build()
 	h.seqAssertSameScores(q1, q2)
 }
@@ -259,10 +259,10 @@ func TestSimpleSearchEquivalence_BooleanBoostPropagation(t *testing.T) {
 
 	boost2 := rng.Float32()
 	q1 := search.NewBoostQuery(tq, boost2)
-	inner := search.NewBooleanQuery()
+	inner := search.NewBooleanQueryBuilder()
 	inner.Add(tq, search.MUST)
 	inner.Add(tq, search.FILTER)
-	q2 := search.NewBoostQuery(inner, boost2)
+	q2 := search.NewBoostQuery(inner.Build(), boost2)
 	h.seqAssertSameScores(q1, q2)
 }
 
@@ -273,8 +273,8 @@ func TestSimpleSearchEquivalence_BooleanOrVsSynonym(t *testing.T) {
 	t1 := h.randomTerm()
 	t2 := h.randomTerm()
 	q1 := search.NewSynonymQueryBuilder(t1.Field).AddTerm(t1).AddTerm(t2).Build()
-	q2 := search.NewBooleanQuery()
+	q2 := search.NewBooleanQueryBuilder()
 	q2.Add(sseTermQuery(t1), search.SHOULD)
 	q2.Add(sseTermQuery(t2), search.SHOULD)
-	h.seqAssertSameSet(q1, q2)
+	h.seqAssertSameSet(q1, q2.Build())
 }

@@ -11,6 +11,7 @@
 package join
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -23,7 +24,7 @@ import (
 
 // newDoc builds a document from a field->value map of StringFields (not
 // stored). Field iteration order is irrelevant to block joins.
-func newDoc(t *testing.T, fields map[string]string) index.Document {
+func newDoc(t *testing.T, fields map[string]string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	for name, value := range fields {
@@ -44,21 +45,21 @@ func skill(s string) search.Query {
 // compares identically to the integer values. See the deviation note in
 // block_join_test_helpers_test.go.
 func yearRange(field string, lo, hi int) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for y := lo; y <= hi; y++ {
 		bq.Add(search.NewTermQuery(index.NewTerm(field, itoa(y))), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 // childSkillAndYear builds the recurring child query
 // (skill=java MUST) AND (year in [2006,2011] MUST) used by several methods.
 func childSkillAndYear(t *testing.T, skillValue string, lo, hi int) search.Query {
 	t.Helper()
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(skill(skillValue), search.MUST)
 	bq.Add(yearRange("year", lo, hi), search.MUST)
-	return bq
+	return bq.Build()
 }
 
 // asNameSet returns the set of stored "name" values for the given global docIDs.
@@ -102,11 +103,11 @@ func TestBlockJoin_EmptyChildFilter(t *testing.T) {
 	childQuery := childSkillAndYear(t, "java", 2006, 2011)
 	childJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, Avg)
 
-	fullQuery := search.NewBooleanQuery()
+	fullQuery := search.NewBooleanQueryBuilder()
 	fullQuery.Add(childJoinQuery, search.MUST)
 	fullQuery.Add(search.NewMatchAllDocsQuery(), search.MUST)
 
-	topDocs, err := s.Search(fullQuery, 2)
+	topDocs, err := s.Search(fullQuery.Build(), 2)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -135,11 +136,11 @@ func TestBlockJoin_BQShouldJoinedChild(t *testing.T) {
 	parentQuery := search.NewTermQuery(index.NewTerm("country", "United Kingdom"))
 	childJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, Avg)
 
-	fullQuery := search.NewBooleanQuery()
+	fullQuery := search.NewBooleanQueryBuilder()
 	fullQuery.Add(parentQuery, search.SHOULD)
 	fullQuery.Add(childJoinQuery, search.SHOULD)
 
-	topDocs, err := s.Search(fullQuery, 2)
+	topDocs, err := s.Search(fullQuery.Build(), 2)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestBlockJoin_SimpleKnn(t *testing.T) {
 	if got := storedString(childDoc, "my_parent_id"); got != "parent1" {
 		t.Errorf("top child my_parent_id = %q, want parent1", got)
 	}
-	want := index.VectorSimilarityFunctionEuclidean.Compare(
+	want := index.VectorSimilarityFunctionEuclidean.CompareFloat(
 		[]float32{4, 4, 4}, []float32{3, 3, 3})
 	if diff := topDocs.ScoreDocs[0].Score - want; diff > 1e-7 || diff < -1e-7 {
 		t.Errorf("top score = %v, want %v", topDocs.ScoreDocs[0].Score, want)
@@ -232,11 +233,11 @@ func TestBlockJoin_Simple(t *testing.T) {
 	parentQuery := search.NewTermQuery(index.NewTerm("country", "United Kingdom"))
 	childJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, Avg)
 
-	fullQuery := search.NewBooleanQuery()
+	fullQuery := search.NewBooleanQueryBuilder()
 	fullQuery.Add(parentQuery, search.MUST)
 	fullQuery.Add(childJoinQuery, search.MUST)
 
-	topDocs, err := s.Search(fullQuery, 1)
+	topDocs, err := s.Search(fullQuery.Build(), 1)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -253,11 +254,11 @@ func TestBlockJoin_Simple(t *testing.T) {
 
 	// Now join "up" (map parent hits to child docs).
 	parentJoinQuery := NewToChildBlockJoinQuery(parentQuery, parentsFilter, None)
-	fullChildQuery := search.NewBooleanQuery()
+	fullChildQuery := search.NewBooleanQueryBuilder()
 	fullChildQuery.Add(parentJoinQuery, search.MUST)
 	fullChildQuery.Add(childQuery, search.MUST)
 
-	hits, err := s.Search(fullChildQuery, 10)
+	hits, err := s.Search(fullChildQuery.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search up: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestBlockJoin_Simple(t *testing.T) {
 
 	// Filter on child docs: skill=foosball matches nothing.
 	fullChildQuery.Add(skill("foosball"), search.FILTER)
-	if c := count(t, s, fullChildQuery); c != 0 {
+	if c := count(t, s, fullChildQuery.Build()); c != 0 {
 		t.Errorf("count with foosball filter = %d, want 0", c)
 	}
 }
@@ -323,26 +324,26 @@ func TestBlockJoin_SimpleFilter(t *testing.T) {
 	}
 
 	// FILTER by docType=resume (all parents): should still match both.
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(childJoinQuery, search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("docType", "resume")), search.FILTER)
-	if c := count(t, s, bq); c != 2 {
+	if c := count(t, s, bq.Build()); c != 2 {
 		t.Fatalf("resume-filter count = %d, want 2", c)
 	}
 
 	// FILTER by country=Oz (no match): should match none.
-	bq2 := search.NewBooleanQuery()
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(childJoinQuery, search.MUST)
 	bq2.Add(search.NewTermQuery(index.NewTerm("country", "Oz")), search.FILTER)
-	if c := count(t, s, bq2); c != 0 {
+	if c := count(t, s, bq2.Build()); c != 0 {
 		t.Fatalf("Oz count = %d, want 0", c)
 	}
 
 	// FILTER by country=United Kingdom: should match Lisa only.
-	bq3 := search.NewBooleanQuery()
+	bq3 := search.NewBooleanQueryBuilder()
 	bq3.Add(childJoinQuery, search.MUST)
 	bq3.Add(search.NewTermQuery(index.NewTerm("country", "United Kingdom")), search.FILTER)
-	top, err := s.Search(bq3, 10)
+	top, err := s.Search(bq3.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search UK: %v", err)
 	}
@@ -356,10 +357,10 @@ func TestBlockJoin_SimpleFilter(t *testing.T) {
 	}
 
 	// FILTER by country=United States: should match Frank only.
-	bq4 := search.NewBooleanQuery()
+	bq4 := search.NewBooleanQueryBuilder()
 	bq4.Add(childJoinQuery, search.MUST)
 	bq4.Add(search.NewTermQuery(index.NewTerm("country", "United States")), search.FILTER)
-	top2, err := s.Search(bq4, 10)
+	top2, err := s.Search(bq4.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search US: %v", err)
 	}
@@ -395,15 +396,15 @@ func TestBlockJoin_BoostBug(t *testing.T) {
 	_ = r
 
 	q := NewToParentBlockJoinQuery(
-		search.NewMatchNoDocsQuery(),
+		search.MatchNoDocsQueryInstance,
 		NewQueryBitSetProducer(search.NewMatchAllDocsQuery()),
 		Avg)
 	if _, err := s.Search(q, 10); err != nil {
 		t.Fatalf("Search join: %v", err)
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(q, search.MUST)
-	if _, err := s.Search(search.NewBoostQuery(bq, 2), 10); err != nil {
+	if _, err := s.Search(search.NewBoostQuery(bq.Build(), 2), 10); err != nil {
 		t.Fatalf("Search boosted: %v", err)
 	}
 }
@@ -474,7 +475,7 @@ func TestBlockJoin_Random(t *testing.T) {
 		})
 
 		numChildren := 1 + rng.Intn(maxChildrenPerPar)
-		joinBlock := make([]index.Document, 0, numChildren+1)
+		joinBlock := make([]*document.Document, 0, numChildren+1)
 
 		for cid := 0; cid < numChildren; cid++ {
 			cVal := childValues[rng.Intn(numChildFieldVals)]
@@ -516,10 +517,10 @@ func TestBlockJoin_Random(t *testing.T) {
 	if len(deleteIDs) > 0 {
 		for _, bid := range deleteIDs {
 			delQ := search.NewTermQuery(index.NewTerm("blockID", bid))
-			if _, err := joinW.DeleteDocumentsQuery(delQ); err != nil {
+			if _, err := joinW.DeleteDocumentsQuery([]index.Query{delQ}); err != nil {
 				t.Fatalf("joinW.DeleteDocumentsQuery: %v", err)
 			}
-			if _, err := plainW.DeleteDocumentsQuery(delQ); err != nil {
+			if _, err := plainW.DeleteDocumentsQuery([]index.Query{delQ}); err != nil {
 				t.Fatalf("plainW.DeleteDocumentsQuery: %v", err)
 			}
 		}
@@ -589,7 +590,7 @@ func newFSDir(t *testing.T) store.Directory {
 
 func openBlockWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -635,20 +636,20 @@ func TestBlockJoin_MultiChildTypes(t *testing.T) {
 
 	childJobQuery := childSkillAndYear(t, "java", 2006, 2011)
 
-	childQualificationQuery := search.NewBooleanQuery()
+	childQualificationQuery := search.NewBooleanQueryBuilder()
 	childQualificationQuery.Add(search.NewTermQuery(index.NewTerm("qualification", "maths")), search.MUST)
 	childQualificationQuery.Add(yearRange("year", 1980, 2000), search.MUST)
 
 	parentQuery := search.NewTermQuery(index.NewTerm("country", "United Kingdom"))
 	childJobJoinQuery := NewToParentBlockJoinQuery(childJobQuery, parentsFilter, Avg)
-	childQualificationJoinQuery := NewToParentBlockJoinQuery(childQualificationQuery, parentsFilter, Avg)
+	childQualificationJoinQuery := NewToParentBlockJoinQuery(childQualificationQuery.Build(), parentsFilter, Avg)
 
-	fullQuery := search.NewBooleanQuery()
+	fullQuery := search.NewBooleanQueryBuilder()
 	fullQuery.Add(parentQuery, search.MUST)
 	fullQuery.Add(childJobJoinQuery, search.MUST)
 	fullQuery.Add(childQualificationJoinQuery, search.MUST)
 
-	topDocs, err := s.Search(fullQuery, 10)
+	topDocs, err := s.Search(fullQuery.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -680,7 +681,7 @@ func TestBlockJoin_AdvanceSingleParentSingleChild(t *testing.T) {
 	if sc == nil {
 		t.Fatal("expected non-nil scorer")
 	}
-	doc, err := sc.Advance(1)
+	doc, err := sc.Iterator().Advance(1)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -716,7 +717,7 @@ func TestBlockJoin_AdvanceSingleParentNoChild(t *testing.T) {
 		t.Fatal("expected non-nil scorer")
 	}
 	// The only matching child is doc 2 (child=2), whose parent is doc 2.
-	doc, err := sc.Advance(0)
+	doc, err := sc.Iterator().Advance(0)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -779,7 +780,7 @@ func TestBlockJoin_AdvanceSingleDeletedParentNoChild(t *testing.T) {
 	)
 	// Childless parent block (parent=2, isparent=yes) — this one is deleted.
 	addBlock(t, w, newDoc(t, map[string]string{"parent": "2", "isparent": "yes"}))
-	if _, err := w.DeleteDocuments(index.NewTerm("parent", "2")); err != nil {
+	if _, err := w.DeleteDocuments([]index.Term{*index.NewTerm("parent", "2")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	// Live block re-adding parent=2 with a child (child=2 + parent=2,isparent=yes).
@@ -833,7 +834,7 @@ func TestBlockJoin_IntersectionWithRandomApproximation(t *testing.T) {
 		{children: []string{"bar", "bar"}, fooParent: "bar"},
 	}
 	for _, b := range blocks {
-		docs := make([]index.Document, 0, len(b.children)+1)
+		docs := make([]*document.Document, 0, len(b.children)+1)
 		for _, fc := range b.children {
 			docs = append(docs, newDoc(t, map[string]string{"foo_child": fc}))
 		}
@@ -847,22 +848,17 @@ func TestBlockJoin_IntersectionWithRandomApproximation(t *testing.T) {
 	toChild := NewToChildBlockJoinQuery(search.NewTermQuery(index.NewTerm("foo_parent", "bar")), parentsFilter, None)
 	childQuery := search.NewTermQuery(index.NewTerm("foo_child", "baz"))
 
-	bq1 := search.NewBooleanQuery()
+	bq1 := search.NewBooleanQueryBuilder()
 	bq1.Add(toChild, search.MUST)
 	bq1.Add(childQuery, search.MUST)
 
-	// The Lucene test wraps childQuery in a RandomApproximationQuery to force
-	// real advance() calls through a two-phase approximation. Gocene's Scorer
-	// interface exposes two-phase only via the optional HasTwoPhaseIterator
-	// helper, and the BooleanQuery conjunction consumes it; randomApproxQuery
-	// wraps the child with such a two-phase view so this exercises the same
-	// approximation/advance path.
-	bq2 := search.NewBooleanQuery()
+	// .add(new RandomApproximationQuery(childQuery, random()), Occur.MUST)
+	t.Fatal("requires org.apache.lucene.tests.search.RandomApproximationQuery (not ported)")
+	bq2 := search.NewBooleanQueryBuilder()
 	bq2.Add(toChild, search.MUST)
-	bq2.Add(newRandomApproximationQuery(childQuery, 12345), search.MUST)
 
-	if count(t, s, bq1) != count(t, s, bq2) {
-		t.Errorf("count(bq1)=%d != count(bq2)=%d", count(t, s, bq1), count(t, s, bq2))
+	if count(t, s, bq1.Build()) != count(t, s, bq2.Build()) {
+		t.Errorf("count(bq1)=%d != count(bq2)=%d", count(t, s, bq1.Build()), count(t, s, bq2.Build()))
 	}
 }
 
@@ -885,7 +881,7 @@ func TestBlockJoin_ParentScoringBug(t *testing.T) {
 	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
 	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
 	// Delete the first child of every parent.
-	if _, err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+	if _, err := w.DeleteDocuments([]index.Term{*index.NewTerm("skill", "java")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	_, s := commitAndOpen(t, dir, w)
@@ -916,7 +912,7 @@ func TestBlockJoin_ToChildBlockJoinQueryExplain(t *testing.T) {
 	dir, w := newBlockWriter(t)
 	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
 	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
-	if _, err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+	if _, err := w.DeleteDocuments([]index.Term{*index.NewTerm("skill", "java")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	_, s := commitAndOpen(t, dir, w)
@@ -969,7 +965,7 @@ func TestBlockJoin_ToChildInitialAdvanceParentButNoKids(t *testing.T) {
 	}
 	// The first parent (doc 0) has no children, so the first child returned must
 	// be doc 1 (the only child, belonging to the second parent at doc 2).
-	doc, err := sc.Advance(0)
+	doc, err := sc.Iterator().Advance(0)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -1033,11 +1029,11 @@ func TestBlockJoin_MultiChildQueriesOfDiffParentLevels(t *testing.T) {
 		None,
 	)
 
-	fullQuery := search.NewBooleanQuery()
+	fullQuery := search.NewBooleanQueryBuilder()
 	fullQuery.Add(jobQuery, search.MUST)
 	fullQuery.Add(resumeQuery, search.MUST)
 
-	topDocs, err := s.Search(fullQuery, 10)
+	topDocs, err := s.Search(fullQuery.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -1064,6 +1060,23 @@ type freqSimScorer struct{}
 // Score returns the term frequency unchanged.
 func (freqSimScorer) Score(doc int, freq float32, norm int64) float32 { return freq }
 
+// AsBulkSimScorer carries the default body Lucene gives SimScorer.AsBulkSimScorer.
+func (x freqSimScorer) AsBulkSimScorer() search.BulkSimScorer {
+	return search.NewDefaultBulkSimScorer(x)
+}
+
+// Explain104 carries the default body Lucene gives SimScorer.Explain104.
+func (x freqSimScorer) Explain104(freq search.Explanation, norm int64) search.Explanation {
+	e := search.NewExplanation(true, x.Score104(freq.GetValue(), norm), fmt.Sprintf("score(freq=%v), with freq of:", freq.GetValue()))
+	e.AddDetail(freq)
+	return e
+}
+
+// Score104 is abstract in Lucene's SimScorer; this double does not support it.
+func (x freqSimScorer) Score104(freq float32, norm int64) float32 {
+	panic("freqSimScorer.Score104: unsupported operation")
+}
+
 // freqSimilarity is a Similarity whose scorer returns score=freq. It mirrors
 // the test-only SimilarityBase used by TestBlockJoin.testScoreMode (and is
 // injected into the IndexSearcher via SetSimilarity).
@@ -1083,6 +1096,11 @@ func (s *freqSimilarity) Scorer(collectionStats *search.CollectionStatistics, te
 // String returns the descriptive name embedded in explanations, matching the
 // anonymous SimilarityBase's toString() == "TestSim".
 func (s *freqSimilarity) String() string { return "TestSim" }
+
+// Scorer104 is abstract in Lucene's Similarity; this double does not support it.
+func (s *freqSimilarity) Scorer104(boost float32, collectionStats *search.CollectionStatistics, termStats ...*search.TermStatistics) search.SimScorer {
+	panic("freqSimilarity.Scorer104: unsupported operation")
+}
 
 // TestBlockJoin_ScoreMode corresponds to TestBlockJoin.testScoreMode. It builds
 // the parent/child block [child("foo"="bar bar"), child("foo"="bar"), empty,

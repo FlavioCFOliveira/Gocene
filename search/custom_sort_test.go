@@ -16,13 +16,13 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Register the production codec so DocValues are actually flushed.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	// Register the production codec so DocValues are actually flushed.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // csDoc is one document: a primary "value" numeric DocValues field and an
@@ -38,7 +38,7 @@ type csDoc struct {
 func buildCustomSortIndex(t testing.TB, docs []csDoc) (*search.IndexSearcher, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -60,7 +60,7 @@ func buildCustomSortIndex(t testing.TB, docs []csDoc) (*search.IndexSearcher, fu
 			t.Fatalf("doc %d AddDocument: %v", i, err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -103,8 +103,8 @@ func TestCustomSort_BasicSort(t *testing.T) {
 	})
 	defer cleanup()
 
-	sort := search.NewSort(search.NewSortField("value", search.SortFieldTypeLong))
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort)
+	sort := search.NewSort(search.NewSortField("value", spi.SortFieldTypeLong))
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -120,8 +120,8 @@ func TestCustomSort_DescendingSort(t *testing.T) {
 	})
 	defer cleanup()
 
-	sort := search.NewSort(search.NewSortFieldReverse("value", search.SortFieldTypeLong))
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort)
+	sort := search.NewSort(search.NewSortFieldWithReverse("value", spi.SortFieldTypeLong, true))
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -145,10 +145,10 @@ func TestCustomSort_MultiFieldSort(t *testing.T) {
 	defer cleanup()
 
 	sort := search.NewSort(
-		search.NewSortField("group", search.SortFieldTypeLong),
-		search.NewSortField("value", search.SortFieldTypeLong),
+		search.NewSortField("group", spi.SortFieldTypeLong),
+		search.NewSortField("value", spi.SortFieldTypeLong),
 	)
-	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort)
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort: %v", err)
 	}
@@ -165,12 +165,13 @@ func BenchmarkCustomSort_Performance(b *testing.B) {
 	}
 	s, cleanup := buildCustomSortIndex(b, docs)
 	defer cleanup()
-	sort := search.NewSort(search.NewSortField("value", search.SortFieldTypeLong))
+	sort := search.NewSort(search.NewSortField("value", spi.SortFieldTypeLong))
 	q := search.NewMatchAllDocsQuery()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := s.SearchWithSort(q, 10, sort); err != nil {
+		if _, err := s.SearchWithSort(q, 10, sort, false); err != nil {
 			b.Fatalf("SearchWithSort: %v", err)
 		}
-}	}
+	}
+}

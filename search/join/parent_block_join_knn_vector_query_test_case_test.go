@@ -43,7 +43,7 @@ import (
 // pbjMakeChild builds a child document with a float vector for field and a
 // stored "id". Mirrors the per-child documents created throughout
 // ParentBlockJoinKnnVectorQueryTestCase.
-func pbjMakeChild(t *testing.T, field string, vector []float32, id string, sim index.VectorSimilarityFunction) index.Document {
+func pbjMakeChild(t *testing.T, field string, vector []float32, id string, sim index.VectorSimilarityFunction) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	vf, err := document.NewKnnFloatVectorField(field, vector, sim)
@@ -57,7 +57,7 @@ func pbjMakeChild(t *testing.T, field string, vector []float32, id string, sim i
 
 // pbjMakeParent builds a parent document (docType=_parent), optionally storing
 // a parentId. Mirrors makeParent / the createFamily parent.
-func pbjMakeParent(t *testing.T, parentID string) index.Document {
+func pbjMakeParent(t *testing.T, parentID string) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "docType", "_parent", false))
@@ -69,7 +69,7 @@ func pbjMakeParent(t *testing.T, parentID string) index.Document {
 
 // pbjMakeOther builds a non-vector child document carrying only "other=value".
 // Mirrors the no-vector child documents in getIndexStore / testIndexWithNoVectors.
-func pbjMakeOther(t *testing.T) index.Document {
+func pbjMakeOther(t *testing.T) *document.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "other", "value", false))
@@ -103,7 +103,7 @@ func TestParentBlockJoinKnnQueryTestCase_EmptyIndex(t *testing.T) {
 		t.Errorf("empty index returned %d hits, want 0", len(td.ScoreDocs))
 	}
 
-	rewritten, err := kvq.Rewrite(r)
+	rewritten, err := kvq.Rewrite(search.NewIndexSearcher(r))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches(t *testing.T)
 func TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren(t *testing.T) {
 	dir, w := newBlockWriter(t)
 	// Block 1: children {1,1}..{5,5}, ids "1".."5".
-	var block []index.Document
+	var block []*document.Document
 	for j := 1; j <= 5; j++ {
 		block = append(block, pbjMakeChild(t, "field", []float32{float32(j), float32(j)}, pbjItoa(j), index.VectorSimilarityFunctionEuclidean))
 	}
@@ -257,15 +257,15 @@ func TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren(t *testing.
 	// Query {2,2}: best child of block 1 is {2,2} (id "2", exact match);
 	// best child of block 2 is {7,7} (id "7", nearest in that block).
 	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 3, nil, parentFilter)
-	want2 := index.VectorSimilarityFunctionEuclidean.Compare([]float32{2, 2}, []float32{2, 2})
-	want7 := index.VectorSimilarityFunctionEuclidean.Compare([]float32{2, 2}, []float32{7, 7})
+	want2 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{2, 2}, []float32{2, 2})
+	want7 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{2, 2}, []float32{7, 7})
 	pbjAssertScorerResults(t, s, r, q, map[string]float32{"2": want2, "7": want7}, 2)
 
 	// Query {6,6}: best of block 1 is {5,5} (id "5"); best of block 2 is {7,7}
 	// (id "7"); both at the same EUCLIDEAN distance sqrt(2).
 	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{6, 6}, 3, nil, parentFilter)
-	want5 := index.VectorSimilarityFunctionEuclidean.Compare([]float32{6, 6}, []float32{5, 5})
-	want7b := index.VectorSimilarityFunctionEuclidean.Compare([]float32{6, 6}, []float32{7, 7})
+	want5 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{6, 6}, []float32{5, 5})
+	want7b := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{6, 6}, []float32{7, 7})
 	pbjAssertScorerResults(t, s, r, q, map[string]float32{"5": want5, "7": want7b}, 2)
 
 	// Exact search (match-all filter, large k) yields the same result.
@@ -291,7 +291,7 @@ func TestParentBlockJoinKnnQueryTestCase_SkewedIndex(t *testing.T) {
 			)
 			r++
 		}
-		if err := w.Commit(); err != nil {
+		if _, err := w.Commit(); err != nil {
 			t.Fatalf("Commit (flush %d): %v", i, err)
 		}
 	}
@@ -401,7 +401,7 @@ func TestParentBlockJoinKnnQueryTestCase_TwoSegments(t *testing.T) {
 	dir, w := newBlockWriter(t)
 	pbjAddFamily(t, w, "a", 2, dim)
 	pbjAddFamily(t, w, "b", 3, dim)
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	pbjAddFamily(t, w, "c", 1, dim)
@@ -456,7 +456,7 @@ func TestParentBlockJoinKnnQueryTestCase_Random(t *testing.T) {
 	numParentsWithChildren := 0
 	for i := 0; i < numFamily; i++ {
 		size := 1 + rng.intn(3) // 1..3 children
-		var block []index.Document
+		var block []*document.Document
 		for c := 0; c < size; c++ {
 			block = append(block, pbjMakeChild(t, "field", pbjRandomVector(rng, dim), pbjItoa(i*10+c), index.VectorSimilarityFunctionEuclidean))
 		}

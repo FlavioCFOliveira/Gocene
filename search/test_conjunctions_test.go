@@ -59,11 +59,11 @@ func TestConjunctions_TermConjunctionsWithOmitTF(t *testing.T) {
 
 	s.SetSimilarity(search.NewRawTFSimilarity())
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm(conjF1, "nutch")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm(conjF2, "is")), search.MUST)
 
-	td, err := s.Search(bq, 3)
+	td, err := s.Search(bq.Build(), 3)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -83,11 +83,11 @@ func TestConjunctions_ScorerGetChildren(t *testing.T) {
 	s, cleanup := ix.searcher()
 	defer cleanup()
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "a")), search.MUST)
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "b")), search.FILTER)
 
-	top, err := s.Search(bq, 10)
+	top, err := s.Search(bq.Build(), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

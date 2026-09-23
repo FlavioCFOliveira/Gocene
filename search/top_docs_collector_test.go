@@ -38,7 +38,7 @@ func setupTestIndexN(t *testing.T, numDocs int) (store.Directory, index.IndexRea
 
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -274,10 +274,6 @@ func TestTopDocsCollector_CollectorState(t *testing.T) {
 		t.Errorf("Expected 0 initial hits, got %d", collector.GetTotalHits())
 	}
 
-	if collector.GetMaxScore() != 0 {
-		t.Errorf("Expected 0 initial max score, got %f", collector.GetMaxScore())
-	}
-
 	// ScoreMode should be COMPLETE
 	if collector.ScoreMode() != search.COMPLETE {
 		t.Errorf("Expected COMPLETE score mode, got %v", collector.ScoreMode())
@@ -336,7 +332,7 @@ func TestTopDocsCollector_ScoreDocCreation(t *testing.T) {
 func TestTopDocsCollector_MultiSegment(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)

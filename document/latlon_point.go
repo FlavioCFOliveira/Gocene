@@ -63,6 +63,15 @@ func NewLatLonPoint(name string, latitude, longitude float64) (*LatLonPoint, err
 	return &LatLonPoint{Field: field}, nil
 }
 
+// SetLocationValue changes the values of the field. Mirrors
+// LatLonPoint.setLocationValue(double, double) of Apache Lucene 10.5.0: the
+// latitude and longitude are encoded with GeoEncodingUtils and written as
+// sortable bytes; an out-of-range coordinate panics with the
+// IllegalArgumentException GeoEncodingUtils raises.
+func (p *LatLonPoint) SetLocationValue(latitude, longitude float64) {
+	p.SetBytesValue(EncodeLatLon(latitude, longitude))
+}
+
 // EncodeLatLon packs latitude and longitude into the 8-byte Lucene wire
 // format: 4-byte sortable-bytes latitude followed by 4-byte sortable-bytes
 // longitude.

@@ -72,14 +72,14 @@ func (s *dssFixedScorer) DocIDRunEnd() (int, error) {
 	return doc + 1, nil
 }
 
-func (s *dssFixedScorer) Score() float32 {
+func (s *dssFixedScorer) Score() (float32, error) {
 	if s.idx < 0 || s.idx >= len(s.scores) {
-		return 0
+		return 0, nil
 	}
-	return s.scores[s.idx]
+	return s.scores[s.idx], nil
 }
 
-func (s *dssFixedScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *dssFixedScorer) GetMaxScore(_ int) (float32, error) { return s.maxScore, nil }
 
 func (s *dssFixedScorer) AdvanceShallow(int) (int, error) { return search.NO_MORE_DOCS, nil }
 
@@ -113,7 +113,10 @@ func TestDisjunctionSumScorer_ScoreSumsMatches(t *testing.T) {
 	if doc != 5 {
 		t.Fatalf("expected doc 5, got %d", doc)
 	}
-	got := scorer.Score()
+	got, err := scorer.Score()
+	if err != nil {
+		t.Fatalf("scorer.Score: %v", err)
+	}
 	// s1 contributes 2.0, s2 contributes 0.5 → sum = 2.5
 	want := float32(2.5)
 	if math.Abs(float64(got-want)) > 1e-6 {
@@ -138,8 +141,8 @@ func TestDisjunctionSumScorer_ScoreSingleMatchPerDoc(t *testing.T) {
 	if doc != 1 {
 		t.Fatalf("expected doc 1, got %d", doc)
 	}
-	if got := scorer.Score(); math.Abs(float64(got-3.0)) > 1e-6 {
-		t.Errorf("Score() = %v, want 3.0", got)
+	if got, err := scorer.Score(); err != nil || math.Abs(float64(got-3.0)) > 1e-6 {
+		t.Errorf("Score() = %v, want 3.0 (err: %v)", got, err)
 	}
 }
 
@@ -177,7 +180,10 @@ func TestDisjunctionSumScorer_GetMaxScore(t *testing.T) {
 		100,
 	)
 	// Before any iteration: both scorers have docID -1 which is ≤ NO_MORE_DOCS.
-	max := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	max, err := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("scorer.GetMaxScore: %v", err)
+	}
 	if max <= 0 {
 		t.Errorf("GetMaxScore() = %v, expected > 0", max)
 	}
@@ -233,4 +239,35 @@ func TestDisiPriorityQueue_AddTopPop(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *dssFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *dssFixedScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
+func (s *dssFixedScorer) Iterator() search.DocIdSetIterator {
+	return s
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *dssFixedScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *dssFixedScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *dssFixedScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *dssFixedScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
 }

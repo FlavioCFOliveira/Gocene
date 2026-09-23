@@ -30,7 +30,7 @@ type TFIDFSimilarity struct {
 func NewTFIDFSimilarity(provider TFIDFSimilarityProvider, discountOverlaps bool) *TFIDFSimilarity {
 	return &TFIDFSimilarity{
 		BaseSimilarity:   NewBaseSimilarity(),
-		provider:          provider,
+		provider:         provider,
 		discountOverlaps: discountOverlaps,
 	}
 }
@@ -47,6 +47,26 @@ func (s *TFIDFSimilarity) GetDiscountOverlaps() bool {
 // 10.5.0, which this port delegates to the configured provider.
 func (s *TFIDFSimilarity) Idf(docFreq, docCount int64) float32 {
 	return s.provider.Idf(docFreq, docCount)
+}
+
+// Tf computes a score factor based on a term or phrase's frequency in a
+// document.
+//
+// Mirrors the public abstract TFIDFSimilarity.tf(float freq) of Apache Lucene
+// 10.5.0; the concrete subclass (ClassicSimilarity.tf returns
+// (float) Math.sqrt(freq)) is the configured provider.
+func (s *TFIDFSimilarity) Tf(freq float32) float32 {
+	return s.provider.Tf(freq)
+}
+
+// LengthNorm computes the normalization value for a field given the total
+// number of terms contained in a field.
+//
+// Mirrors the public abstract TFIDFSimilarity.lengthNorm(int length) of Apache
+// Lucene 10.5.0; the concrete subclass (ClassicSimilarity.lengthNorm returns
+// (float) (1.0 / Math.sqrt(numTerms))) is the configured provider.
+func (s *TFIDFSimilarity) LengthNorm(length int) float32 {
+	return s.provider.LengthNorm(length)
 }
 
 // IdfExplain computes a score factor for a simple term and returns an explanation.

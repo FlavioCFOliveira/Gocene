@@ -10,11 +10,11 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // testRewriteQuery is a test query that counts number of rewrites for its lifetime.
@@ -48,13 +48,13 @@ func (q *testRewriteQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query and counts rewrites.
-func (q *testRewriteQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *testRewriteQuery) Rewrite(reader *IndexSearcher) (Query, error) {
 	q.numRewrites++
 	return q, nil
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *testRewriteQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *testRewriteQuery) CreateWeight(searcher *IndexSearcher, needsScores ScoreMode, boost float32) (Weight, error) {
 	return nil, nil
 }
 
@@ -94,10 +94,22 @@ func (r *mockIndexReader) MaxDoc() int {
 	return r.maxDoc
 }
 
+// newEmptyMultiReader renders Java's new MultiReader(): a composite reader
+// with no sub-readers, which TestBooleanRewrites hands to newSearcher for
+// the rewrite-only tests.
+func newEmptyMultiReader(t *testing.T) *index.MultiReader {
+	t.Helper()
+	r, err := index.NewMultiReader(nil)
+	if err != nil {
+		t.Fatalf("NewMultiReader: %v", err)
+	}
+	return r
+}
+
 // TestBooleanRewrites_OneClauseRewriteOptimization tests that single clause boolean queries
 // are rewritten to their underlying query.
 func TestBooleanRewrites_OneClauseRewriteOptimization(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 	expected := NewTermQuery(index.NewTerm("content", "foo"))
 
 	// Build nested boolean queries with single clauses
@@ -105,14 +117,14 @@ func TestBooleanRewrites_OneClauseRewriteOptimization(t *testing.T) {
 	numLayers := 3
 
 	for i := 0; i < numLayers; i++ {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		// Alternate between SHOULD and MUST
 		if i%2 == 0 {
 			bq.Add(actual, SHOULD)
 		} else {
 			bq.Add(actual, MUST)
 		}
-		actual, _ = bq.Rewrite(reader)
+		actual, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	}
 
 	if !actual.Equals(expected) {
@@ -124,12 +136,12 @@ func TestBooleanRewrites_OneClauseRewriteOptimization(t *testing.T) {
 // Per Lucene 10.4.0: a single FILTER clause rewrites to BoostQuery(ConstantScoreQuery(inner), 0)
 // so that needsScores=false is propagated to the inner query scorer.
 func TestBooleanRewrites_SingleFilterClause(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("field", "a")), FILTER)
 
-	rewritten, err := bq.Rewrite(reader)
+	rewritten, err := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite failed: %v", err)
 	}
@@ -150,97 +162,97 @@ func TestBooleanRewrites_SingleFilterClause(t *testing.T) {
 
 // TestBooleanRewrites_SingleMustMatchAll tests MatchAllDocsQuery with various clause combinations.
 func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MatchAllDocsQuery + FILTER(TermQuery) -> ConstantScoreQuery(TermQuery)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expectedCSQ := NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar")))
 	if !rewritten.Equals(expectedCSQ) {
 		t.Errorf("Expected %v, got %v", expectedCSQ, rewritten)
 	}
 
 	// MatchAllDocsQuery + Boost + FILTER -> Boost(ConstantScoreQuery)
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewBoostQuery(NewMatchAllDocsQuery(), 42), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 42)
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// MatchAllDocsQuery + FILTER(MatchAll) -> MatchAllDocsQuery
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchAllDocsQuery); !ok {
 		t.Errorf("Expected MatchAllDocsQuery, got %T", rewritten)
 	}
 
 	// MatchAllDocsQuery + MUST_NOT(TermQuery) -> unchanged (needs both)
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST_NOT)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*BooleanQuery); !ok {
 		t.Errorf("Expected BooleanQuery, got %T", rewritten)
 	}
 
 	// MatchAllDocsQuery + Boost + FILTER(MatchAll) -> Boost(MatchAll)
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewBoostQuery(NewMatchAllDocsQuery(), 42), MUST)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected = NewBoostQuery(NewMatchAllDocsQuery(), 42)
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// MatchAllDocsQuery + multiple FILTERs -> ConstantScoreQuery with combined filters
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedFilter := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedFilter := NewBooleanQueryBuilder()
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	expectedCSQ2 := NewConstantScoreQuery(expectedFilter)
+	expectedCSQ2 := NewConstantScoreQuery(expectedFilter.Build())
 	if !rewritten.Equals(expectedCSQ2) {
 		t.Errorf("Expected %v, got %v", expectedCSQ2, rewritten)
 	}
 
 	// MatchAllDocsQuery + FILTER + MUST_NOT -> ConstantScoreQuery with filter and must_not
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedFilter = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedFilter = NewBooleanQueryBuilder()
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
-	expectedCSQ3 := NewConstantScoreQuery(expectedFilter)
+	expectedCSQ3 := NewConstantScoreQuery(expectedFilter.Build())
 	if !rewritten.Equals(expectedCSQ3) {
 		t.Errorf("Expected %v, got %v", expectedCSQ3, rewritten)
 	}
 
 	// MatchAllDocsQuery + SHOULD(TermQuery) -> unchanged (SHOULD needs scoring)
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*BooleanQuery); !ok {
 		t.Errorf("Expected BooleanQuery, got %T", rewritten)
 	}
@@ -248,67 +260,67 @@ func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
 
 // TestBooleanRewrites_SingleMustMatchAllWithShouldClauses tests MatchAll with SHOULD clauses.
 func TestBooleanRewrites_SingleMustMatchAllWithShouldClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MatchAll + FILTER + SHOULD clauses -> MUST(ConstantScore) + SHOULDs
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 
-	expected := NewBooleanQuery()
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_DeduplicateMustAndFilter tests deduplication of MUST and FILTER clauses.
 func TestBooleanRewrites_DeduplicateMustAndFilter(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Same query as MUST and FILTER -> just the query (FILTER absorbed into MUST)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewTermQuery(index.NewTerm("foo", "bar"))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// MUST + FILTER(same) + FILTER(different) -> MUST + FILTER(different)
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedBQ := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedBQ := NewBooleanQueryBuilder()
 	expectedBQ.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expectedBQ.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	if !rewritten.Equals(expectedBQ) {
-		t.Errorf("Expected %v, got %v", expectedBQ, rewritten)
+	if !rewritten.Equals(expectedBQ.Build()) {
+		t.Errorf("Expected %v, got %v", expectedBQ.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_ConvertShouldAndFilterToMust tests conversion of SHOULD+FILTER to MUST.
 func TestBooleanRewrites_ConvertShouldAndFilterToMust(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Same query as SHOULD and FILTER -> just the query (converted to MUST)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewTermQuery(index.NewTerm("foo", "bar"))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
@@ -316,49 +328,49 @@ func TestBooleanRewrites_ConvertShouldAndFilterToMust(t *testing.T) {
 
 	// SHOULD(same) + FILTER(same) + SHOULD(others) with minShouldMatch=2
 	// -> MUST(same) + SHOULD(others) with minShouldMatch=1
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quz")), SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedBQ2 := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedBQ2 := NewBooleanQueryBuilder()
 	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "quz")), SHOULD)
 	expectedBQ2.SetMinimumNumberShouldMatch(1)
-	if !rewritten.Equals(expectedBQ2) {
-		t.Errorf("Expected %v, got %v", expectedBQ2, rewritten)
+	if !rewritten.Equals(expectedBQ2.Build()) {
+		t.Errorf("Expected %v, got %v", expectedBQ2.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_DuplicateMustOrFilterWithMustNot tests that duplicate MUST/FILTER
 // with MUST_NOT on same term results in MatchNoDocsQuery.
 func TestBooleanRewrites_DuplicateMustOrFilterWithMustNot(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST(term) + MUST_NOT(same term) -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bad")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST_NOT)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for MUST + MUST_NOT on same term, got %T", rewritten)
 	}
 
 	// FILTER(term) + MUST_NOT(same term) -> MatchNoDocsQuery
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bad")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST_NOT)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for FILTER + MUST_NOT on same term, got %T", rewritten)
 	}
@@ -366,29 +378,29 @@ func TestBooleanRewrites_DuplicateMustOrFilterWithMustNot(t *testing.T) {
 
 // TestBooleanRewrites_MatchAllMustNot tests that MatchAllDocsQuery as MUST_NOT results in MatchNoDocsQuery.
 func TestBooleanRewrites_MatchAllMustNot(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST + FILTER + SHOULD + MUST_NOT(MatchAll) -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bad")), SHOULD)
 	bq.Add(NewMatchAllDocsQuery(), MUST_NOT)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for MUST_NOT(MatchAll), got %T", rewritten)
 	}
 
 	// With additional MUST_NOT clauses
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bad")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bor")), MUST_NOT)
 	bq.Add(NewMatchAllDocsQuery(), MUST_NOT)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for MUST_NOT(MatchAll) with other clauses, got %T", rewritten)
 	}
@@ -396,25 +408,24 @@ func TestBooleanRewrites_MatchAllMustNot(t *testing.T) {
 
 // TestBooleanRewrites_DeeplyNestedBooleanRewrite tests deeply nested boolean query rewrites.
 func TestBooleanRewrites_DeeplyNestedBooleanRewrite(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Create deeply nested MUST queries
 	depth := 10
 	rewriteQuery := newTestRewriteQuery()
 	rewriteQueryExpected := newTestRewriteQuery()
 
-	expectedBuilder := NewBooleanQuery()
+	expectedBuilder := NewBooleanQueryBuilder()
 	expectedBuilder.Add(rewriteQueryExpected, FILTER)
 
-	deepBuilder := NewBooleanQuery()
-	deepBuilder.Add(rewriteQuery, MUST)
+	var deepBuilder Query = NewBooleanQueryBuilder().Add(rewriteQuery, MUST).Build()
 
 	for i := depth; i > 0; i-- {
 		tq := NewTermQuery(index.NewTerm("layer["+string(rune('0'+i))+"]", "foo"))
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		bq.Add(tq, MUST)
 		bq.Add(deepBuilder, MUST)
-		deepBuilder = bq
+		deepBuilder = bq.Build()
 
 		expectedBuilder.Add(tq, FILTER)
 		if i == depth {
@@ -422,13 +433,13 @@ func TestBooleanRewrites_DeeplyNestedBooleanRewrite(t *testing.T) {
 		}
 	}
 
-	finalBq := NewBooleanQuery()
+	finalBq := NewBooleanQueryBuilder()
 	finalBq.Add(deepBuilder, FILTER)
 
-	rewritten, _ := finalBq.Rewrite(reader)
+	rewritten, _ := finalBq.Build().Rewrite(NewIndexSearcher(reader))
 
 	// The expected result is a BoostQuery wrapping ConstantScoreQuery
-	expectedQuery := NewBoostQuery(NewConstantScoreQuery(expectedBuilder), 0.0)
+	expectedQuery := NewBoostQuery(NewConstantScoreQuery(expectedBuilder.Build()), 0.0)
 
 	// Note: Full rewrite with flattening may not be implemented yet
 	// This test documents the expected behavior
@@ -443,27 +454,28 @@ func TestBooleanRewrites_DeeplyNestedBooleanRewrite(t *testing.T) {
 
 // TestBooleanRewrites_DeeplyNestedBooleanRewriteShouldClauses tests deeply nested SHOULD queries.
 func TestBooleanRewrites_DeeplyNestedBooleanRewriteShouldClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Create deeply nested SHOULD queries with minShouldMatch
 	depth := 10
 	rewriteQuery := newTestRewriteQuery()
 	rewriteQueryExpected := newTestRewriteQuery()
 
-	expectedBuilder := NewBooleanQuery()
+	expectedBuilder := NewBooleanQueryBuilder()
 	expectedBuilder.Add(rewriteQueryExpected, FILTER)
 
-	deepBuilder := NewBooleanQuery()
-	deepBuilder.Add(rewriteQuery, SHOULD)
-	deepBuilder.SetMinimumNumberShouldMatch(1)
+	deepBuilderBuilder := NewBooleanQueryBuilder()
+	deepBuilderBuilder.Add(rewriteQuery, SHOULD)
+	deepBuilderBuilder.SetMinimumNumberShouldMatch(1)
+	var deepBuilder Query = deepBuilderBuilder.Build()
 
 	for i := depth; i > 0; i-- {
 		tq := NewTermQuery(index.NewTerm("layer["+string(rune('0'+i))+"]", "foo"))
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		bq.SetMinimumNumberShouldMatch(2)
 		bq.Add(tq, SHOULD)
 		bq.Add(deepBuilder, SHOULD)
-		deepBuilder = bq
+		deepBuilder = bq.Build()
 
 		expectedBuilder.Add(tq, FILTER)
 		if i == depth {
@@ -471,12 +483,12 @@ func TestBooleanRewrites_DeeplyNestedBooleanRewriteShouldClauses(t *testing.T) {
 		}
 	}
 
-	finalBq := NewBooleanQuery()
+	finalBq := NewBooleanQueryBuilder()
 	finalBq.Add(deepBuilder, FILTER)
 
-	rewritten, _ := finalBq.Rewrite(reader)
+	rewritten, _ := finalBq.Build().Rewrite(NewIndexSearcher(reader))
 
-	expectedQuery := NewBoostQuery(NewConstantScoreQuery(expectedBuilder), 0.0)
+	expectedQuery := NewBoostQuery(NewConstantScoreQuery(expectedBuilder.Build()), 0.0)
 
 	_ = rewritten
 	_ = expectedQuery
@@ -490,50 +502,50 @@ func TestBooleanRewrites_DeeplyNestedBooleanRewriteShouldClauses(t *testing.T) {
 
 // TestBooleanRewrites_RemoveMatchAllFilter tests removal of MatchAllDocsQuery from FILTER.
 func TestBooleanRewrites_RemoveMatchAllFilter(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST + FILTER(MatchAll) -> MUST
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewTermQuery(index.NewTerm("foo", "bar"))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// MUST + MUST + FILTER(MatchAll) -> MUST + MUST
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedBQ3 := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedBQ3 := NewBooleanQueryBuilder()
 	expectedBQ3.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expectedBQ3.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expectedBQ3) {
-		t.Errorf("Expected %v, got %v", expectedBQ3, rewritten)
+	if !rewritten.Equals(expectedBQ3.Build()) {
+		t.Errorf("Expected %v, got %v", expectedBQ3.Build(), rewritten)
 	}
 
 	// FILTER + FILTER(MatchAll) -> ConstantScoreQuery with score 0
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	expectedBQ5 := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0.0)
 	if !rewritten.Equals(expectedBQ5) {
 		t.Errorf("Expected %v, got %v", expectedBQ5, rewritten)
 	}
 
 	// FILTER(MatchAll) + FILTER(MatchAll) -> ConstantScoreQuery(MatchAll) with score 0
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	expectedBQ6 := NewBoostQuery(NewConstantScoreQuery(NewMatchAllDocsQuery()), 0.0)
 	if !rewritten.Equals(expectedBQ6) {
 		t.Errorf("Expected %v, got %v", expectedBQ6, rewritten)
@@ -542,366 +554,366 @@ func TestBooleanRewrites_RemoveMatchAllFilter(t *testing.T) {
 
 // TestBooleanRewrites_DeduplicateShouldClauses tests deduplication of SHOULD clauses.
 func TestBooleanRewrites_DeduplicateShouldClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Two identical SHOULD clauses -> BoostQuery with boost 2
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 2)
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// SHOULD(term) + SHOULD(Boost(term, 2)) + SHOULD(other) -> Boost(term, 3) + other
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 2), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedBQ4 := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedBQ4 := NewBooleanQueryBuilder()
 	expectedBQ4.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), SHOULD)
 	expectedBQ4.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
-	if !rewritten.Equals(expectedBQ4) {
-		t.Errorf("Expected %v, got %v", expectedBQ4, rewritten)
+	if !rewritten.Equals(expectedBQ4.Build()) {
+		t.Errorf("Expected %v, got %v", expectedBQ4.Build(), rewritten)
 	}
 
 	// With minShouldMatch=2, deduplication doesn't apply
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	// Should remain unchanged
-	if !rewritten.Equals(bq) {
+	if !rewritten.Equals(bq.Build()) {
 		t.Errorf("With minShouldMatch=2, query should not be rewritten, got %v", rewritten)
 	}
 }
 
 // TestBooleanRewrites_DeduplicateMustClauses tests deduplication of MUST clauses.
 func TestBooleanRewrites_DeduplicateMustClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Two identical MUST clauses -> BoostQuery with boost 2
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 2)
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// MUST(term) + MUST(Boost(term, 2)) + MUST(other) -> Boost(term, 3) + other
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 2), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expectedBQ7 := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expectedBQ7 := NewBooleanQueryBuilder()
 	expectedBQ7.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), MUST)
 	expectedBQ7.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
-	if !rewritten.Equals(expectedBQ7) {
-		t.Errorf("Expected %v, got %v", expectedBQ7, rewritten)
+	if !rewritten.Equals(expectedBQ7.Build()) {
+		t.Errorf("Expected %v, got %v", expectedBQ7.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_FlattenInnerDisjunctions tests flattening of inner disjunctions (SHOULD clauses).
 func TestBooleanRewrites_FlattenInnerDisjunctions(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Inner disjunction flattened into outer
-	inner := NewBooleanQuery()
+	inner := NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	bq := NewBooleanQuery()
-	bq.Add(inner, SHOULD)
+	bq := NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 
-	rewritten, _ := bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// With minShouldMatch=0, inner SHOULD flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(0)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.SetMinimumNumberShouldMatch(0)
-	bq.Add(inner, SHOULD)
+	bq.Add(inner.Build(), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.SetMinimumNumberShouldMatch(0)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// With minShouldMatch=1, inner SHOULD flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(1)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.SetMinimumNumberShouldMatch(1)
-	bq.Add(inner, SHOULD)
+	bq.Add(inner.Build(), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.SetMinimumNumberShouldMatch(1)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// With minShouldMatch=2 on inner, cannot flatten (would change semantics)
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(2)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 
-	bq = NewBooleanQuery()
-	bq.Add(inner, SHOULD)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), SHOULD)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	// Should remain unchanged
-	if rewritten != bq {
+	if rewritten != bq.Build() {
 		t.Logf("Query with minShouldMatch on inner may not be flattened (got %v)", rewritten)
 	}
 }
 
 // TestBooleanRewrites_FlattenInnerConjunctions tests flattening of inner conjunctions (MUST clauses).
 func TestBooleanRewrites_FlattenInnerConjunctions(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Inner conjunction flattened into outer
-	inner := NewBooleanQuery()
+	inner := NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 
-	bq := NewBooleanQuery()
-	bq.Add(inner, MUST)
+	bq := NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// With minShouldMatch=0, inner MUST flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(0)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.SetMinimumNumberShouldMatch(0)
-	bq.Add(inner, MUST)
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.SetMinimumNumberShouldMatch(0)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// Inner MUST with MUST_NOT flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST_NOT)
 
-	bq = NewBooleanQuery()
-	bq.Add(inner, MUST)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST_NOT)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// Inner MUST + FILTER flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), FILTER)
 
-	bq = NewBooleanQuery()
-	bq.Add(inner, MUST)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), FILTER)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// Inner FILTER + MUST_NOT flattened
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST_NOT)
 
-	bq = NewBooleanQuery()
-	bq.Add(inner, FILTER)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), FILTER)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST_NOT)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_FlattenDisjunctionInMustClause tests flattening SHOULD in MUST.
 func TestBooleanRewrites_FlattenDisjunctionInMustClause(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST(SHOULD + SHOULD) + FILTER -> SHOULD + SHOULD + FILTER with minShouldMatch=1
-	inner := NewBooleanQuery()
+	inner := NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
-	bq := NewBooleanQuery()
-	bq.Add(inner, MUST)
+	bq := NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 	expected.SetMinimumNumberShouldMatch(1)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// With minShouldMatch=2 on inner, preserve it
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(2)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("foo", "foo")), SHOULD)
 
-	bq = NewBooleanQuery()
-	bq.Add(inner, MUST)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(inner.Build(), MUST)
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected = NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "foo")), SHOULD)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 	expected.SetMinimumNumberShouldMatch(2)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_DiscardShouldClauses tests discarding SHOULD clauses in certain contexts.
 func TestBooleanRewrites_DiscardShouldClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// ConstantScore(MUST + SHOULD) -> ConstantScore(MUST) (SHOULD discarded)
-	inner := NewBooleanQuery()
+	inner := NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("field", "a")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("field", "b")), SHOULD)
-	query := NewConstantScoreQuery(inner)
+	query := NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ := query.Rewrite(reader)
+	rewritten, _ := query.Rewrite(NewIndexSearcher(reader))
 	expected := NewConstantScoreQuery(NewTermQuery(index.NewTerm("field", "a")))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// ConstantScore(MUST + SHOULD + FILTER) -> ConstantScore(FILTER + FILTER)
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("field", "a")), MUST)
 	inner.Add(NewTermQuery(index.NewTerm("field", "b")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("field", "c")), FILTER)
-	query = NewConstantScoreQuery(inner)
+	query = NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ = query.Rewrite(reader)
-	expectedInner := NewBooleanQuery()
+	rewritten, _ = query.Rewrite(NewIndexSearcher(reader))
+	expectedInner := NewBooleanQueryBuilder()
 	expectedInner.Add(NewTermQuery(index.NewTerm("field", "a")), FILTER)
 	expectedInner.Add(NewTermQuery(index.NewTerm("field", "c")), FILTER)
-	expected = NewConstantScoreQuery(expectedInner)
+	expected = NewConstantScoreQuery(expectedInner.Build())
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
 
 	// ConstantScore(SHOULD + SHOULD) -> unchanged (only SHOULDs, need them)
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("field", "a")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("field", "b")), SHOULD)
-	query = NewConstantScoreQuery(inner)
+	query = NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ = query.Rewrite(reader)
+	rewritten, _ = query.Rewrite(NewIndexSearcher(reader))
 	if !rewritten.Equals(query) {
 		t.Errorf("Expected unchanged query, got %v", rewritten)
 	}
 
 	// ConstantScore(SHOULD + MUST_NOT) -> unchanged
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("field", "a")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("field", "b")), MUST_NOT)
-	query = NewConstantScoreQuery(inner)
+	query = NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ = query.Rewrite(reader)
+	rewritten, _ = query.Rewrite(NewIndexSearcher(reader))
 	if !rewritten.Equals(query) {
 		t.Errorf("Expected unchanged query, got %v", rewritten)
 	}
 
 	// ConstantScore(minShouldMatch=1, SHOULD + SHOULD + FILTER) -> unchanged
-	inner = NewBooleanQuery()
+	inner = NewBooleanQueryBuilder()
 	inner.SetMinimumNumberShouldMatch(1)
 	inner.Add(NewTermQuery(index.NewTerm("field", "a")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("field", "b")), SHOULD)
 	inner.Add(NewTermQuery(index.NewTerm("field", "c")), FILTER)
-	query = NewConstantScoreQuery(inner)
+	query = NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ = query.Rewrite(reader)
+	rewritten, _ = query.Rewrite(NewIndexSearcher(reader))
 	if !rewritten.Equals(query) {
 		t.Errorf("Expected unchanged query with minShouldMatch, got %v", rewritten)
 	}
@@ -909,14 +921,14 @@ func TestBooleanRewrites_DiscardShouldClauses(t *testing.T) {
 
 // TestBooleanRewrites_ShouldMatchNoDocsQuery tests SHOULD with MatchNoDocsQuery.
 func TestBooleanRewrites_ShouldMatchNoDocsQuery(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// SHOULD(term) + SHOULD(MatchNoDocs) -> just the term
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
-	bq.Add(NewMatchNoDocsQuery(), SHOULD)
+	bq.Add(NewMatchNoDocsQuery(""), SHOULD)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewTermQuery(index.NewTerm("foo", "bar"))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
@@ -925,14 +937,14 @@ func TestBooleanRewrites_ShouldMatchNoDocsQuery(t *testing.T) {
 
 // TestBooleanRewrites_MustNotMatchNoDocsQuery tests MUST_NOT with MatchNoDocsQuery.
 func TestBooleanRewrites_MustNotMatchNoDocsQuery(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// SHOULD(term) + MUST_NOT(MatchNoDocs) -> just the term (MatchNoDocs does nothing)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
-	bq.Add(NewMatchNoDocsQuery(), MUST_NOT)
+	bq.Add(NewMatchNoDocsQuery(""), MUST_NOT)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	expected := NewTermQuery(index.NewTerm("foo", "bar"))
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
@@ -941,14 +953,14 @@ func TestBooleanRewrites_MustNotMatchNoDocsQuery(t *testing.T) {
 
 // TestBooleanRewrites_MustMatchNoDocsQuery tests MUST with MatchNoDocsQuery.
 func TestBooleanRewrites_MustMatchNoDocsQuery(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST(term) + MUST(MatchNoDocs) -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
-	bq.Add(NewMatchNoDocsQuery(), MUST)
+	bq.Add(NewMatchNoDocsQuery(""), MUST)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery, got %T", rewritten)
 	}
@@ -956,14 +968,14 @@ func TestBooleanRewrites_MustMatchNoDocsQuery(t *testing.T) {
 
 // TestBooleanRewrites_FilterMatchNoDocsQuery tests FILTER with MatchNoDocsQuery.
 func TestBooleanRewrites_FilterMatchNoDocsQuery(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST(term) + FILTER(MatchNoDocs) -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
-	bq.Add(NewMatchNoDocsQuery(), FILTER)
+	bq.Add(NewMatchNoDocsQuery(""), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery, got %T", rewritten)
 	}
@@ -971,12 +983,12 @@ func TestBooleanRewrites_FilterMatchNoDocsQuery(t *testing.T) {
 
 // TestBooleanRewrites_EmptyBoolean tests empty boolean query rewrite.
 func TestBooleanRewrites_EmptyBoolean(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Empty boolean query -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for empty boolean, got %T", rewritten)
 	}
@@ -984,27 +996,27 @@ func TestBooleanRewrites_EmptyBoolean(t *testing.T) {
 
 // TestBooleanRewrites_SimplifyFilterClauses tests simplification of FILTER clauses.
 func TestBooleanRewrites_SimplifyFilterClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST + FILTER(ConstantScore(Term)) -> MUST + FILTER(Term)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "baz"))), FILTER)
 
-	rewritten, _ := bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 
 	// FILTER(Term) + FILTER(ConstantScore(same Term)) -> ConstantScoreQuery with score 0
-	bq = NewBooleanQuery()
+	bq = NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	bq.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), FILTER)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	expectedBQ8 := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0)
 	if !rewritten.Equals(expectedBQ8) {
 		t.Errorf("Expected %v, got %v", expectedBQ8, rewritten)
@@ -1013,37 +1025,37 @@ func TestBooleanRewrites_SimplifyFilterClauses(t *testing.T) {
 
 // TestBooleanRewrites_SimplifyMustNotClauses tests simplification of MUST_NOT clauses.
 func TestBooleanRewrites_SimplifyMustNotClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// MUST + MUST_NOT(ConstantScore(Term)) -> MUST + MUST_NOT(Term)
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	bq.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "baz"))), MUST_NOT)
 
-	rewritten, _ := bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
 	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 }
 
 // TestBooleanRewrites_SimplifyNonScoringShouldClauses tests simplification of non-scoring SHOULD clauses.
 func TestBooleanRewrites_SimplifyNonScoringShouldClauses(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// ConstantScore(SHOULD(Term) + SHOULD(ConstantScore(Term))) -> ConstantScore(SHOULD(Term) + SHOULD(Term))
-	inner := NewBooleanQuery()
+	inner := NewBooleanQueryBuilder()
 	inner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	inner.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "baz"))), SHOULD)
-	query := NewConstantScoreQuery(inner)
+	query := NewConstantScoreQuery(inner.Build())
 
-	rewritten, _ := query.Rewrite(reader)
-	expectedInner := NewBooleanQuery()
+	rewritten, _ := query.Rewrite(NewIndexSearcher(reader))
+	expectedInner := NewBooleanQueryBuilder()
 	expectedInner.Add(NewTermQuery(index.NewTerm("foo", "bar")), SHOULD)
 	expectedInner.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
-	expected := NewConstantScoreQuery(expectedInner)
+	expected := NewConstantScoreQuery(expectedInner.Build())
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
@@ -1051,51 +1063,51 @@ func TestBooleanRewrites_SimplifyNonScoringShouldClauses(t *testing.T) {
 
 // TestBooleanRewrites_ShouldClausesLessThanOrEqualToMinimumNumberShouldMatch tests minShouldMatch edge cases.
 func TestBooleanRewrites_ShouldClausesLessThanOrEqualToMinimumNumberShouldMatch(t *testing.T) {
-	reader := NewMockIndexReader(0, 0, 1)
+	reader := newEmptyMultiReader(t)
 
 	// Single empty PhraseQuery with minShouldMatch=1 -> MatchNoDocsQuery
-	bq := NewBooleanQuery()
-	bq.Add(NewPhraseQuery("field"), SHOULD)
+	bq := NewBooleanQueryBuilder()
+	bq.Add(NewPhraseQuery(0, "field"), SHOULD)
 	bq.SetMinimumNumberShouldMatch(1)
 
-	rewritten, _ := bq.Rewrite(reader)
+	rewritten, _ := bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for empty phrase with minShouldMatch=1, got %T", rewritten)
 	}
 
 	// Same with minShouldMatch=0 -> MatchNoDocsQuery (empty phrase matches nothing)
-	bq = NewBooleanQuery()
-	bq.Add(NewPhraseQuery("field"), SHOULD)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(NewPhraseQuery(0, "field"), SHOULD)
 	bq.SetMinimumNumberShouldMatch(0)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery for empty phrase, got %T", rewritten)
 	}
 
 	// Meaningful SHOULD count < minShouldMatch -> MatchNoDocsQuery
-	bq = NewBooleanQuery()
-	bq.Add(NewPhraseQuery("field"), SHOULD)
-	bq.Add(NewPhraseQueryWithTerms("field", index.NewTerm("field", "a")), SHOULD)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(NewPhraseQuery(0, "field"), SHOULD)
+	bq.Add(NewPhraseQueryWithTerms(0, "field", index.NewTerm("field", "a")), SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	rewritten, _ = bq.Rewrite(reader)
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
 	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
 		t.Errorf("Expected MatchNoDocsQuery when meaningful clauses < minShouldMatch, got %T", rewritten)
 	}
 
 	// Meaningful SHOULD count == minShouldMatch -> convert to MUSTs
-	bq = NewBooleanQuery()
-	bq.Add(NewPhraseQueryWithTerms("field", index.NewTerm("field", "b")), SHOULD)
-	bq.Add(NewPhraseQueryWithTerms("field", index.NewTerm("field", "a"), index.NewTerm("field", "c")), SHOULD)
+	bq = NewBooleanQueryBuilder()
+	bq.Add(NewPhraseQueryWithTerms(0, "field", index.NewTerm("field", "b")), SHOULD)
+	bq.Add(NewPhraseQueryWithTerms(0, "field", index.NewTerm("field", "a"), index.NewTerm("field", "c")), SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	rewritten, _ = bq.Rewrite(reader)
-	expected := NewBooleanQuery()
+	rewritten, _ = bq.Build().Rewrite(NewIndexSearcher(reader))
+	expected := NewBooleanQueryBuilder()
 	expected.Add(NewTermQuery(index.NewTerm("field", "b")), MUST)
-	expected.Add(NewPhraseQueryWithTerms("field", index.NewTerm("field", "a"), index.NewTerm("field", "c")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expected.Add(NewPhraseQueryWithTerms(0, "field", index.NewTerm("field", "a"), index.NewTerm("field", "c")), MUST)
+	if !rewritten.Equals(expected.Build()) {
+		t.Errorf("Expected %v, got %v", expected.Build(), rewritten)
 	}
 }
 
@@ -1124,8 +1136,4 @@ func TestBooleanRewrites_EqualsPrecision(t *testing.T) {
 		t.Error("NaN should not equal NaN")
 	}
 
-// Helper function to create a PhraseQuery with terms
-}
-func NewPhraseQueryWithTerms(field string, terms ...*index.Term) *PhraseQuery {
-	return NewPhraseQuery(field, terms...)
 }

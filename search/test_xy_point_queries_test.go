@@ -34,7 +34,7 @@ func buildXYPointIndex(t *testing.T, field string, x, y float32) *index.Director
 	dir := store.NewByteBuffersDirectory()
 	t.Cleanup(func() { _ = dir.Close() })
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -47,7 +47,7 @@ func buildXYPointIndex(t *testing.T, field string, x, y float32) *index.Director
 	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	t.Cleanup(func() { _ = w.Close() })

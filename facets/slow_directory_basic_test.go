@@ -23,7 +23,7 @@ func TestSlowDirectory_CreateAndRead(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	want := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	if err := out.WriteBytes(want); err != nil {
+	if err := out.WriteBytes(want, 0, len(want)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -60,7 +60,7 @@ func TestSlowDirectory_WithSleep(t *testing.T) {
 	for i := range payload {
 		payload[i] = byte(i)
 	}
-	if err := out.WriteBytes(payload); err != nil {
+	if err := out.WriteBytes(payload, 0, len(payload)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -92,7 +92,7 @@ func TestSlowDirectory_SetSleepMillis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes([]byte{0xFF}); err != nil {
+	if err := out.WriteBytes([]byte{0xFF}, 0, len([]byte{0xFF})); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {

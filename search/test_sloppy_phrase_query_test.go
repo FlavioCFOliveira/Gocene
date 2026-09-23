@@ -63,7 +63,7 @@ func sloppyPhraseTerms(field, phrase string) []*index.Term {
 func indexOneDoc(t *testing.T, field, text string) (*IndexSearcher, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -77,7 +77,7 @@ func indexOneDoc(t *testing.T, field, text string) (*IndexSearcher, func()) {
 	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -98,7 +98,7 @@ func indexOneDoc(t *testing.T, field, text string) (*IndexSearcher, func()) {
 // and the maximum (sloppy) phrase frequency observed.
 func phraseScorerStats(t *testing.T, s *IndexSearcher, q *PhraseQuery) (totalHits int, maxFreq float32) {
 	t.Helper()
-	weight, err := q.CreateWeight(s, true, 1.0)
+	weight, err := q.CreateWeight(s, COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -118,7 +118,7 @@ func phraseScorerStats(t *testing.T, s *IndexSearcher, q *PhraseQuery) (totalHit
 		}
 		if scorer != nil {
 			for {
-				doc, err := scorer.NextDoc()
+				doc, err := scorer.Iterator().NextDoc()
 				if err != nil {
 					t.Fatalf("NextDoc: %v", err)
 				}
@@ -145,7 +145,7 @@ func checkPhraseQuery(t *testing.T, docText string, terms []*index.Term, positio
 	t.Helper()
 	b := NewPhraseQueryBuilder()
 	for i, term := range terms {
-		b.AddTermAtPosition(term, positions[i])
+		b.AddWithPosition(term, positions[i])
 	}
 	b.SetSlop(slop)
 	q := b.Build()
@@ -260,7 +260,7 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 	}
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -276,7 +276,7 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -291,8 +291,8 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 
 	build := func(slop int) *PhraseQuery {
 		b := NewPhraseQueryBuilder()
-		b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-		b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 4)
+		b.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+		b.AddWithPosition(index.NewTerm("lyrics", "drug"), 4)
 		b.SetSlop(slop)
 		return b.Build()
 	}
@@ -313,8 +313,8 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 	s, cleanup := indexOneDoc(t, "lyrics", "drug druggy drug drug drug")
 	defer cleanup()
 	b := NewPhraseQueryBuilder()
-	b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-	b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 3)
+	b.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+	b.AddWithPosition(index.NewTerm("lyrics", "drug"), 3)
 	b.SetSlop(1)
 	assertSaneScoring(t, s, b.Build())
 }
@@ -342,8 +342,8 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 	s, cleanup := indexOneDoc(t, "lyrics", document)
 	defer cleanup()
 	b := NewPhraseQueryBuilder()
-	b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 1)
-	b.AddTermAtPosition(index.NewTerm("lyrics", "drug"), 4)
+	b.AddWithPosition(index.NewTerm("lyrics", "drug"), 1)
+	b.AddWithPosition(index.NewTerm("lyrics", "drug"), 4)
 	b.SetSlop(5)
 	assertSaneScoring(t, s, b.Build())
 }
@@ -352,7 +352,7 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 // mirroring the reference assertSaneScoring (minus QueryUtils.check).
 func assertSaneScoring(t *testing.T, s *IndexSearcher, q *PhraseQuery) {
 	t.Helper()
-	weight, err := q.CreateWeight(s, true, 1.0)
+	weight, err := q.CreateWeight(s, COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -369,18 +369,22 @@ func assertSaneScoring(t *testing.T, s *IndexSearcher, q *PhraseQuery) {
 		}
 		if scorer != nil {
 			for {
-				doc, err := scorer.NextDoc()
+				doc, err := scorer.Iterator().NextDoc()
 				if err != nil {
 					t.Fatalf("NextDoc: %v", err)
 				}
 				if doc < 0 || doc >= sr.MaxDoc() {
 					break
 				}
-				score := scorer.Score()
+				score, err := scorer.Score()
+				if err != nil {
+					t.Fatalf("scorer.Score: %v", err)
+				}
 				if math.IsInf(float64(score), 0) {
 					t.Errorf("doc=%d scored to infinity", doc+docBase)
 				}
 			}
-		docBase += sr.MaxDoc()
+			docBase += sr.MaxDoc()
+		}
 	}
-}	}
+}

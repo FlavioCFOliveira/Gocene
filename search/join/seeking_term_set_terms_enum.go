@@ -4,69 +4,108 @@
 
 package join
 
-import "sort"
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
-// SeekingTermSetTermsEnum is a sorted-set view that supports seeking to the
-// smallest term greater than or equal to a target. Mirrors
-// org.apache.lucene.search.join.SeekingTermSetTermsEnum: the join code path
-// uses it to intersect a probe term against the set of join keys discovered
-// in the indexed side.
+// SeekingTermSetTermsEnum is a filtered TermsEnum that uses a BytesRefHash as a
+// filter.
+//
+// Port of org.apache.lucene.search.join.SeekingTermSetTermsEnum
+// (lucene/join/src/java/org/apache/lucene/search/join/SeekingTermSetTermsEnum.java,
+// Apache Lucene 10.5.0). The Java class extends FilteredTermsEnum and
+// overrides nextSeekTerm(BytesRef) and accept(BytesRef); Gocene renders the
+// subclass as the FilteredTermsEnumAcceptor installed on the embedded
+// *index.FilteredTermsEnum.
+//
+// Gocene's TermsEnum is keyed on *Term; the seek terms it hands to the
+// delegate carry an empty field name, since only the bytes take part in
+// seekCeil, exactly as the Java BytesRef does.
+//
+// @lucene.internal
 type SeekingTermSetTermsEnum struct {
-	terms []string
-	pos   int
+	*index.FilteredTermsEnum
+
+	terms       *util.BytesRefHash
+	ords        []int
+	lastElement int
+
+	lastTerm *util.BytesRef
+	spare    *util.BytesRef
+
+	seekTerm *util.BytesRef
+	upto     int
 }
 
-// NewSeekingTermSetTermsEnum builds a sorted-set enum from the supplied
-// terms; the input slice is copied and sorted to guarantee deterministic
-// seeking.
-func NewSeekingTermSetTermsEnum(terms []string) *SeekingTermSetTermsEnum {
-	clone := make([]string, len(terms))
-	copy(clone, terms)
-	sort.Strings(clone)
-	return &SeekingTermSetTermsEnum{terms: clone, pos: -1}
-}
-
-// Size returns the number of terms.
-func (e *SeekingTermSetTermsEnum) Size() int { return len(e.terms) }
-
-// SeekCeil positions the cursor on the smallest term >= target. Returns true
-// when such a term exists; false when target is larger than every term.
-func (e *SeekingTermSetTermsEnum) SeekCeil(target string) bool {
-	idx := sort.SearchStrings(e.terms, target)
-	if idx >= len(e.terms) {
-		e.pos = idx
-		return false
+// NewSeekingTermSetTermsEnum renders the constructor
+// SeekingTermSetTermsEnum(TermsEnum tenum, BytesRefHash terms, int[] ords).
+func NewSeekingTermSetTermsEnum(tenum index.TermsEnum, terms *util.BytesRefHash, ords []int) *SeekingTermSetTermsEnum {
+	e := &SeekingTermSetTermsEnum{
+		terms: terms,
+		ords:  ords,
+		spare: util.NewBytesRefEmpty(),
 	}
-	e.pos = idx
-	return true
+	e.FilteredTermsEnum = index.NewFilteredTermsEnum(tenum, e)
+	e.lastElement = terms.Size() - 1
+	e.lastTerm = terms.Get(ords[e.lastElement], util.NewBytesRefEmpty())
+	e.seekTerm = terms.Get(ords[e.upto], e.spare)
+	return e
 }
 
-// SeekExact positions the cursor on target. Returns true iff the target is
-// present.
-func (e *SeekingTermSetTermsEnum) SeekExact(target string) bool {
-	idx := sort.SearchStrings(e.terms, target)
-	if idx >= len(e.terms) || e.terms[idx] != target {
-		return false
+// NextSeekTerm renders the nextSeekTerm(BytesRef currentTerm) override.
+func (e *SeekingTermSetTermsEnum) NextSeekTerm(currentTerm *spi.Term) (*spi.Term, error) {
+	temp := e.seekTerm
+	e.seekTerm = nil
+	if temp == nil {
+		return nil, nil
 	}
-	e.pos = idx
-	return true
+	return spi.NewTermFromBytes("", temp.ValidBytes()), nil
 }
 
-// Next advances to the next term. Returns the term and true, or ("", false)
-// when exhausted.
-func (e *SeekingTermSetTermsEnum) Next() (string, bool) {
-	e.pos++
-	if e.pos >= len(e.terms) {
-		return "", false
+// Accept renders the accept(BytesRef term) override.
+func (e *SeekingTermSetTermsEnum) Accept(t *spi.Term) (index.AcceptStatus, error) {
+	term := t.BytesValue()
+	if util.BytesRefCompare(term, e.lastTerm) > 0 {
+		return index.AcceptEnd, nil
 	}
-	return e.terms[e.pos], true
-}
 
-// Term returns the term at the current cursor position, or "" when the
-// cursor is before-start / past-end.
-func (e *SeekingTermSetTermsEnum) Term() string {
-	if e.pos < 0 || e.pos >= len(e.terms) {
-		return ""
+	currentTerm := e.terms.Get(e.ords[e.upto], e.spare)
+	if util.BytesRefCompare(term, currentTerm) == 0 {
+		if e.upto == e.lastElement {
+			return index.AcceptYes, nil
+		}
+		e.upto++
+		e.seekTerm = e.terms.Get(e.ords[e.upto], e.spare)
+		return index.AcceptYesAndSeek, nil
 	}
-	return e.terms[e.pos]
+	if e.upto == e.lastElement {
+		return index.AcceptNo, nil
+	}
+	// Our current term doesn't match the given term.
+	var cmp int
+	for { // We maybe are behind the given term by more than one step. Keep incrementing till
+		// we're the same or higher.
+		if e.upto == e.lastElement {
+			return index.AcceptNo, nil
+		}
+		// typically the terms dict is a superset of query's terms so it's unusual that we have to
+		// skip many of
+		// our terms so we don't do a binary search here
+		e.upto++
+		e.seekTerm = e.terms.Get(e.ords[e.upto], e.spare)
+		if cmp = util.BytesRefCompare(e.seekTerm, term); cmp >= 0 {
+			break
+		}
+	}
+	if cmp == 0 {
+		if e.upto == e.lastElement {
+			return index.AcceptYes, nil
+		}
+		e.upto++
+		e.seekTerm = e.terms.Get(e.ords[e.upto], e.spare)
+		return index.AcceptYesAndSeek, nil
+	}
+	return index.AcceptNoAndSeek, nil
 }

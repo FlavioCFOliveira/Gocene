@@ -95,7 +95,7 @@ func TestMergeSchedulerExternal_MergeCallbacks(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
-	conf := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	conf := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	conf.SetMergeScheduler(newReportingMergeScheduler())
 
 	writer, err := index.NewIndexWriter(dir, conf)
@@ -106,13 +106,13 @@ func TestMergeSchedulerExternal_MergeCallbacks(t *testing.T) {
 	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument #1: %v", err)
 	}
-	if err := writer.Commit(); err != nil { // trigger flush
+	if _, err := writer.Commit(); err != nil { // trigger flush
 		t.Fatalf("Commit #1: %v", err)
 	}
 	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument #2: %v", err)
 	}
-	if err := writer.Commit(); err != nil { // trigger flush
+	if _, err := writer.Commit(); err != nil { // trigger flush
 		t.Fatalf("Commit #2: %v", err)
 	}
 	if err := writer.ForceMerge(1); err != nil {
@@ -136,7 +136,7 @@ func TestMergeSchedulerExternal_MyMergeException(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
-	conf := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	conf := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, conf)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
