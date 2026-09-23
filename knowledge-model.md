@@ -17,7 +17,7 @@ correct statement without exploring the graph first.
   `releases/lucene/10.5.0`, commit `f6eaee8148b7569e83c433feacc4f624608188fd`
   (2026-06-19).
 - **Live graph, verified 2026-09-23 (module tier synchronised to commit
-  `0d52b534`):** **210 747 nodes, 332 144 edges, 29 labels defined (28 populated —
+  `0d52b534`):** **210 747 nodes, 333 573 edges, 29 labels defined (28 populated —
   `GoceneMissingPackage` is empty), 36 predicates, 67 property keys (59 node, 11
   edge), 29 constraints, 31 indexes.**
 
@@ -36,7 +36,7 @@ endpoint pairs (15 populated), first loaded from the working tree at commit
 snapshot of commit `f008c200`**, then **synchronised incrementally the same day to a
 `git archive` snapshot of commit `0d52b534`** — the post-sync census and the
 two-direction diff find 0 differences (§ 6). `PORTED_TO` is **populated** over 10
-endpoint pairs: 21 857 edges, derived from measured evidence (§ 7, The PORTED_TO derivation) and verified by
+endpoint pairs: 23 286 edges, derived from measured evidence (§ 7, The PORTED_TO derivation) and verified by
 a write-time counter audit and the anchor audit. The
 Lucene tier is shaped so the Gocene tier attaches without reshaping it: every
 element on both sides carries a stable single-STRING identity that `PORTED_TO` can
@@ -528,11 +528,11 @@ PORTED_TO derivation).
 | `PORTED_TO` | `LuceneFile` → `GoceneFile` | this Lucene file is ported in this Go file (a Go source comment references the Lucene path) | 749 |
 | `PORTED_TO` | `LucenePackage` → `GocenePackage` | this Lucene package is ported to this Go package | 399 |
 | `PORTED_TO` | `LuceneClass` → `GoceneType` | this Lucene class is ported to this Go type | 2 392 |
-| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method — Java overloads map many-to-one onto the single Go method | 9 091 |
+| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method — Java overloads map many-to-one onto the single Go method | 9 284 |
 | `PORTED_TO` | `LuceneField` → `GoceneField` | this Lucene field is ported to this Go field (non-constant members only) | 5 265 |
-| `PORTED_TO` | `LuceneField` (isConstant) → `GoceneConstant` | this Lucene constant field is ported to this Go constant | 362 |
+| `PORTED_TO` | `LuceneField` (isConstant) → `GoceneConstant` | this Lucene constant field is ported to this Go constant | 363 |
 | `PORTED_TO` | `LuceneEnumConstant` → `GoceneConstant` | this enum constant is ported to this Go constant | 97 |
-| `PORTED_TO` | `LuceneMethod` → `GoceneFunction` | this constructor, static method, test method or test helper is ported to this package-level Go function (`<init>` → `NewX`; test method `testFoo()` → `TestFoo` or `Test<Class>_Foo`) | 3 368 |
+| `PORTED_TO` | `LuceneMethod` → `GoceneFunction` | this constructor, static method, test method or test helper is ported to this package-level Go function (`<init>` → `NewX`; test method `testFoo()` → `TestFoo`, `Test<Class>_Foo` or `Test<Class>_testFoo`; static method `foo(…)` → `Foo`) | 4 603 |
 | `PORTED_TO` | `LuceneField` → `GoceneVariable` | this Lucene field (a constant held in a Go `var`, or a static test fixture) is ported to this package-level Go variable | 133 |
 
 **Edge properties of `PORTED_TO`.** Besides `gitCommit` and `gitDate`:
@@ -541,8 +541,8 @@ PORTED_TO derivation).
   endpoint has two or more `PORTED_TO` edges to the same Go label; at the package
   level, the Go package holds one of the copies of a duplicated class. Absent
   otherwise. Every copy keeps its edge — the flag records the duplication, it does
-  not choose a winner, and no code is deleted. Measured 2026-09-23: 911 edges
-  flagged (214 class, 320 method, 216 field, 20 enum constant, 78 function, 63
+  not choose a winner, and no code is deleted. Measured 2026-09-23: 1 170 edges
+  flagged (214 class, 505 method, 216 field, 20 enum constant, 152 function, 63
   package).
 - `copies` INTEGER — set with `duplicate`: the number of targets of the group.
 
@@ -568,7 +568,7 @@ visible by query alone. Derived attributes (for example `LuceneClass.isPorted`) 
 computed from the edges and never written independently, so the graph can never
 assert a port status that contradicts its own edges.
 
-An edge is written **only on measured, unambiguous evidence** — a file-header path reference, a doc-comment claim naming the Lucene class, or a name transliteration within a ported class pair or a ported test-file pair (§ 7). Every member, constant, function and variable edge is **anchored**: it is backed by the `PORTED_TO` edge of its owner's class pair (or, for a test class, of its file pair); an edge whose anchor is gone is removed. Where the evidence is ambiguous (two or more Go names matching one Java name), no edge is written: the relation never asserts what the evidence cannot determine. Some Go comments cite Apache Lucene **10.4.0** — the release the code was actually ported from — while the reference tree is 10.5.0; the 29 path references that resolve only against 10.4.0 (for example `ChecksumIndexOutput`, removed in 10.5.0) are documented as dangling and are never written (§ 7).
+An edge is written **only on measured, unambiguous evidence** — a file-header path reference, a doc-comment claim naming the Lucene class or member, or a name transliteration within a ported class pair or a ported test-file pair (§ 7). Every member, constant, function and variable edge is **anchored**: it is backed by the `PORTED_TO` edge of its owner's class pair (or, for a test class, of its file pair); an edge whose anchor is gone is removed. Where the evidence is ambiguous (two or more Go names matching one Java name), no edge is written: the relation never asserts what the evidence cannot determine. Some Go comments cite Apache Lucene **10.4.0** — the release the code was actually ported from — while the reference tree is 10.5.0; the 29 path references that resolve only against 10.4.0 (for example `ChecksumIndexOutput`, removed in 10.5.0) are documented as dangling and are never written (§ 7).
 
 
 ### Predicates deliberately not defined yet
@@ -762,7 +762,7 @@ shapes demand it.
 
 Every node and edge carries `gitCommit` (the full Gocene commit hash when the element
 was last confirmed) and `gitDate` (that commit's ISO date). Verified 2026-09-23:
-**0 of the 210 747 nodes and 0 of the 332 144 edges lack `gitCommit`/`gitDate`**.
+**0 of the 210 747 nodes and 0 of the 333 573 edges lack `gitCommit`/`gitDate`**.
 
 - **Lucene tier** — every node and every edge (112 068 / 162 505, including the
   90 511 `DECLARES_METHOD` and `DECLARES_FIELD` edges restored 2026-09-11 by
@@ -776,7 +776,7 @@ was last confirmed) and `gitDate` (that commit's ISO date). Verified 2026-09-23:
   the module `go.mod`. Elements unchanged since the first load keep `dd61538c` /
   `2026-09-08` (56 149 of 98 679 nodes, 119 581 of 147 782 edges); the tier carries
   92 distinct `gitCommit` values on nodes and 102 on edges.
-- **`PORTED_TO`** — the 6 893 edges of the original 2026-09-11 derivation left
+- **`PORTED_TO`** — the 6 850 edges of the original 2026-09-11 derivation left
   untouched keep `gitCommit` = `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e`, `gitDate`
   = `2026-09-11`; every edge created or updated by a later sync carries the source-file
   commit of its Go endpoint, by the rule above.
@@ -797,7 +797,7 @@ query is by label, not by `gitCommit` value.
 | Constraints (§ 3) | 29 (17 Lucene, 12 Gocene) | **29 created and enforced** |
 | Indexes (§ 4) | 31 (29 constraint-backing, 2 declared) | **31 ONLINE** |
 | Gocene tier (§ 1, § 2) | 12 labels, 11 predicates over 16 endpoint pairs | **98 679 nodes, 147 782 edges over 15 populated pairs** — first loaded at `dd61538c`, resynchronised 2026-09-23 to the `git archive` snapshot of `f008c200`, synchronised incrementally the same day to the snapshot of `0d52b534`; post-sync census and two-direction identity, property and edge diff over all 12 labels: 0 differences |
-| `PORTED_TO` (§ 2) | 10 endpoint pairs | **21 857 edges over the 10 pairs** — materialised 2026-09-11 by measured derivation, re-derived 2026-09-23 over the whole `f008c200` snapshot and for the files changed up to `0d52b534` (§ 7): write-time counter audit exact, live set equal to the plan, anchor audit 0 violations, `duplicate` flags consistent with the edges, provenance 100 % |
+| `PORTED_TO` (§ 2) | 10 endpoint pairs | **23 286 edges over the 10 pairs** — materialised 2026-09-11 by measured derivation, re-derived 2026-09-23 over the whole `f008c200` snapshot, for the files changed up to `0d52b534`, and over the whole graph with the extended rules (§ 7): write-time counter audit exact, live set equal to the plan, anchor audit 0 violations, `duplicate` flags consistent with the edges, provenance 100 % |
 
 ---
 
@@ -925,7 +925,7 @@ The 10 187 `PORTED_TO` edges were materialised on 2026-09-11 (roadmap task 364) 
 - *Field alias* adds `posIncAtt` → `posIncrAttr` to `…Att` → `…Attr`.
 - *Constants* (and constant fields held in a Go `var`) match, in the Go type's package, the Java name as is, its CamelCase and lowerCamelCase forms, and those forms prefixed by the Go type name (`<Type><Camel>`, `<type><Camel>`, `<Type>_<NAME>`); an edge is written only when the Java constant has one candidate within its class pair and the Go constant is claimed by one Java constant.
 - *Constructors* (`LuceneMethod` → `GoceneFunction`): every `<init>` of a ported class maps to `New<Type>` (`new<Type>` for an unexported type) in the type's package, when that function exists once and either the class has one constructor or the package has no other `New<Type>…` function.
-- *Test level*: within a `LuceneFile` → `GoceneFile` pair of a test file, `testX()` maps to the one Go function named `TestX`, `<TestClass>_X`, `<TestClass>X` or `Test<TestClass>_X` in the paired file; any other method, and a static field, maps to the one function or package variable of the same (or capitalised) name in that file.
+- *Test level*: within a `LuceneFile` → `GoceneFile` pair of a test file, `testX()` maps to the one Go function named `TestX`, `<TestClass>_X`, `<TestClass>X` or `Test<TestClass>_X` in the paired file; any other method, and a static field, maps to the one function or package variable of the same (or capitalised) name in that file. The forms were extended the same day (below: *Derivation rules extended*).
 - *Curated edges* written by hand at the `5b606987` and `a40ff560` syncs are kept while their Go file has not changed since a curated sync.
 - *Stubs* are excluded, *duplicates* flagged, and every member edge must pass the anchor rule (§ 2, Port relation).
 - *Transfers*: an edge lost because its Go node changed identity only (the `#<file>#<n>` disambiguator appeared or disappeared) was re-attached to the surviving declaration when that declaration lies in an unchanged file.
@@ -941,3 +941,15 @@ The 10 187 `PORTED_TO` edges were materialised on 2026-09-11 (roadmap task 364) 
 **Module tier.** The scanner ran over a `git archive 0d52b534` snapshot (5 010 files, 0 parse errors) and the whole tier was diffed against the graph; the differences lie in the 165 paths changed since `f008c200` plus one identity whose disambiguator disappeared (`util.TestIntroSort`, its duplicate declaration deleted). Applied: 19 files, 38 types, 443 functions, 155 methods, 126 fields, 26 constants, 13 variables and 1 package created; 52 files, 62 types, 710 functions, 273 methods, 181 fields, 13 constants, 3 variables and 2 external types deleted; 1 085 nodes updated; 1 137 edges created and 1 843 deleted. Every element of a changed file carries `gitCommit` `0d52b534…` (1 005 kept nodes and 3 170 kept edges re-stamped). The re-run diff is **empty**: 0 node, 0 property and 0 edge differences, 0 unstamped elements.
 
 **`PORTED_TO`.** The deletions removed 24 edges (21 754 → 21 730). The 2026-09-23 rules were applied to the 112 surviving changed files: 130 edges created (7 class, 29 method, 24 field, 14 function, 2 constant, 1 variable, 36 file, 17 package), 3 package edges deleted (no longer supported by a file or class pair), 461 re-derived edges re-stamped; 0 transfers. Result: **21 857 edges**. Verification: every write statement's counter equals its row count; a re-run of the plan against the live set yields 0 creates, 0 deletes and 0 updates; anchor audit 0 violations; 911 `duplicate` flags consistent with the edges.
+
+#### Derivation rules extended (2026-09-23, complete resync)
+
+Three rules were added to the derivation and applied to the whole graph; each keeps the honesty rules (ambiguity writes no edge) and the anchor rule.
+
+- **Test-function forms (level 7).** The naming forms actually used in the module were measured over the 2 834 Lucene test methods of the paired test files: besides `TestX`, `<TestClass>_X`, `<TestClass>X` and `Test<TestClass>_X`, the repository uses `<TestClass>_testX` (203 methods), `<TestClass>_TestX` (2) and, for a `Base…TestCase` class, `Test<Base…>_X` (the `TestCase` suffix dropped). All seven forms are candidates; the paired file must hold exactly one of them.
+- **Static methods (level 8).** Within a class pair (the Go type's file) or a file pair (the paired Go file), a Java `static` method maps to the one non-test package-level Go function named as the method (exact or capitalised) whose arity is compatible — equal, or a variadic Go function covering it. The Java (name, arity) must be unique among the class's static methods, and the Go function must be claimed by one Java method only. Arity comes from the Go declaration's parameter list, extracted from the snapshot with the doc-comment evidence.
+- **Member-level doc claims (level 9).** A Go function's or method's doc-comment sentence that carries a claim verb names a Lucene member after the verb: `Class.member(params)`, `Class#member(params)`, a fully qualified `pkg.Class.member(…)`, a bare `member(params)`, or a bare constructor `Class(params)`. Between the verb (or the previous claimed reference) and the reference only articles, visibility and kind words may stand (`the`, `Lucene's`, `private`, `static`, `method`, …); any other word — "the tail of", "unlike" — ends the claim. The class resolves only among the classes that anchor the Go element: for a method, the class pairs of its owner type; for a function, the classes paired in its package or declared in its file's paired Lucene files; a bare member resolves in the element's own context (the owner type's classes; the classes paired to the types of the same Go file or declared in its paired Lucene files). The member resolves by name and, when a parameter list is written, by its exact simple-type list, else by the one overload of that arity; without a list only a non-overloaded name resolves. Constructors map to functions only.
+
+**Counts.** The whole-graph plan (existing edges kept, every derivable edge added, package support, anchors and `duplicate` flags recomputed) created **1 429 edges** and deleted none: 234 by the test forms, 451 by the static-method rule (164 of them also evidenced by a doc claim), 743 by member-level doc claims only (550 to functions, 193 to methods), and 1 constant edge of the existing rules in a file the incremental sync did not cover. 113 edges were updated (`duplicate` flags). Result: **23 286 edges**; 1 170 `duplicate` flags.
+
+**Verification.** Every write statement's counter equals its row count; re-running the plan against the live set yields 0 creates, 0 deletes and 0 updates, and so does the incremental plan over the files changed since `f008c200` (a derived edge survives re-derivation); anchor audit 0 violations; 0 duplicate pairs; 0 edges into stubs; 0 edges without provenance. A random sample of 30 new edges (8 test, 8 static, 14 doc claim), each checked against the Java declaration and the Go declaration and comment, found 0 false positives. An earlier sample without the claim-gap rule found 1 (`writeSuffix`, "the tail of `CodecUtil.writeIndexHeader`"), which the gap rule now excludes.
