@@ -16,8 +16,10 @@ correct statement without exploring the graph first.
 - **Lucene reference:** Apache Lucene 10.5.0 at `/tmp/lucene`, tag
   `releases/lucene/10.5.0`, commit `f6eaee8148b7569e83c433feacc4f624608188fd`
   (2026-06-19).
-- **Live graph, verified 2026-09-14:** **209 249 nodes, 312 436 edges, 29 labels,
-  36 predicates, 59 property keys, 29 constraints, 31 indexes.**
+- **Live graph, verified 2026-09-23 (module tier resynchronised to commit
+  `f008c200`):** **211 222 nodes, 332 747 edges, 29 labels defined (28 populated —
+  `GoceneMissingPackage` is empty), 36 predicates, 67 property keys (59 node, 11
+  edge), 29 constraints, 31 indexes.**
 
 ## Scope
 
@@ -29,18 +31,21 @@ build tooling and code generators. All 112 068 of its nodes are loaded; 39 of it
 
 The **Gocene tier** — the organisational structure of the Gocene Go module and its
 symbols — is **defined and materialised**: 12 labels, 11 predicates over 16
-endpoint pairs, loaded from the working tree at commit `dd61538c` (2026-09-10) and
-confirmed by the post-load census (§ 6). `PORTED_TO` is **populated**: 10 187 edges
-over 8 endpoint pairs, derived from measured evidence (§ 7, The PORTED_TO
-derivation) and verified by a write-time counter audit and the anchor audit. The
+endpoint pairs (15 populated), first loaded from the working tree at commit
+`dd61538c` (2026-09-10) and **resynchronised on 2026-09-23 to a `git archive`
+snapshot of commit `f008c200`** — the post-resync census and the two-direction diff
+find 0 differences (§ 6). `PORTED_TO` is **populated** over 10 endpoint pairs: 21 754
+edges, derived from measured evidence (§ 7, The PORTED_TO derivation) and verified by
+a write-time counter audit and the anchor audit. The
 Lucene tier is shaped so the Gocene tier attaches without reshaping it: every
 element on both sides carries a stable single-STRING identity that `PORTED_TO` can
 target at any granularity — release, module, package, file, class, method, field,
 constant.
 
 The **Population** column in each dictionary is the verified count. For the Gocene
-tier it is the live graph count, confirmed by the post-load census and the
-two-direction identity set diff against the inventory (§ 6, § 7). For the Lucene
+tier it is the live graph count, confirmed by the post-resync census and the
+two-direction identity and property diff against the inventory of the `f008c200`
+snapshot (§ 6, § 7). For the Lucene
 tier it is the reference-tree count, verified label by label and predicate by
 predicate against `/tmp/lucene` (§ 7); the live edge state — 39 of 47 pairs — is
 recorded in § 6. For `PORTED_TO` it is the live edge count of a pair, equal to the
@@ -201,10 +206,10 @@ A package named by an on-demand (`import x.y.*`) import that is not a Lucene pac
 ### Gocene tier
 
 The Gocene tier mirrors the organisational structure of the Go module
-`github.com/FlavioCFOliveira/Gocene` — the port itself — measured in the working
-tree at commit `dd61538c` on 2026-09-10. It is **loaded and verified**: every
-population below is a live graph count, confirmed by the post-load census and the
-two-direction identity set diff against the inventory (§ 6, § 7).
+`github.com/FlavioCFOliveira/Gocene` — the port itself — measured on a `git archive`
+snapshot of commit `f008c200` (2026-09-23). It is **loaded and verified**: every
+population below is a live graph count, confirmed by the post-resync census and the
+two-direction identity and property diff against the inventory (§ 6, § 7).
 
 **Identity rule (all Gocene tier labels).** The natural identity is
 `<importPath>.Name` — or `path`, `importPath`, `key`, `sig` where the label says so.
@@ -213,15 +218,15 @@ the group receives the disambiguator `#<file>#<n>`** (`n` = ordinal of the
 declaration within the file): this makes the identity unique — which is what the § 3
 `UNIQUE` constraints enforce — while the redeclared name stays visible through the
 `name` property and the containment edge to the file. Measured collision groups that
-require the disambiguator: `GoceneType` 116 groups / 235 records (113 redeclarations
-+ 3 build-tag pairs), `GoceneFunction` 109 / 253 (106 + 3), `GoceneMethod` 149 / 300
-(143 + 6), `GoceneField` 2 / 4 (2 + 0), `GoceneConstant` 4 / 8 (4 + 0),
-`GoceneVariable` 113 / 1615 (112 blank-`_` groups + 1 build-tag pair);
+require the disambiguator (groups / records, redeclarations + build-tag groups):
+`GoceneType` 4 / 8 (1 + 3), `GoceneFunction` 17 / 35 (14 + 3, `init` excluded),
+`GoceneMethod` 7 / 14 (1 + 6), `GoceneField` 15 / 25 (7 + 8), `GoceneConstant` 1 / 2
+(1 + 0), `GoceneVariable` 121 / 1781 (120 blank-`_` groups + 1 build-tag pair);
 `GocenePackage` and `GoceneFile`: 0. The build-tag groups are the platform pairs
 (`*_unix.go` / `*_windows.go` / `*_posix.go`); the redeclaration groups are genuine
 repository defects, represented faithfully. `init` functions **always** carry the
-`#<file>#<n>` form — Go permits several `func init()` per file (measured: 81 inits
-in 79 files, 2 files hold 2) — so their identity is `<importPath>.init#<file>#<n>`.
+`#<file>#<n>` form — Go permits several `func init()` per file (measured: 85 inits
+in 83 files, 2 files hold 2) — so their identity is `<importPath>.init#<file>#<n>`.
 
 ### `GoceneModule`
 The Go module as a whole; the anchor of the Gocene tier.
@@ -231,28 +236,28 @@ The Go module as a whole; the anchor of the Gocene tier.
 ### `GocenePackage`
 A Go package — a directory declaring one package — plus one node per external test
 package (`_test` suffix on the importPath, Go toolchain convention).
-- **Identity:** `importPath`. **Population: 357** (287 production + 70 test).
-- `name` STRING — the declared package name; 248 distinct.
+- **Identity:** `importPath`. **Population: 339** (268 production + 71 test).
+- `name` STRING — the declared package name; 247 distinct.
 - `dir` STRING — repo-relative directory; `.` is the root.
-- `depth` INTEGER — directory nesting, 0…5.
-- `test` BOOLEAN — importPath ends in `_test`; true for the 70.
+- `depth` INTEGER — directory nesting, 0…4.
+- `test` BOOLEAN — importPath ends in `_test`; true for the 71.
 - `testOnly` BOOLEAN — true when **no non-test Go file declares the package**; true
-  for 75 = the 70 test packages plus 5 internal test-only packages (`benchmark`,
-  `highlight/uhighlight/testdata`, `tests`, `tests/index`, `tests/suggest`) whose
-  directories hold only test-role Go files — including files without the
-  `_test.go` suffix (e.g. `tests/index/random_index_writer.go`), which is why the
-  rule is stated on file role, not on the filename.
+  for 77 = the 71 test packages plus 6 internal test-only packages (`benchmark`,
+  `search/uhighlight/testdata`, `tests/analysis`, `tests/index`, `tests/search`,
+  `tests/util`) whose directories hold only test-role Go files — including files
+  without the `_test.go` suffix (e.g. `tests/index/random_index_writer.go`), which is
+  why the rule is stated on file role, not on the filename.
 
 ### `GoceneFile`
 A source file of any language — every file in the tree, Go and non-Go.
-- **Identity:** `path` — repo-relative. **Population: 5239** (5140 Go + 99 non-Go).
-- `language` STRING — `go` (5140) | `java` (80) | `python` (9) | `shell` (7) |
+- **Identity:** `path` — repo-relative. **Population: 5043** (4944 Go + 99 non-Go).
+- `language` STRING — `go` (4944) | `java` (80) | `python` (9) | `shell` (7) |
   `makefile` (2) | `gomod` (1).
-- `role` STRING — Go files: `production` (3054) | `test` (2079) | `example` (5) |
+- `role` STRING — Go files: `production` (2970) | `test` (1967) | `example` (5) |
   `tool` (2); non-Go files: `tool` (96) | `build` (3). A Go file is `test` when its
   package is test-only, its path ends in `_test.go`, or it sits under a
   `testdata/` directory (the Go toolchain's testdata convention).
-- `importPath` STRING — for Go files, the declared package's importPath (all 5140
+- `importPath` STRING — for Go files, the declared package's importPath (all 4944
   carry it); for non-Go files, the production package of the directory if one
   exists (measured: the 10 non-Go root files resolve to the root package, the other
   89 to none).
@@ -265,13 +270,13 @@ A source file of any language — every file in the tree, Go and non-Go.
 ### `GoceneType`
 Any declared type: struct, interface, defined type or alias.
 - **Identity:** `qn` — `<importPath>.Name`, with the tier disambiguator where the
-  natural key collides. **Population: 8209.**
-- `name` STRING — 7123 distinct (86.8 % selective).
-- `kind` STRING — `struct` (6585) | `interface` (1025) | `defined` (374) |
-  `alias` (225).
-- `definedFrom` STRING — the right-hand type expression; set for the 374 defined
+  natural key collides. **Population: 7777.**
+- `name` STRING — 7053 distinct (90.7 % selective).
+- `kind` STRING — `struct` (6220) | `interface` (940) | `defined` (343) |
+  `alias` (274).
+- `definedFrom` STRING — the right-hand type expression; set for the 343 defined
   types.
-- `typeParams` INTEGER — the number of type parameters; set for the 125 generic
+- `typeParams` INTEGER — the number of type parameters; set for the 169 generic
   types (values 1…2).
 - `line` INTEGER.
 
@@ -281,10 +286,10 @@ targets and examples. They share every containment relation, so the kind is a
 property.
 - **Identity:** `qn` — `<importPath>.Name`, with the tier disambiguator; `init`
   functions always carry `#<file>#<n>` (identity rule above).
-  **Population: 25018.**
-- `name` STRING — 23839 distinct (95.3 % selective).
-- `kind` STRING — `function` (10989) | `test` (13750) | `init` (81) |
-  `benchmark` (191) | `fuzz` (4) | `example` (3).
+  **Population: 24524.**
+- `name` STRING — 23527 distinct (95.9 % selective).
+- `kind` STRING — `function` (11490) | `test` (12771) | `init` (85) |
+  `benchmark` (169) | `fuzz` (7) | `example` (2).
 - `line` INTEGER.
 
 ### `GoceneMethod`
@@ -293,24 +298,22 @@ thing to the port (a receiver-scoped callable) and share every relation.
 - **Identity:** `sig` — `<importPath>.<receiver>.<name>` (type arguments erased in
   the receiver; Go has no overloading, so receiver + name is the full identity),
   with the tier disambiguator where the natural key collides.
-  **Population: 33062** (30024 concrete + 3038 interface specs).
-- `name` STRING — **not an identity**: 7620 distinct (23.0 % selective; `String`
-  alone appears on 751 receivers).
+  **Population: 33052** (30285 concrete + 2767 interface specs).
+- `name` STRING — **not an identity**: 7753 distinct (23.5 % selective; `String`
+  alone appears on 705 receivers).
 - `receiver` STRING — the exact source text, e.g. `*GenericAnalysisSPILoader[S]`;
   empty for interface specs.
 - `recvQN` STRING — the **base** type's QN: for parameterized receivers the type
   arguments are stripped, since they are fixed by the type's declaration; empty for
-  interface specs. 516 concrete methods carry a parameterized receiver (legal Go —
-  the canonical receiver of a generic type). **8 concrete methods have a `recvQN`
-  that resolves to no declared `GoceneType`** (genuine repository defects,
-  represented faithfully — they carry only the file edge, § 7): 6 on the misspelled
-  receiver `codecs.denseNumericdocValues` (`codecs/lucene80_doc_values_producer.go`),
-  1 as `search.PrefixCodedTerms` although `PrefixCodedTerms` is declared in `index`
-  (`search/point_in_set_query.go:398`), and 1 with the invalid selector receiver
-  `*index.PrefixCodedTerms` (`search/term_in_set_query.go:260`).
-- `recvPtr` BOOLEAN — pointer receiver; true for 28704 of the 30024 concrete.
-- `interface` BOOLEAN — true for the 3038 interface method specs.
-- `ifaceQN` STRING — interface specs only: the interface's QN (all 3038 resolve to
+  interface specs. 666 concrete methods carry a parameterized receiver (legal Go —
+  the canonical receiver of a generic type). **1 concrete method has no `recvQN`
+  that resolves to a declared `GoceneType`** (a genuine repository defect,
+  represented faithfully — it carries only the file edge, § 7):
+  `(*GroupingSearch).AssembleTopGroupsForTest` (`grouping/export_test.go:27`), whose
+  receiver type is declared in `search/grouping`, not in `grouping`.
+- `recvPtr` BOOLEAN — pointer receiver; true for 29016 of the 30285 concrete.
+- `interface` BOOLEAN — true for the 2767 interface method specs.
+- `ifaceQN` STRING — interface specs only: the interface's QN (all 2767 resolve to
   a declared type).
 - `line` INTEGER.
 
@@ -319,36 +322,37 @@ A struct field or an embedded field.
 - **Identity:** `key` — `<typeQN>.<name-part>`, with the tier disambiguator; the
   name-part of an embedded field is the embedded type's reference — the simple name
   within the same package, the package-qualified (full QN) form across packages.
-  **Population: 22115** (20351 + 1764 embedded).
-- `name` STRING — **not an identity**: 6922 distinct (31.3 % selective).
+  **Population: 21497** (19527 + 1970 embedded).
+- `name` STRING — **not an identity**: 6975 distinct (32.4 % selective).
 - `type` STRING — the declared type expression; a leading `*` marks a pointer
   embed.
-- `embedded` BOOLEAN — true for the 1764.
+- `embedded` BOOLEAN — true for the 1970.
 - `line` INTEGER.
 
 ### `GoceneConstant`
 - **Identity:** `qn` — `<importPath>.Name`, with the tier disambiguator.
-  **Population: 3225.**
-- `name` STRING — 2905 distinct (90.1 % selective).
-- `type` STRING — the declared type; empty for the 2797 untyped constants.
+  **Population: 3245.**
+- `name` STRING — 2950 distinct (90.9 % selective).
+- `type` STRING — the declared type; empty for the 2845 untyped constants.
 - `line` INTEGER.
 
 ### `GoceneVariable`
 - **Identity:** `qn` — `<importPath>.Name`, with the tier disambiguator.
-  **Population: 3265.**
-- `name` STRING — **not an identity**: 1532 distinct (46.9 % selective); the 1650
-  blank `_` variables across 149 packages (112 collision groups) are the largest
+  **Population: 3585.**
+- `name` STRING — **not an identity**: 1682 distinct (46.9 % selective); the 1814
+  blank `_` variables across 155 packages (120 collision groups) are the largest
   source of identity collisions in the tier, hence the `#<file>#<n>` disambiguator.
-- `type` STRING — the declared type; empty for the 1385 variables whose type is
+- `type` STRING — the declared type; empty for the 1515 variables whose type is
   inferred from the initializer.
 - `line` INTEGER.
 
 ### `GoceneExternalPackage`
 A package imported by the module but declared outside it. It exists so that
 `IMPORTS` never dangles.
-- **Identity:** `importPath`. **Population: 71** (64 standard-library, 5
-  `golang.org/x` — `unix`, `windows`, `cases`, `encoding/simplifiedchinese`,
-  `unicode/norm` — 2 third-party: `github.com/golang/geo/s2`,
+- **Identity:** `importPath`. **Population: 76** (66 standard-library, 8
+  `golang.org/x` — `sys/unix`, `sys/windows`, `text/cases`, `text/encoding`,
+  `text/encoding/simplifiedchinese`, `text/encoding/unicode`, `text/transform`,
+  `text/unicode/norm` — 2 third-party: `github.com/golang/geo/s2`,
   `github.com/stretchr/testify/assert`).
 
 ### `GoceneExternalType`
@@ -359,31 +363,32 @@ declared in a different package). The reference text is preserved as written,
 exactly as the Lucene tier's `ExternalType` exists "so that … never dangle".
 - **Identity:** `qn` — the reference text: a full QN for a dangling
   fully-qualified reference, the package-qualified or bare name as written
-  otherwise. **Population: 63** (63 distinct reference texts — every reference
+  otherwise. **Population: 15** (15 distinct reference texts — every reference
   text is unique, so the `qn` identity is the reference text itself).
-- `origin` STRING — `qualified` (37: the reference text carries a package
-  qualifier) | `unresolved` (26: a bare simple name whose package cannot be
+- `origin` STRING — `qualified` (14: the reference text carries a package
+  qualifier) | `unresolved` (1: a bare simple name whose package cannot be
   determined from the reference text alone — the Lucene tier's
   `origin: 'unresolved'` precedent).
 
 ### `GoceneMissingPackage`
 A package imported by the module but declared nowhere in the tree — a
 visible-by-query repository defect.
-- **Identity:** `importPath` — `github.com/FlavioCFOliveira/Gocene/schema`.
-  **Population: 1** — imported by 40 `_test.go` files across 8 top-level
-  directories (12 distinct directories); `go list -e -test` reports the failure
-  (`no required module provides package …/Gocene/schema`), which keeps the defect
-  measured rather than hidden.
+- **Identity:** `importPath`. **Population: 0** at `f008c200` — the label, its
+  constraint and its `IMPORTS` pair stay defined so a future dangling import is
+  recorded rather than dropped. The one node the label held until 2026-09-23
+  (`…/schema`, imported only by `_test.go` files) was removed with its last import;
+  `go list -e -test ./...` over the snapshot reports no missing package.
 
 ---
 
 ## 2. Predicate dictionary
 
 One row per endpoint pair: the same predicate name between different labels is a
-different assertion. **35 distinct predicate names over 71 defined endpoint pairs;
-63 of them are live in the graph** — Lucene tier: 31 names over 47 pairs (39
-live, § 6); Gocene tier: 11 names over 16 pairs (all live); `PORTED_TO`: 8 pairs
-(all live); 7 names are shared by both tiers.
+different assertion. **36 distinct predicate names over 73 defined endpoint pairs;
+64 of them are live in the graph** — Lucene tier: 31 names over 47 pairs (39
+live, § 6); Gocene tier: 11 names over 16 pairs (15 live — `IMPORTS` →
+`GoceneMissingPackage` is empty); `PORTED_TO`: 10 pairs (all live); 7 names are
+shared by both tiers.
 
 ### Containment — the organisational hierarchy
 
@@ -474,55 +479,86 @@ grammars, 1 ANTLR grammar, and the Python and Groovy generators.
 
 ### Gocene tier
 
-**11 predicates over 16 endpoint pairs.** Populations are live graph counts,
-confirmed by the post-load census and the identity set diff (§ 6). `PORTED_TO`
-populations are the derived live counts, verified per pair (§ 7).
+**11 predicates over 16 endpoint pairs (15 live).** Populations are live graph
+counts, confirmed by the post-resync census and the two-direction diff (§ 6).
+`PORTED_TO` populations are the derived live counts, verified per pair (§ 7).
 
 | Predicate | From → To | Asserts | Population |
 |---|---|---|---:|
-| `CONTAINS_PACKAGE` | `GoceneModule` → `GocenePackage` | the module declares this package | 357 |
-| `CONTAINS_FILE` | `GocenePackage` → `GoceneFile` | the file's production package (Go files: the declared package; non-Go files: the production package of the directory) | 5150 |
+| `CONTAINS_PACKAGE` | `GoceneModule` → `GocenePackage` | the module declares this package | 339 |
+| `CONTAINS_FILE` | `GocenePackage` → `GoceneFile` | the file's production package (Go files: the declared package; non-Go files: the production package of the directory) | 4954 |
 | `CONTAINS_FILE` | `GoceneModule` → `GoceneFile` | a file in a directory with no production package (`docs/`, `scripts/`, `tools/`) | 89 |
-| `DECLARES_TYPE` | `GoceneFile` → `GoceneType` | a type declared by this file | 8209 |
-| `DECLARES_FUNCTION` | `GoceneFile` → `GoceneFunction` | a package-level function of any kind | 25018 |
-| `DECLARES_CONSTANT` | `GoceneFile` → `GoceneConstant` | a package-level constant | 3225 |
-| `DECLARES_VARIABLE` | `GoceneFile` → `GoceneVariable` | a package-level variable | 3265 |
-| `DECLARES_METHOD` | `GoceneFile` → `GoceneMethod` | a method declared by this file — concrete or interface spec | 33062 |
-| `DECLARES_METHOD` | `GoceneType` → `GoceneMethod` | a member method of this type — concrete with a resolvable receiver, or an interface spec of this interface | 33800 |
-| `DECLARES_FIELD` | `GoceneType` → `GoceneField` | a member field or embedded field of this type | 22115 |
-| `EMBEDS` | `GoceneType` → `GoceneType` | an embedded field whose type resolves inside the module | 1606 |
-| `EMBEDS` | `GoceneType` → `GoceneExternalType` | an embedded field whose reference does not resolve to a declared `GoceneType` | 158 |
-| `IMPORTS` | `GoceneFile` → `GocenePackage` | an import of a package inside the module; edge property `blank` BOOLEAN — true for the 115 `_` imports | 5987 |
-| `IMPORTS` | `GoceneFile` → `GoceneExternalPackage` | an import of a package outside the module | 8028 |
-| `IMPORTS` | `GoceneFile` → `GoceneMissingPackage` | an import of a package declared nowhere in the tree | 40 |
+| `DECLARES_TYPE` | `GoceneFile` → `GoceneType` | a type declared by this file | 7777 |
+| `DECLARES_FUNCTION` | `GoceneFile` → `GoceneFunction` | a package-level function of any kind | 24524 |
+| `DECLARES_CONSTANT` | `GoceneFile` → `GoceneConstant` | a package-level constant | 3245 |
+| `DECLARES_VARIABLE` | `GoceneFile` → `GoceneVariable` | a package-level variable | 3585 |
+| `DECLARES_METHOD` | `GoceneFile` → `GoceneMethod` | a method declared by this file — concrete or interface spec | 33052 |
+| `DECLARES_METHOD` | `GoceneType` → `GoceneMethod` | a member method of this type — concrete with a resolvable receiver, or an interface spec of this interface | 33068 |
+| `DECLARES_FIELD` | `GoceneType` → `GoceneField` | a member field or embedded field of this type | 21497 |
+| `EMBEDS` | `GoceneType` → `GoceneType` | an embedded field whose type resolves inside the module | 1944 |
+| `EMBEDS` | `GoceneType` → `GoceneExternalType` | an embedded field whose reference does not resolve to a declared `GoceneType` | 26 |
+| `IMPORTS` | `GoceneFile` → `GocenePackage` | an import of a package inside the module; edge property `blank` BOOLEAN, always present — true for the 89 `_` imports | 6460 |
+| `IMPORTS` | `GoceneFile` → `GoceneExternalPackage` | an import of a package outside the module; edge property `blank` BOOLEAN, present only on the 8 `_` imports (`true`) | 7927 |
+| `IMPORTS` | `GoceneFile` → `GoceneMissingPackage` | an import of a package declared nowhere in the tree | 0 |
 | `GENERATED_FROM` | `GoceneFile` → `GoceneFile` | a generated source and the generator that produces it | 1 |
 
-Every `GoceneFile` carries exactly one `CONTAINS_FILE` edge (5150 + 89 = 5239), and
+Every `GoceneFile` carries exactly one `CONTAINS_FILE` edge (4954 + 89 = 5043), and
 every `IMPORTS` edge from a Go file targets exactly one of the three package labels
-(5987 + 8028 + 40 = 14 055; the in-module targets were 5 998 raw inventory rows,
-11 of which were exact duplicates). Go also allows dot imports (`import . x`); the
+(6460 + 7927 + 0 = 14 387; the in-module targets were 6 462 raw inventory rows,
+2 of which were exact duplicates). Go also allows dot imports (`import . x`); the
 model would carry them as edge property `dot` BOOLEAN — none occurs in the measured
 tree, so the property is not declared. A `GoceneMethod` may carry several
 `DECLARES_METHOD` type edges when its receiver type is redeclared in the same
 package (the repository defects measured in the § 1 identity rule): the method
-belongs to every QN that shares the natural identity — measured 32 325 methods
-with exactly one type owner, 712 with two, 17 with three (33 800 type→method
-edges), and 8 with none (the unresolvable-receiver defects, § 1).
+belongs to every QN that shares the natural identity — measured 33 034 methods
+with exactly one type owner, 17 with two (33 068 type→method edges), and 1 with
+none (the unresolvable-receiver defect, § 1).
 
 ### Port relation — `PORTED_TO`
 
-**8 endpoint pairs, 10 187 edges live.** Populations are the derived live counts, equal to the derivation's per-pair row counts (§ 7, The PORTED_TO derivation).
+**10 endpoint pairs.** Populations are the live counts measured 2026-09-23 after the
+resync, each equal to the resync plan's final row count for that pair (§ 7, The
+PORTED_TO derivation).
 
 | Predicate | From → To | Asserts | Population |
 |---|---|---|---:|
 | `PORTED_TO` | `LuceneRelease` → `GoceneModule` | the release is ported to the module — the root of the port | 1 |
-| `PORTED_TO` | `LuceneFile` → `GoceneFile` | this Lucene file is ported in this Go file (a Go source comment references the Lucene path) | 562 |
-| `PORTED_TO` | `LucenePackage` → `GocenePackage` | this Lucene package is ported to this Go package | 281 |
-| `PORTED_TO` | `LuceneClass` → `GoceneType` | this Lucene class is ported to this Go type | 1 579 |
-| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method — Java overloads map many-to-one onto the single Go method | 4 716 |
-| `PORTED_TO` | `LuceneField` → `GoceneField` | this Lucene field is ported to this Go field (non-constant members only) | 2 892 |
-| `PORTED_TO` | `LuceneField` (isConstant) → `GoceneConstant` | this Lucene constant field is ported to this Go constant | 120 |
-| `PORTED_TO` | `LuceneEnumConstant` → `GoceneConstant` | this enum constant is ported to this Go constant | 36 |
+| `PORTED_TO` | `LuceneFile` → `GoceneFile` | this Lucene file is ported in this Go file (a Go source comment references the Lucene path) | 717 |
+| `PORTED_TO` | `LucenePackage` → `GocenePackage` | this Lucene package is ported to this Go package | 385 |
+| `PORTED_TO` | `LuceneClass` → `GoceneType` | this Lucene class is ported to this Go type | 2 385 |
+| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method — Java overloads map many-to-one onto the single Go method | 9 063 |
+| `PORTED_TO` | `LuceneField` → `GoceneField` | this Lucene field is ported to this Go field (non-constant members only) | 5 241 |
+| `PORTED_TO` | `LuceneField` (isConstant) → `GoceneConstant` | this Lucene constant field is ported to this Go constant | 360 |
+| `PORTED_TO` | `LuceneEnumConstant` → `GoceneConstant` | this enum constant is ported to this Go constant | 97 |
+| `PORTED_TO` | `LuceneMethod` → `GoceneFunction` | this constructor, static method, test method or test helper is ported to this package-level Go function (`<init>` → `NewX`; test method `testFoo()` → `TestFoo` or `Test<Class>_Foo`) | 3 373 |
+| `PORTED_TO` | `LuceneField` → `GoceneVariable` | this Lucene field (a constant held in a Go `var`, or a static test fixture) is ported to this package-level Go variable | 132 |
+
+**Edge properties of `PORTED_TO`.** Besides `gitCommit` and `gitDate`:
+- `duplicate` BOOLEAN — `true` when the Lucene artefact is ported **more than
+  once**: at the class, member, constant, function and variable levels, the Lucene
+  endpoint has two or more `PORTED_TO` edges to the same Go label; at the package
+  level, the Go package holds one of the copies of a duplicated class. Absent
+  otherwise. Every copy keeps its edge — the flag records the duplication, it does
+  not choose a winner, and no code is deleted. Measured 2026-09-23: 911 edges
+  flagged (214 class, 320 method, 216 field, 20 enum constant, 78 function, 63
+  package).
+- `copies` INTEGER — set with `duplicate`: the number of targets of the group.
+
+**Placeholder stubs carry no `PORTED_TO`.** A Go type whose whole body is
+`struct{ Name, Version string }` (measured: 62 types, all under `backward_codecs/`,
+including `backward_codecs.Placeholder`) and the field-only shell
+`facets.DrillDownQuery` are not ports of the Lucene classes their doc comments name;
+they, their fields and methods, and their `New<Name>` constructors are excluded,
+so the absence of an edge reports them as not ported.
+
+**Test-level correspondence.** A Lucene test class has no Go type: its port is a
+`_test.go` file of package-level functions. It is expressed with the pairs above,
+never with a new label: the test file by `LuceneFile` → `GoceneFile`, each test
+method and helper by `LuceneMethod` → `GoceneFunction`, fixtures by
+`LuceneField` → `GoceneConstant` / `GoceneVariable`, and nested test classes and
+their members by the class, method and field pairs. A partial test port is
+visible by query: a test class member without an outgoing `PORTED_TO` is not
+ported.
 
 `PORTED_TO` is the **sole authority on port status** (CLAUDE.md § 5.1.3): the
 absence of an edge means **"not ported"**, never "unknown" — an unported artefact is
@@ -530,7 +566,7 @@ visible by query alone. Derived attributes (for example `LuceneClass.isPorted`) 
 computed from the edges and never written independently, so the graph can never
 assert a port status that contradicts its own edges.
 
-An edge is written **only on measured, unambiguous evidence** — a file-header path reference, a doc-comment claim naming the Lucene class, or a name transliteration within a ported class pair (§ 7). Where the evidence is ambiguous (two or more Go names matching one Java name), no edge is written: the relation never asserts what the evidence cannot determine. Some Go comments cite Apache Lucene **10.4.0** — the release the code was actually ported from — while the reference tree is 10.5.0; the 29 path references that resolve only against 10.4.0 (for example `ChecksumIndexOutput`, removed in 10.5.0) are documented as dangling and are never written (§ 7).
+An edge is written **only on measured, unambiguous evidence** — a file-header path reference, a doc-comment claim naming the Lucene class, or a name transliteration within a ported class pair or a ported test-file pair (§ 7). Every member, constant, function and variable edge is **anchored**: it is backed by the `PORTED_TO` edge of its owner's class pair (or, for a test class, of its file pair); an edge whose anchor is gone is removed. Where the evidence is ambiguous (two or more Go names matching one Java name), no edge is written: the relation never asserts what the evidence cannot determine. Some Go comments cite Apache Lucene **10.4.0** — the release the code was actually ported from — while the reference tree is 10.5.0; the 29 path references that resolve only against 10.4.0 (for example `ChecksumIndexOutput`, removed in 10.5.0) are documented as dangling and are never written (§ 7).
 
 
 ### Predicates deliberately not defined yet
@@ -595,7 +631,8 @@ which the declaration is guaranteed to succeed — and the load (`UNWIND … CRE
 § 4) ran with enforcement live, so a duplicate identity would have been rejected at
 the write, the strongest defence the engine offers against the pattern-`MERGE`
 trap. Their acceptance against the loaded data is itself the proof that every Gocene
-identity key is duplicate-free.
+identity key is duplicate-free. The 2026-09-23 resync wrote under the same live
+enforcement (`SHOW CONSTRAINTS` lists all 29).
 
 | Label | Property | DDL |
 |---|---|---|
@@ -618,12 +655,12 @@ Same method as above: each candidate is measured against the inventory, not argu
 
 | Rejected candidate | Measured failure |
 |---|---|
-| `GocenePackage` keyed on `name` | 174 of 357 package names are shared (48.7 %), in 65 collision groups — `util` declared in 8 packages, `index` in 7, `document` in 6, `search` in 6 |
-| `GoceneType`, `GoceneFunction`, `GoceneConstant`, `GoceneVariable` keyed on `name` | names are package-relative: 7123/8209 types (86.8 %), 23839/25018 functions (95.3 %), 2905/3225 constants (90.1 %) and 1532/3265 variables (46.9 %) share their name across the tree — the importPath qualifier is mandatory |
-| `GoceneMethod` keyed on `name` | 7620 of 33062 distinct (23.0 %); `String` alone appears on 751 receivers |
-| `GoceneMethod` keyed on `name + receiver` | 149 collision groups / 300 records — the same receiver + name declared twice in one package (143 redeclarations, 6 build-tag pairs); the `#<file>#<n>` disambiguator in `sig` (§ 1) is this weaker key failing |
-| `GoceneField` keyed on `name` | 6922 of 22115 distinct (31.3 %); the owner type's QN is mandatory in `key` — field and embedded-type names recur across types |
-| `GoceneVariable` keyed on `importPath + name` | the 1650 blank `_` variables form 112 same-package collision groups across 149 packages — the file qualifier is mandatory |
+| `GocenePackage` keyed on `name` | 147 of 339 packages share their name (43.4 %), in 55 collision groups — `util` declared in 8 packages, `document`, `index` and `search` in 6 each |
+| `GoceneType`, `GoceneFunction`, `GoceneConstant`, `GoceneVariable` keyed on `name` | names are package-relative: 7053/7777 types (90.7 %), 23527/24524 functions (95.9 %), 2950/3245 constants (90.9 %) and 1682/3585 variables (46.9 %) are distinct names, the rest recur across the tree — the importPath qualifier is mandatory |
+| `GoceneMethod` keyed on `name` | 7753 of 33052 distinct (23.5 %); `String` alone appears on 705 receivers |
+| `GoceneMethod` keyed on `name + receiver` | 7 collision groups / 14 records — the same receiver + name declared twice in one package (1 redeclaration, 6 build-tag pairs); the `#<file>#<n>` disambiguator in `sig` (§ 1) is this weaker key failing |
+| `GoceneField` keyed on `name` | 6975 of 21497 distinct (32.4 %); the owner type's QN is mandatory in `key` — field and embedded-type names recur across types |
+| `GoceneVariable` keyed on `importPath + name` | the 1814 blank `_` variables form 120 same-package collision groups across 155 packages — the file qualifier is mandatory |
 
 ---
 
@@ -642,12 +679,12 @@ declared by hand:
 | Index | Nodes | Selectivity | Origin |
 |---|---:|---:|---|
 | `__uniq__LuceneMethod.signature` | 63624 | 100 % | constraint |
-| `__uniq__GoceneMethod.sig` | 33062 | 100 % | constraint |
+| `__uniq__GoceneMethod.sig` | 33052 | 100 % | constraint |
 | `__uniq__LuceneField.key` | 26887 | 100 % | constraint |
-| `__uniq__GoceneFunction.qn` | 25018 | 100 % | constraint |
-| `__uniq__GoceneField.key` | 22115 | 100 % | constraint |
+| `__uniq__GoceneFunction.qn` | 24524 | 100 % | constraint |
+| `__uniq__GoceneField.key` | 21497 | 100 % | constraint |
 | `lucene_class_simplename` on `LuceneClass(simpleName)` | 8736 named | 88.2 % | **declared** — the human-facing lookup ("find `IndexWriter`"), ~1.13 rows per seek |
-| `gocene_type_name` on `GoceneType(name)` | 8209 | 86.8 % | **declared** — the human-facing lookup ("find `PostingsWriterBase`") on the largest Gocene label; `EXPLAIN`/`PROFILE` below |
+| `gocene_type_name` on `GoceneType(name)` | 7777 | 90.7 % | **declared** — the human-facing lookup ("find `PostingsWriterBase`") on the largest Gocene label; `EXPLAIN`/`PROFILE` below |
 | the remaining 24 `__uniq__` indexes | ≤ 11 601 | 100 % | constraint |
 
 ### Proven by `EXPLAIN`, not asserted
@@ -659,7 +696,7 @@ declared by hand:
 | `MATCH (n:LuceneFile {path: …})` | `NodeByIndexSeek` | 0.00 s |
 | `MATCH (n:LuceneClass {modifiers: 'public'})` — no index | `NodeByLabelScan` + `Filter` | — |
 | `MATCH (n:LuceneMethod {signature: …})` | `ParallelScanProject` — the planner prefers a parallel scan over the seek on this label | 0.01 s |
-| `MATCH (n:GoceneType {name: …})` | `NodeByIndexSeek` — the `gocene_type_name` index | 0.00 s (PROFILE: 1 row, 1 dbHit, 3.3 µs) |
+| `MATCH (n:GoceneType {name: …})` | `NodeByIndexSeek` — the `gocene_type_name` index | 0.00 s (PROFILE 2026-09-23: 1 row, 1 dbHit, 3.4 µs) |
 
 The last row is recorded because it contradicts the expectation: the index exists and
 is ONLINE, but the planner does not choose it there. Measured latency is 0.01 s
@@ -694,8 +731,10 @@ Consequences for any bulk write:
   a 1 048 576-byte statement limit) and run several clients concurrently. The Lucene
   tier — 112 068 nodes and 229 243 edges — loaded in **56.4 s** with ten concurrent
   clients this way (original load; the live graph now holds 39 of its 47 edge
-  pairs, § 6), and the Gocene tier — 100 626 nodes and 150 110 edges — loaded the
-  same way.
+  pairs, § 6), and the Gocene tier — 100 626 nodes and 150 110 edges at
+  `dd61538c` — loaded the same way. The 2026-09-23 resync used the same forms
+  (`UNWIND … CREATE`, `UNWIND … MATCH … SET`, `UNWIND … MATCH … MATCH … CREATE`,
+  ≤ 300 rows per statement), every write checked against its `counters` block.
 
 ### Gocene tier
 
@@ -705,12 +744,12 @@ hash indexes at declaration, and every Gocene identity lookup rides on them.
 
 | Index | DDL | Measured plan |
 |---|---|---|
-| `gocene_type_name` on `GoceneType(name)` | `CREATE INDEX gocene_type_name IF NOT EXISTS FOR (x:GoceneType) ON (x.name)` | `EXPLAIN`: `NodeByIndexSeek` — the mirror of `lucene_class_simplename`, the human-facing lookup ("find `PostingsWriterBase`") on the largest Gocene label: 8 209 nodes, 86.8 % selective, ≈ 1.15 rows per seek; `PROFILE`: 1 row, 1 dbHit, 3.3 µs |
+| `gocene_type_name` on `GoceneType(name)` | `CREATE INDEX gocene_type_name IF NOT EXISTS FOR (x:GoceneType) ON (x.name)` | `EXPLAIN`: `NodeByIndexSeek` — the mirror of `lucene_class_simplename`, the human-facing lookup ("find `PostingsWriterBase`") on the largest Gocene label: 7 777 nodes, 90.7 % selective, ≈ 1.10 rows per seek; `PROFILE` (2026-09-23): 1 row, 1 dbHit, 3.4 µs |
 
-Explicitly **not** indexed: `GoceneMethod(name)` (23.0 % selective) and
-`GoceneField(name)` (31.3 % selective) — neither is an identity, and a seek returns
-several hundred rows for the hot names. `GoceneFunction(name)` (95.3 % selective
-over 25 018 nodes) is a candidate by the label-size × selectivity rule but is not
+Explicitly **not** indexed: `GoceneMethod(name)` (23.5 % selective) and
+`GoceneField(name)` (32.4 % selective) — neither is an identity, and a seek returns
+several hundred rows for the hot names. `GoceneFunction(name)` (95.9 % selective
+over 24 524 nodes) is a candidate by the label-size × selectivity rule but is not
 declared: the dominant lookup shape for a function is by `qn`, which the
 constraint already indexes — revisit it with the same `EXPLAIN` method if the query
 shapes demand it.
@@ -720,17 +759,27 @@ shapes demand it.
 ## 5. Provenance convention
 
 Every node and edge carries `gitCommit` (the full Gocene commit hash when the element
-was last confirmed) and `gitDate` (that commit's ISO date). Verified 2026-09-11:
-**0 of the 212 694 nodes and 0 of the 322 802 edges lack `gitCommit`/`gitDate`**.
+was last confirmed) and `gitDate` (that commit's ISO date). Verified 2026-09-23:
+**0 of the 211 222 nodes and 0 of the 332 747 edges lack `gitCommit`/`gitDate`**.
 
-Every element of **both** tiers — Lucene and Gocene, including the 90 511 Lucene
-`DECLARES_METHOD` and `DECLARES_FIELD` edges restored 2026-09-11 by derivation —
-carries the single uniform value `gitCommit` =
-`dd61538c8b7949f00cca0f54aeb63d5093334035`, `gitDate` = `2026-09-08`, the commit at
-which the working tree was measured (2026-09-10); the 10 187 `PORTED_TO` edges are
-the single exception — a second stamp generation written by the derivation on 2026-09-11
-(§ 7) carrying `gitCommit` = `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e`, `gitDate` =
-`2026-09-11`, the HEAD at derivation time. The Lucene side's reference
+- **Lucene tier** — every node and every edge (112 068 / 162 505, including the
+  90 511 `DECLARES_METHOD` and `DECLARES_FIELD` edges restored 2026-09-11 by
+  derivation) carries the uniform value `gitCommit` =
+  `dd61538c8b7949f00cca0f54aeb63d5093334035`, `gitDate` = `2026-09-08`.
+- **Gocene tier** — an element carries the commit that **last changed its source
+  file** when the element was last created or updated (`git log -1 -- <file>` at the
+  synced commit): a symbol takes its declaring file, a field its owner type's file, a
+  type→method edge the method's file; a package takes the newest commit among its
+  files, an external package or type the newest among the files that reference it,
+  the module `go.mod`. Elements unchanged since the first load keep `dd61538c` /
+  `2026-09-08` (58 079 of 99 154 nodes, 123 859 of 148 488 edges); the tier carries
+  90 distinct `gitCommit` values on nodes and 100 on edges.
+- **`PORTED_TO`** — the 6 913 edges of the original 2026-09-11 derivation left
+  untouched keep `gitCommit` = `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e`, `gitDate`
+  = `2026-09-11`; every edge created or updated by a later sync carries the source-file
+  commit of its Go endpoint, by the rule above.
+
+The Lucene side's reference
 provenance is carried separately: every Lucene node additionally holds
 `luceneCommit` = `f6eaee8148b7569e83c433feacc4f624608188fd` (0 nulls), so a future
 Lucene bump is detectable by query rather than by memory, and side attribution in a
@@ -745,8 +794,8 @@ query is by label, not by `gitCommit` value.
 | Lucene structural tier (§ 1, § 2) | 17 labels, 31 predicates over 47 endpoint pairs | **112 068 nodes — complete; 162 505 of 229 243 edges — 39 of the 47 endpoint pairs live**. The 8 absent pairs (66 738 edges: `CONTAINS_PACKAGE`, the three `CONTAINS_FILE` variants, `DECLARES_TYPE`, the two `IMPORTS` variants, `GENERATED_FROM`) are tracked as rmp task 363. The two pairs the original load dropped that are derivable from live nodes — `DECLARES_METHOD` (63 624) and `DECLARES_FIELD` (26 887), 90 511 edges — were restored 2026-09-11 by derivation |
 | Constraints (§ 3) | 29 (17 Lucene, 12 Gocene) | **29 created and enforced** |
 | Indexes (§ 4) | 31 (29 constraint-backing, 2 declared) | **31 ONLINE** |
-| Gocene tier (§ 1, § 2) | 12 labels, 11 predicates over 16 endpoint pairs | **100 626 nodes, 150 110 edges** — loaded from the inventory at `dd61538c`; post-load census and two-direction identity set diff: 0 divergences |
-| `PORTED_TO` (§ 2) | 8 endpoint pairs | **10 187 edges — materialised 2026-09-11 by measured derivation** (§ 7): write-time counter audit exact, anchor audit 0 violations, per-pair counts equal the derivation, provenance 100 % |
+| Gocene tier (§ 1, § 2) | 12 labels, 11 predicates over 16 endpoint pairs | **99 154 nodes, 148 488 edges over 15 populated pairs** — first loaded at `dd61538c`, resynchronised 2026-09-23 to the `git archive` snapshot of `f008c200`; post-resync census and two-direction identity, property and edge diff over all 12 labels: 0 differences |
+| `PORTED_TO` (§ 2) | 10 endpoint pairs | **21 754 edges over the 10 pairs** — materialised 2026-09-11 by measured derivation, re-derived 2026-09-23 over the whole `f008c200` snapshot (§ 7): write-time counter audit exact, live set equal to the plan, anchor audit 0 violations, `duplicate` flags consistent with the edges, provenance 100 % |
 
 ---
 
@@ -800,16 +849,30 @@ elements absent from the tree (§ 6). Every identity collision in the tree was
 measured, not sampled, which is why the disambiguator groups in § 1 carry exact
 figures.
 
-**Package reconciliation against the Go toolchain.** The graph's 357 packages were
-reconciled against `go list -e -test ./...` (359 import paths). The four-way diff is
-fully accounted for: the three go-list-only paths — `index/nrt_test`,
-`queryparser/util`, `search/constant_score_bulk_scorer_test` — are empty phantom
-packages (0 Go files of their own; per Go's own `go list` their single `.go` file
-belongs to the external test packages the graph does hold), and the one graph-only
-package — `highlight/uhighlight/testdata` — is a real importable package that the
-`./...` expansion skips because the go tool ignores `testdata` directories. The
-`go list` error itself — `no required module provides package …/Gocene/schema` — is
-the standing evidence for the `GoceneMissingPackage` node.
+**The 2026-09-23 resync.** The tier was resynchronised to commit `f008c200`: the
+same scanner ran over a `git archive f008c200` snapshot (tracked files only — the
+working tree held uncommitted edits), 5 043 files, 0 parse errors. The whole tier
+was diffed against the graph — every node by identity and by every property, every
+edge by predicate, endpoint labels, endpoint identities and edge properties — and
+the difference applied: 75 files, 606 types, 2 240 functions, 4 157 methods, 2 681
+fields, 277 constants, 471 variables, 5 packages, 2 external packages and 1
+external type created; 115 files, 548 types, 2 217 functions, 2 372 methods, 3 338
+fields, 165 constants, 72 variables, 27 packages, 52 external types and the one
+missing package deleted; 25 441 nodes updated; 18 819 edges created, 11 285
+deleted plus the surplus copy of 2 duplicated `IMPORTS` edges, 6 edges updated
+(`blank`) and 476 previously unstamped edges stamped. The re-run diff is **empty**: 0 node, 0
+property and 0 edge differences.
+
+**Package reconciliation against the Go toolchain.** The graph's 339 packages were
+reconciled against `go list -e -test ./...` over the `f008c200` snapshot (341 import
+paths, no error). The four-way diff is fully accounted for: the three go-list-only
+paths — `index/nrt_test`, `queryparser/util`, `search/constant_score_bulk_scorer_test`
+— are empty phantom packages (0 Go files of their own; per Go's own `go list` their
+single `.go` file belongs to the external test packages the graph does hold), and
+the one graph-only package — `search/uhighlight/testdata` — is a real importable
+package that the `./...` expansion skips because the go tool ignores `testdata`
+directories. No import is left unresolved, which is why `GoceneMissingPackage` is
+empty.
 
 ### Known limits of the model, stated not hidden
 
@@ -820,18 +883,11 @@ the standing evidence for the `GoceneMissingPackage` node.
 | 12 `ExternalType` nodes carry `origin: 'unresolved'` | a bare simple name whose package cannot be determined without a classpath |
 | Non-Java code is modelled as files only | `.gradle`, `.groovy`, `.py`, `.jflex`, `.jj`, `.g4` have internal structure that is not decomposed |
 | `OVERRIDES` and `CALLS` are absent | both need resolution beyond declaration scanning |
-| 10 files fail to parse in the scanner | their declarations could not be extracted, so each carries a `GoceneFile` node with zero declaration edges — visible by query, not hidden: `backward_codecs/lucene102/offheap_binarized_vector_values.go`, `codecs/lucene90/lucene90_points_writer.go`, `codecs/points_writer.go`, `codecs/uniformsplit/block_reader.go`, `internal/tests/codecs/asserting/norms_format.go`, `internal/testutil/canned_token_stream.go`, `search/combined_field_query.go`, `search/span_union_query.go`, `search/vectorhighlight/field_term_stack.go`, `store/index_output_test.go` |
-| 8 `GoceneMethod` nodes have no `DECLARES_METHOD` type edge | their `recvQN` resolves to no declared type (the three defect categories, § 1 `GoceneMethod`); they keep the file edge — visible by query, not hidden |
-| 42 distinct names behind the 158 `EMBEDS` → `GoceneExternalType` edges are declared elsewhere in the module | 15 of the 26 bare simple names (behind 98 edges) — e.g. `*BaseSimilarity` in `search/similarities`, `*SortField` in `index`, `search` and `spi` — and 27 of the 60 qualified references — e.g. `spi.BasePostingsFormat` in `codecs`, `search.BaseSimilarity` in `search/similarities`; none targets the missing `schema` package. The reference text is preserved as written — the never-dangle mirror of the Lucene tier's `ExternalType` |
-| `GocenePackage.testOnly` is defined on file role, not on the `_test.go` suffix | five packages (`benchmark`, `highlight/uhighlight/testdata`, `tests`, `tests/index`, `tests/suggest`) hold test-role Go files without the suffix; a suffix rule would misclassify them |
-| `GoceneExternalType` mixes genuinely external references with dangling internal ones | 26 `origin: 'unresolved'` names include types declared elsewhere (e.g. `BaseSimilarity`, declared in `search/similarities`); the reference text is preserved as written — resolving it is a repair, not a re-identification |
-
-### A discrepancy found in `CLAUDE.md`
-
-`CLAUDE.md` § 14 states that tag `releases/lucene/10.5.0` is commit `9983b7c`. The
-tag resolves to `f6eaee8148b7569e83c433feacc4f624608188fd`, and `9983b7c` is not a
-valid object in that repository (`git cat-file -t 9983b7c` → `fatal: Not a valid
-object name`). The graph uses the measured value; `CLAUDE.md` needs the correction.
+| A file that fails to parse in the scanner keeps a `GoceneFile` node with zero declaration edges | its declarations cannot be extracted — visible by query, not hidden; measured at `f008c200`: 0 such files (10 at `dd61538c`) |
+| 1 `GoceneMethod` node has no `DECLARES_METHOD` type edge | its receiver resolves to no declared type in its package (§ 1 `GoceneMethod`); it keeps the file edge — visible by query, not hidden |
+| The 15 `GoceneExternalType` reference texts behind the 26 `EMBEDS` → `GoceneExternalType` edges | 7 name standard-library or `golang.org/x` types (`io.Reader`, `io.Closer`, `*bufio.Reader`, `*strings.Reader`, `bytes.Buffer`, `*testing.T`, `transform.NopResetter`); 7 carry a module-package qualifier the scanner does not resolve to a declared `GoceneType` (import aliases `gstore`, `utilhnsw`, `lucene90compressing`, plus `store.Directory` and `*store.BaseIndexOutput`, the latter declared in `spi`); 1 is the bare name `Sorter`. The reference text is preserved as written — the never-dangle mirror of the Lucene tier's `ExternalType` |
+| `GocenePackage.testOnly` is defined on file role, not on the `_test.go` suffix | six packages (`benchmark`, `search/uhighlight/testdata`, `tests/analysis`, `tests/index`, `tests/search`, `tests/util`) hold test-role Go files without the suffix; a suffix rule would misclassify them |
+| `GoceneExternalType` mixes genuinely external references with dangling internal ones | 1 `origin: 'unresolved'` name (`Sorter`); the reference text is preserved as written — resolving it is a repair, not a re-identification |
 
 ### The PORTED_TO derivation
 
@@ -854,6 +910,26 @@ The 10 187 `PORTED_TO` edges were materialised on 2026-09-11 (roadmap task 364) 
 
 **Honesty rules.** Ambiguity is a reason for *no* edge, never a guess: a Java method matched by two or more Go names yields no edge (18 Java methods excluded — `topList` ×5, `readBytes` ×3, `rollup` ×2, `isLeaf` ×2, `findIntersections` ×2, and 8 singles); a Go constant claimed by two or more Java constants yields no edge (29 constants excluded, the most common `BYTES` ×6, `VERSION_CURRENT` ×5, `VERSION_START` ×5, `BLOCK_SIZE` ×4). The 29 file-header path references that resolve only against Apache Lucene **10.4.0** — the release the code was actually ported from — are recorded as dangling in the derivation's stats (for example `ChecksumIndexOutput`, removed in 10.5.0) and never written. The 967 FQNs whose comment line carries no claim verb, and the 103 FQNs whose named class exists in the reference tree but does not match the Go type's name, are counted in the stats and never written.
 
-**Inventory identity note.** 235 Go types that share their name with another type in the same package (build-tag pairs and redeclaration defects) carry the anchored identity `importPath.TypeName#file.go#N`; the derivation strips the `#…` anchor before deriving package or type names from a qn, and the graph's class/member edges remain self-consistent on the anchored qns.
+**Inventory identity note.** Go types that share their name with another type in the same package (build-tag pairs and redeclaration defects; 235 at `dd61538c`, 8 at `f008c200`) carry the anchored identity `importPath.TypeName#file.go#N`; the derivation strips the `#…` anchor before deriving package or type names from a qn, and the graph's class/member edges remain self-consistent on the anchored qns.
 
 **Verification.** (1) *Write-time counter audit* — every edge statement carries two `MATCH` clauses, so a missing endpoint binds nothing and creates no edge; the sum of `relationshipsCreated` across all statements equals the derivation's row count exactly (10 187). (2) *Anchor audit* — every method, field and constant edge is backed by the `PORTED_TO` edge of its owning class pair through the `DECLARES` chains (4 716/4 716 methods, 2 892/2 892 fields, 120/120 + 36/36 constants, 0 violations). (3) *Per-pair equality* — the live count of each of the 8 pairs equals the derivation's row count for that pair, with zero stray edges (directed total 322 802). (4) *Provenance* — every one of the 10 187 edges carries `gitCommit` `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e` and `gitDate` `2026-09-11` (the HEAD at derivation time).
+
+#### The 2026-09-23 re-derivation (resync to `f008c200`)
+
+**Scope.** Edges whose Go endpoint lies in a file changed between `282c5fe4` (the last full sync, 2026-09-14) and `f008c200` — 958 files — were re-derived; edges into unchanged files were kept; package edges were recomputed from the final class and file pairs.
+
+**Rules** (a superset of the 2026-09-11 rules, applied over the snapshot):
+- *Class claims* are read per doc-comment **paragraph** (wrapped lines joined), not per physical line: a claim verb and the Lucene FQN in the same paragraph, gated on the Go type name matching the Lucene simple name (first letter case-insensitive).
+- *Field alias* adds `posIncAtt` → `posIncrAttr` to `…Att` → `…Attr`.
+- *Constants* (and constant fields held in a Go `var`) match, in the Go type's package, the Java name as is, its CamelCase and lowerCamelCase forms, and those forms prefixed by the Go type name (`<Type><Camel>`, `<type><Camel>`, `<Type>_<NAME>`); an edge is written only when the Java constant has one candidate within its class pair and the Go constant is claimed by one Java constant.
+- *Constructors* (`LuceneMethod` → `GoceneFunction`): every `<init>` of a ported class maps to `New<Type>` (`new<Type>` for an unexported type) in the type's package, when that function exists once and either the class has one constructor or the package has no other `New<Type>…` function.
+- *Test level*: within a `LuceneFile` → `GoceneFile` pair of a test file, `testX()` maps to the one Go function named `TestX`, `<TestClass>_X`, `<TestClass>X` or `Test<TestClass>_X` in the paired file; any other method, and a static field, maps to the one function or package variable of the same (or capitalised) name in that file.
+- *Curated edges* written by hand at the `5b606987` and `a40ff560` syncs are kept while their Go file has not changed since a curated sync.
+- *Stubs* are excluded, *duplicates* flagged, and every member edge must pass the anchor rule (§ 2, Port relation).
+- *Transfers*: an edge lost because its Go node changed identity only (the `#<file>#<n>` disambiguator appeared or disappeared) was re-attached to the surviving declaration when that declaration lies in an unchanged file.
+
+**Counts.** Before the resync 9 948 edges; 575 were removed with the 548 types and other Go nodes deleted by the structural sync (9 373). The plan then created 4 261 (4 199 derived, 62 transfers), deleted 98 (66 stub, 23 unsupported package, 8 not re-derived, 1 unanchored) and updated 1 897 (re-confirmation stamps and `duplicate` flags): **13 536 edges**. Calibration on unchanged files: the rules reproduce 6 955 of the 7 023 original-derivation edges there (99.0 %).
+
+**Verification.** Every write statement's `relationshipsCreated` / `relationshipsDeleted` equals its row count; the live edge set equals the planned final set exactly (13 536, 0 duplicate pairs); anchor audit 0 violations; `duplicate`/`copies` consistent with the edges (0 inconsistencies); 0 edges into stub types or their members; 0 edges without provenance.
+
+**Completion pass (same day, authorised complete resync).** The same rules were then applied to the files unchanged since `282c5fe4`: 8 218 edges created (831 class, 3 306 method, 1 664 field, 1 969 function, 159 + 33 constant, 93 variable, 67 file, 96 package), 0 deleted, 168 updated (`duplicate` flags); pre-existing edges there were kept. Result: **21 754 edges**; the live set equals the plan (0 duplicate pairs), anchor audit 0 violations, 911 `duplicate` flags consistent with the edges, 0 edges into stubs, 0 edges without provenance.
