@@ -6,6 +6,7 @@ package valuesource
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util/mutable"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -204,4 +205,31 @@ func (v *queryDocValues) ToString(doc int) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("query(%v,def=%v)=%v", v.q, v.defVal, val), nil
+}
+
+// GetValueFiller renders QueryDocValues.getValueFiller(): a MutableValueFloat
+// holding the query score of matching docs, and defVal (with exists false)
+// for the others. Java wraps an IOException from the scorer in a
+// RuntimeException naming the query and doc; it is returned wrapped the same
+// way.
+func (v *queryDocValues) GetValueFiller() function.ValueFiller {
+	mval := mutable.NewMutableValueFloat()
+	return &valuesourceValueFiller{mval: mval, fill: func(doc int) error {
+		exists, err := v.Exists(doc)
+		if err != nil {
+			return fmt.Errorf("caught exception in QueryDocVals(%v) doc=%d: %w", v.q, doc, err)
+		}
+		if exists {
+			score, err := v.scorer.Score()
+			if err != nil {
+				return fmt.Errorf("caught exception in QueryDocVals(%v) doc=%d: %w", v.q, doc, err)
+			}
+			mval.Value = score
+			mval.SetExists(true)
+		} else {
+			mval.Value = v.defVal
+			mval.SetExists(false)
+		}
+		return nil
+	}}
 }

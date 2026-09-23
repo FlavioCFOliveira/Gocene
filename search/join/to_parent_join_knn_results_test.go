@@ -2,225 +2,202 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package join contains tests porting
-// org.apache.lucene.search.join.TestToParentJoinKnnResults.
 package join
 
 import (
-	"math/rand"
+	"math"
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// buildParentBitSet creates a FixedBitSet with the given parent doc IDs set.
-func buildParentBitSet(t *testing.T, parentDocIDs []int, numBits int) util.BitSet {
+// Port of
+// lucene/join/src/test/org/apache/lucene/search/join/TestToParentJoinKnnResults.java
+// (Apache Lucene 10.5.0).
+
+func mustBitSetOf(t testing.TB, it util.DocIdSetIterator, maxDoc int) util.BitSet {
 	t.Helper()
-	bs, err := util.NewFixedBitSet(numBits)
+	bs, err := util.OfDocIdSetIterator(it, maxDoc)
 	if err != nil {
-		t.Fatalf("NewFixedBitSet(%d): %v", numBits, err)
-	}
-	for _, id := range parentDocIDs {
-		bs.Set(id)
+		t.Fatal(err)
 	}
 	return bs
 }
 
-// mustCollect asserts that Collect does not error and returns the expected bool.
-func mustCollect(t *testing.T, c *DiversifyingNearestChildrenKnnCollector, docID int, score float32, wantAccepted bool) {
+func mustNewDiversifyingCollector(t testing.TB, k, visitLimit int, parentBitSet util.BitSet) *DiversifyingNearestChildrenKnnCollector {
 	t.Helper()
-	got, err := c.Collect(docID, score)
+	c, err := NewDiversifyingNearestChildrenKnnCollector(k, visitLimit, parentBitSet)
 	if err != nil {
-		t.Fatalf("Collect(%d, %v): %v", docID, score, err)
+		t.Fatal(err)
 	}
-	if got != wantAccepted {
-		t.Errorf("Collect(%d, %v) = %v, want %v", docID, score, got, wantAccepted)
+	return c
+}
+
+func mustKnnCollect(t testing.TB, c *DiversifyingNearestChildrenKnnCollector, docID int, score float32) bool {
+	t.Helper()
+	ok, err := c.Collect(docID, score)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ok
+}
+
+func TestToParentJoinKnnResultsNeighborsProduct(t *testing.T) {
+	// make sure we have the sign correct
+	parentBitSet := mustBitSetOf(t, newIntArrayDocIdSetIterator([]int{1, 3, 5}, 3), 6)
+	nn := mustNewDiversifyingCollector(t, 2, math.MaxInt32, parentBitSet)
+	if !mustKnnCollect(t, nn, 2, 0.5) {
+		t.Fatal("collect(2, 0.5f)")
+	}
+	if !mustKnnCollect(t, nn, 0, 0.2) {
+		t.Fatal("collect(0, 0.2f)")
+	}
+	if !mustKnnCollect(t, nn, 4, 1) {
+		t.Fatal("collect(4, 1f)")
+	}
+	if got := nn.MinCompetitiveSimilarity(); got != 0.5 {
+		t.Fatalf("minCompetitiveSimilarity: expected 0.5, got %v", got)
+	}
+	topDocs := nn.TopDocsSearch()
+	if topDocs.ScoreDocs[0].Score != 1 {
+		t.Fatalf("scoreDocs[0].score: expected 1, got %v", topDocs.ScoreDocs[0].Score)
+	}
+	if topDocs.ScoreDocs[1].Score != 0.5 {
+		t.Fatalf("scoreDocs[1].score: expected 0.5, got %v", topDocs.ScoreDocs[1].Score)
 	}
 }
 
-// TestToParentJoinKnnResults_NeighborsProduct mirrors
-// TestToParentJoinKnnResults.testNeighborsProduct: verifies sign correctness
-// and that results are returned in descending score order.
-func TestToParentJoinKnnResults_NeighborsProduct(t *testing.T) {
-	// parents at positions 1, 3, 5 → numBits=6
-	parents := buildParentBitSet(t, []int{1, 3, 5}, 6)
-	nn, err := NewDiversifyingNearestChildrenKnnCollector(2, int(^uint(0)>>1), parents)
-	if err != nil {
-		t.Fatalf("NewDiversifyingNearestChildrenKnnCollector: %v", err)
-	}
-
-	mustCollect(t, nn, 2, 0.5, true) // child 2, parent 3 → accepted
-	mustCollect(t, nn, 0, 0.2, true) // child 0, parent 1 → accepted
-	mustCollect(t, nn, 4, 1.0, true) // child 4, parent 5 → accepted; evicts score 0.2
-
-	want := float32(0.5)
-	if got := nn.MinCompetitiveSimilarity(); got != want {
-		t.Errorf("MinCompetitiveSimilarity() = %v, want %v", got, want)
-	}
-
-	docs := nn.TopDocs()
-	if len(docs) != 2 {
-		t.Fatalf("TopDocs() len = %d, want 2", len(docs))
-	}
-	if docs[0].Score != 1.0 {
-		t.Errorf("docs[0].Score = %v, want 1.0", docs[0].Score)
-	}
-	if docs[1].Score != 0.5 {
-		t.Errorf("docs[1].Score = %v, want 0.5", docs[1].Score)
-	}
-}
-
-// TestToParentJoinKnnResults_Insertions mirrors
-// TestToParentJoinKnnResults.testInsertions: verifies that inserting 7 entries
-// into a k=7 collector with 4 parents yields the best-per-parent set.
-func TestToParentJoinKnnResults_Insertions(t *testing.T) {
+func TestToParentJoinKnnResultsInsertions(t *testing.T) {
 	nodes := []int{4, 1, 5, 7, 8, 10, 2}
-	scores := []float32{1.0, 0.5, 0.6, 2.0, 2.0, 1.2, 4.0}
-	// parents at 3, 6, 9, 12 → numBits=13
-	parents := buildParentBitSet(t, []int{3, 6, 9, 12}, 13)
-	results, err := NewDiversifyingNearestChildrenKnnCollector(7, int(^uint(0)>>1), parents)
-	if err != nil {
-		t.Fatalf("NewDiversifyingNearestChildrenKnnCollector: %v", err)
-	}
-
+	scores := []float32{1, 0.5, 0.6, 2, 2, 1.2, 4}
+	parentBitSet := mustBitSetOf(t, newIntArrayDocIdSetIterator([]int{3, 6, 9, 12}, 4), 13)
+	results := mustNewDiversifyingCollector(t, 7, math.MaxInt32, parentBitSet)
 	for i := range nodes {
-		if _, err := results.Collect(nodes[i], scores[i]); err != nil {
-			t.Fatalf("Collect: %v", err)
-		}
+		mustKnnCollect(t, results, nodes[i], scores[i])
 	}
+	topDocs := results.TopDocsSearch()
+	assertNodesAndScores(t, topDocs, []int{2, 7, 10, 4}, []float32{4, 2, 1.2, 1}, len(topDocs.ScoreDocs))
+}
 
-	docs := results.TopDocs()
-
-	gotNodes := make([]int, len(docs))
-	gotScores := make([]float32, len(docs))
-	for i, sd := range docs {
-		gotNodes[i] = sd.Doc
-		gotScores[i] = sd.Score
+// assertNodesAndScores renders the sortedNodes/sortedScores arrays and the two
+// assertArrayEquals of the insertion tests; size is the length Java allocates.
+func assertNodesAndScores(t testing.TB, topDocs *search.TopDocs, wantNodes []int, wantScores []float32, size int) {
+	t.Helper()
+	sortedNodes := make([]int, size)
+	sortedScores := make([]float32, size)
+	for i, sd := range topDocs.ScoreDocs {
+		sortedNodes[i] = sd.Doc
+		sortedScores[i] = sd.Score
 	}
-
-	// Java expected: nodes={2,7,10,4}, scores={4,2,1.2,1}
-	wantNodes := []int{2, 7, 10, 4}
-	wantScores := []float32{4, 2, 1.2, 1}
-
-	if len(gotNodes) != len(wantNodes) {
-		t.Fatalf("TopDocs len = %d, want %d", len(gotNodes), len(wantNodes))
+	if len(sortedNodes) != len(wantNodes) {
+		t.Fatalf("nodes: expected %v, got %v", wantNodes, sortedNodes)
 	}
 	for i := range wantNodes {
-		if gotNodes[i] != wantNodes[i] {
-			t.Errorf("TopDocs[%d].Doc = %d, want %d", i, gotNodes[i], wantNodes[i])
-		}
-		if gotScores[i] != wantScores[i] {
-			t.Errorf("TopDocs[%d].Score = %v, want %v", i, gotScores[i], wantScores[i])
+		if sortedNodes[i] != wantNodes[i] || sortedScores[i] != wantScores[i] {
+			t.Fatalf("expected %v / %v, got %v / %v", wantNodes, wantScores, sortedNodes, sortedScores)
 		}
 	}
 }
 
-// TestToParentJoinKnnResults_InsertionWithOverflow mirrors
-// TestToParentJoinKnnResults.testInsertionWithOverflow: verifies that
-// inserting a below-threshold entry returns false.
-func TestToParentJoinKnnResults_InsertionWithOverflow(t *testing.T) {
+func TestToParentJoinKnnResultsInsertionWithOverflow(t *testing.T) {
 	nodes := []int{4, 1, 5, 7, 8, 10, 2, 12, 14}
 	scores := []float32{1, 0.5, 0.6, 2, 2, 3, 4, 1, 0.2}
-	// parents at 3,6,9,11,13,15 → numBits=16
-	parents := buildParentBitSet(t, []int{3, 6, 9, 11, 13, 15}, 16)
-	results, err := NewDiversifyingNearestChildrenKnnCollector(5, int(^uint(0)>>1), parents)
-	if err != nil {
-		t.Fatalf("NewDiversifyingNearestChildrenKnnCollector: %v", err)
-	}
-
-	// Collect all but the last, which should be below threshold.
+	parentBitSet := mustBitSetOf(t, newIntArrayDocIdSetIterator([]int{3, 6, 9, 11, 13, 15}, 6), 16)
+	results := mustNewDiversifyingCollector(t, 5, math.MaxInt32, parentBitSet)
 	for i := 0; i < len(nodes)-1; i++ {
-		if _, err := results.Collect(nodes[i], scores[i]); err != nil {
-			t.Fatalf("Collect: %v", err)
-		}
+		mustKnnCollect(t, results, nodes[i], scores[i])
 	}
-	// Last entry (docID=14, score=0.2) should be rejected.
-	mustCollect(t, results, nodes[len(nodes)-1], scores[len(nodes)-1], false)
-
-	docs := results.TopDocs()
-	if len(docs) != 5 {
-		t.Fatalf("TopDocs len = %d, want 5", len(docs))
+	if mustKnnCollect(t, results, nodes[len(nodes)-1], scores[len(nodes)-1]) {
+		t.Fatal("the last collect must be rejected")
 	}
-	gotNodes := make([]int, 5)
-	gotScores := make([]float32, 5)
-	for i, sd := range docs {
-		gotNodes[i] = sd.Doc
-		gotScores[i] = sd.Score
+	topDocs := results.TopDocsSearch()
+	assertNodesAndScores(t, topDocs, []int{2, 10, 7, 4, 12}, []float32{4, 3, 2, 1, 1}, 5)
+}
+
+func TestToParentJoinKnnResultsRandomInsertionsWithOverflow(t *testing.T) {
+	parents := make([]int, 100)
+	children := make([]int, 0)
+	childrenScores := make([]float32, 0)
+	previousParent := -1
+	nextParent := random().Intn(50) + 2
+	for i := 0; i < 100; i++ {
+		for j := previousParent + 1; j < nextParent; j++ {
+			children = append(children, j)
+			childrenScores = append(childrenScores, random().Float32())
+		}
+		parents[i] = nextParent
+		previousParent = nextParent
+		nextParent = random().Intn(50) + 2 + previousParent
 	}
-
-	// Java expected: nodes={2,10,7,4,12}, scores={4,3,2,1,1}
-	wantNodes := []int{2, 10, 7, 4, 12}
-	wantScores := []float32{4, 3, 2, 1, 1}
-
-	for i := range wantNodes {
-		if gotNodes[i] != wantNodes[i] {
-			t.Errorf("TopDocs[%d].Doc = %d, want %d", i, gotNodes[i], wantNodes[i])
-		}
-		if gotScores[i] != wantScores[i] {
-			t.Errorf("TopDocs[%d].Score = %v, want %v", i, gotScores[i], wantScores[i])
-		}
+	// Collections.shuffle(children, random()): only the children are shuffled.
+	r := random()
+	for i := len(children); i > 1; i-- {
+		j := r.Intn(i)
+		children[i-1], children[j] = children[j], children[i-1]
+	}
+	parentBitSet := mustBitSetOf(t, newIntArrayDocIdSetIterator(parents, len(parents)), nextParent+1)
+	results := mustNewDiversifyingCollector(t, 20, math.MaxInt32, parentBitSet)
+	for i := range children {
+		mustKnnCollect(t, results, children[i], childrenScores[i])
 	}
 }
 
-// TestToParentJoinKnnResults_RandomInsertionsWithOverflow mirrors
-// TestToParentJoinKnnResults.testRandomInsertionsWithOverflow: sanity-checks
-// that random insertions into a k=20 collector do not panic.
-func TestToParentJoinKnnResults_RandomInsertionsWithOverflow(t *testing.T) {
-	rng := rand.New(rand.NewSource(42))
-	parents := make([]int, 100)
-	var children []int
-	var childScores []float32
+// intArrayDocIdSetIterator renders the static class IntArrayDocIdSetIterator,
+// which extends AbstractDocIdSetIterator.
+type intArrayDocIdSetIterator struct {
+	docs   []int
+	length int
+	i      int
+	doc    int
+}
 
-	prevParent := -1
-	nextParent := rng.Intn(50) + 2
-	for i := 0; i < 100; i++ {
-		for j := prevParent + 1; j < nextParent; j++ {
-			children = append(children, j)
-			childScores = append(childScores, rng.Float32())
-		}
-		parents[i] = nextParent
-		prevParent = nextParent
-		nextParent = rng.Intn(50) + 2 + prevParent
-	}
+func newIntArrayDocIdSetIterator(docs []int, length int) *intArrayDocIdSetIterator {
+	return &intArrayDocIdSetIterator{docs: docs, length: length, doc: -1}
+}
 
-	// Shuffle children (keep scores aligned).
-	order := rng.Perm(len(children))
-	shuffledChildren := make([]int, len(children))
-	shuffledScores := make([]float32, len(children))
-	for i, idx := range order {
-		shuffledChildren[i] = children[idx]
-		shuffledScores[i] = childScores[idx]
-	}
+// DocID renders AbstractDocIdSetIterator.docID().
+func (it *intArrayDocIdSetIterator) DocID() int { return it.doc }
 
-	numBits := nextParent + 1
-	parentBS := buildParentBitSet(t, parents[:], numBits)
-	collector, err := NewDiversifyingNearestChildrenKnnCollector(20, int(^uint(0)>>1), parentBS)
-	if err != nil {
-		t.Fatalf("NewDiversifyingNearestChildrenKnnCollector: %v", err)
+func (it *intArrayDocIdSetIterator) NextDoc() (int, error) {
+	if it.i >= it.length {
+		return search.NO_MORE_DOCS, nil
 	}
-	for i := range shuffledChildren {
-		if _, err := collector.Collect(shuffledChildren[i], shuffledScores[i]); err != nil {
-			t.Fatalf("Collect: %v", err)
-		}
-	}
+	it.doc = it.docs[it.i]
+	it.i++
+	return it.doc, nil
+}
 
-	docs := collector.TopDocs()
-	// Results must be sorted descending by score.
-	for i := 1; i < len(docs); i++ {
-		if docs[i].Score > docs[i-1].Score {
-			t.Errorf("TopDocs not sorted descending at [%d]: %v > %v",
-				i, docs[i].Score, docs[i-1].Score)
-		}
+func (it *intArrayDocIdSetIterator) Advance(target int) (int, error) {
+	bound := 1
+	// given that we use this for small arrays only, this is very unlikely to overflow
+	for it.i+bound < it.length && it.docs[it.i+bound] < target {
+		bound *= 2
 	}
-	// At most one child per parent.
-	seenParents := map[int]bool{}
-	for _, sd := range docs {
-		p := parentBS.NextSetBitBounded(sd.Doc)
-		if seenParents[p] {
-			t.Errorf("duplicate parent %d in results", p)
-		}
-		seenParents[p] = true
+	it.i = javaBinarySearch(it.docs, it.i+bound/2, min(it.i+bound+1, it.length), target)
+	if it.i < 0 {
+		it.i = -1 - it.i
 	}
-	_ = sort.Search // keep import used
+	it.doc = it.docs[it.i]
+	it.i++
+	return it.doc, nil
+}
+
+func (it *intArrayDocIdSetIterator) Cost() int64 { return int64(it.length) }
+
+func (it *intArrayDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+func (it *intArrayDocIdSetIterator) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(it) }
+
+// javaBinarySearch renders Arrays.binarySearch(int[], int fromIndex, int
+// toIndex, int key).
+func javaBinarySearch(a []int, fromIndex, toIndex, key int) int {
+	i := sort.SearchInts(a[fromIndex:toIndex], key) + fromIndex
+	if i < toIndex && a[i] == key {
+		return i
+	}
+	return -(i + 1)
 }

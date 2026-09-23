@@ -14,7 +14,6 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -37,7 +36,7 @@ type SpatialStrategy interface {
 	// MakeDistanceValueSource creates a ValueSource that returns the distance
 	// from the center of the indexed shape to a specified point.
 	// This is used for sorting or boosting by distance.
-	MakeDistanceValueSource(point Point, multiplier float64) (grouping.ValueSource, error)
+	MakeDistanceValueSource(point Point, multiplier float64) (ValueSource, error)
 }
 
 // BaseSpatialStrategy provides common functionality for all spatial strategies.

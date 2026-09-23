@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -165,9 +164,9 @@ func (r *SpatialIndexReader) MakeQuery(fieldName string, operation SpatialOperat
 //   - point: The point to calculate distance from
 //   - multiplier: Distance multiplier (e.g., for unit conversion)
 //
-// Returns a grouping.ValueSource, or an error if the reader is closed or
+// Returns a ValueSource, or an error if the reader is closed or
 // no strategy is registered for the field.
-func (r *SpatialIndexReader) MakeDistanceValueSource(fieldName string, point Point, multiplier float64) (grouping.ValueSource, error) {
+func (r *SpatialIndexReader) MakeDistanceValueSource(fieldName string, point Point, multiplier float64) (ValueSource, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

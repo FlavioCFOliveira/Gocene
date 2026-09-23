@@ -5,28 +5,39 @@
 package grouping
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// Ported from Apache Lucene 10.5.0:
-//   lucene/grouping/src/java/org/apache/lucene/search/grouping/BlockGroupingCollectorManager.java
-
 // BlockGroupingCollectorManager is a CollectorManager for
-// [BlockGroupingCollector] that merges results from multiple collectors into a
-// single [TopGroups]. It is intended for use with concurrent search, where each
-// slice is searched by a separate BlockGroupingCollector.
+// BlockGroupingCollector that merges results from multiple collectors into a
+// single TopGroups. This is intended for use with concurrent search, where
+// each slice is searched by a separate BlockGroupingCollector.
 //
-// Documents must be indexed as blocks. All documents in a group block must be
-// processed by the same BlockGroupingCollector instance, so the searcher's
-// slices must not split a block across slices.
+// Documents must be indexed as blocks using IndexWriter.addDocuments() or
+// IndexWriter.updateDocuments().
 //
-// Mirrors org.apache.lucene.search.grouping.BlockGroupingCollectorManager<T>.
+// NOTE: All documents in a group block must be processed by the same
+// BlockGroupingCollector instance. This means that the IndexSearcher's slices
+// must not split a segment in a way that places documents from the same block
+// into different slices. The default IndexSearcher slices implementation
+// (inter-segment only) satisfies this constraint. If intra-segment
+// concurrency is desired, the caller must override the slices to ensure each
+// doc block falls entirely within one slice.
+//
+// See BlockGroupingCollector for more details.
+//
+// Mirrors org.apache.lucene.search.grouping.BlockGroupingCollectorManager<T>
+// (Apache Lucene 10.5.0).
+//
+// lucene.experimental
 type BlockGroupingCollectorManager[T any] struct {
-	groupSort   *search.Sort
-	groupOffset int
-	topNGroups  int
-	needsScores bool
-
+	groupSort       *search.Sort
+	groupOffset     int
+	topNGroups      int
+	needsScores     bool
 	lastDocPerGroup search.Weight
 
 	withinGroupSort   *search.Sort
@@ -34,37 +45,52 @@ type BlockGroupingCollectorManager[T any] struct {
 	maxDocsPerGroup   int
 }
 
-// NewBlockGroupingCollectorManager creates a new BlockGroupingCollectorManager.
+// NewBlockGroupingCollectorManager creates a new
+// BlockGroupingCollectorManager.
 //
-// groupSort ranks groups, groupOffset is the offset into the groups to start
-// returning from, topNGroups the number of top groups to collect, needsScores
-// says whether scores are needed (it must be true when groupSort or
-// withinGroupSort uses scores), lastDocPerGroup a Weight matching the last
-// document in each group block, withinGroupSort ranks documents within each
-// group, withinGroupOffset is the offset into each group's documents, and
-// maxDocsPerGroup the maximum number of documents to return per group.
+// groupSort is the sort used to rank groups; groupOffset the offset into the
+// groups to start returning from; topNGroups the number of top groups to
+// collect; needsScores whether scores are needed (must be true if groupSort
+// or withinGroupSort uses scores); lastDocPerGroup a Weight that matches the
+// last document in each group block; withinGroupSort the sort used to rank
+// documents within each group; withinGroupOffset the offset into each group's
+// documents to start returning from; maxDocsPerGroup the maximum number of
+// documents to return per group.
 //
-// Java raises IllegalArgumentException for every violated precondition; the Go
-// rendering panics, as that exception is unchecked.
-func NewBlockGroupingCollectorManager[T any](groupSort *search.Sort, groupOffset, topNGroups int, needsScores bool, lastDocPerGroup search.Weight, withinGroupSort *search.Sort, withinGroupOffset, maxDocsPerGroup int) *BlockGroupingCollectorManager[T] {
+// Java's IllegalArgumentException is returned as an error.
+func NewBlockGroupingCollectorManager[T any](
+	groupSort *search.Sort,
+	groupOffset int,
+	topNGroups int,
+	needsScores bool,
+	lastDocPerGroup search.Weight,
+	withinGroupSort *search.Sort,
+	withinGroupOffset int,
+	maxDocsPerGroup int,
+) (*BlockGroupingCollectorManager[T], error) {
 	if groupSort == nil {
-		panic("groupSort must not be null")
+		return nil, errors.New("groupSort must not be null")
 	}
 	if withinGroupSort == nil {
-		panic("withinGroupSort must not be null")
+		return nil, errors.New("withinGroupSort must not be null")
 	}
+
 	if groupOffset < 0 {
-		panic("groupOffset must be >= 0")
+		return nil, fmt.Errorf("groupOffset must be >= 0 (got %d)", groupOffset)
 	}
+
 	if topNGroups < 1 {
-		panic("topNGroups must be >= 1")
+		return nil, fmt.Errorf("topNGroups must be >= 1 (got %d)", topNGroups)
 	}
+
 	if withinGroupOffset < 0 {
-		panic("withinGroupOffset must be >= 0")
+		return nil, fmt.Errorf("withinGroupOffset must be >= 0 (got %d)", withinGroupOffset)
 	}
+
 	if maxDocsPerGroup < 1 {
-		panic("maxDocsPerGroup must be >= 1")
+		return nil, fmt.Errorf("maxDocsPerGroup must be >= 1 (got %d)", maxDocsPerGroup)
 	}
+
 	return &BlockGroupingCollectorManager[T]{
 		groupSort:         groupSort,
 		groupOffset:       groupOffset,
@@ -74,54 +100,49 @@ func NewBlockGroupingCollectorManager[T any](groupSort *search.Sort, groupOffset
 		withinGroupSort:   withinGroupSort,
 		withinGroupOffset: withinGroupOffset,
 		maxDocsPerGroup:   maxDocsPerGroup,
-	}
+	}, nil
 }
 
-// NewCollector mirrors CollectorManager.newCollector().
-func (m *BlockGroupingCollectorManager[T]) NewCollector() (search.Collector, error) {
-	return NewBlockGroupingCollector(m.groupSort, m.groupOffset+m.topNGroups, m.needsScores, m.lastDocPerGroup), nil
+// NewCollector renders newCollector().
+func (m *BlockGroupingCollectorManager[T]) NewCollector() (*BlockGroupingCollector, error) {
+	return NewBlockGroupingCollector(m.groupSort, m.groupOffset+m.topNGroups, m.needsScores, m.lastDocPerGroup)
 }
 
-// Reduce mirrors CollectorManager.reduce(Collection).
-func (m *BlockGroupingCollectorManager[T]) Reduce(collectors []search.Collector) (*TopGroups[T], error) {
-	shardGroupsList := make([]*TopGroups[T], 0, len(collectors))
-	for _, c := range collectors {
-		collector, ok := c.(*BlockGroupingCollector)
-		if !ok {
-			continue
-		}
+// Reduce renders reduce(Collection<BlockGroupingCollector>).
+func (m *BlockGroupingCollectorManager[T]) Reduce(collectors []*BlockGroupingCollector) (*TopGroups[T], error) {
+	shardGroupsList := make([]*TopGroups[T], 0)
+	for _, collector := range collectors {
 		topGroups, err := collector.GetTopGroups(m.withinGroupSort, 0, m.withinGroupOffset, m.maxDocsPerGroup)
 		if err != nil {
 			return nil, err
 		}
 		if topGroups != nil && len(topGroups.Groups) > 0 {
-			shardGroupsList = append(shardGroupsList, retypeTopGroups[T](topGroups))
+			shardGroupsList = append(shardGroupsList, uncheckedTopGroupsCast[T](topGroups))
 		}
 	}
 
 	return MergeBlockGroups(shardGroupsList, m.groupSort, m.groupOffset, m.topNGroups, m.withinGroupSort), nil
 }
 
-// retypeTopGroups renders Java's unchecked cast (TopGroups<T>) applied to the
-// TopGroups<?> that BlockGroupingCollector returns: the collector cannot
-// compute a group value, so every GroupDocs carries a null one and the type
-// parameter is free. The Go rendering rebuilds the value with the zero group
-// value of T, which is the Go spelling of that null.
-func retypeTopGroups[T any](in *TopGroups[any]) *TopGroups[T] {
-	groups := make([]*GroupDocs[T], len(in.Groups))
-	for i, g := range in.Groups {
-		var zero T
-		groups[i] = &GroupDocs[T]{
-			Score:           g.Score,
-			MaxScore:        g.MaxScore,
-			TotalHits:       g.TotalHits,
-			ScoreDocs:       g.ScoreDocs,
-			FieldDocs:       g.FieldDocs,
-			GroupValue:      zero,
-			GroupSortValues: g.GroupSortValues,
+// uncheckedTopGroupsCast renders Java's unchecked cast (TopGroups<T>)
+// topGroups of a BlockGroupingCollector result: every group value is null,
+// so the groups carry T's zero value.
+func uncheckedTopGroupsCast[T any](topGroups *TopGroups[any]) *TopGroups[T] {
+	groups := make([]*GroupDocs[T], len(topGroups.Groups))
+	for i, g := range topGroups.Groups {
+		var groupValue T
+		if g.GroupValue != nil {
+			groupValue = g.GroupValue.(T)
 		}
+		groups[i] = NewGroupDocs(g.Score, g.MaxScore, g.TotalHits, g.ScoreDocs, groupValue, g.GroupSortValues)
 	}
-	out := NewTopGroups(in.GroupSort, in.WithinGroupSort, in.TotalHitCount, in.TotalGroupedHitCount, groups, in.MaxScore)
-	out.TotalGroupCount = in.TotalGroupCount
-	return out
+	return &TopGroups[T]{
+		TotalHitCount:        topGroups.TotalHitCount,
+		TotalGroupedHitCount: topGroups.TotalGroupedHitCount,
+		TotalGroupCount:      topGroups.TotalGroupCount,
+		Groups:               groups,
+		GroupSort:            topGroups.GroupSort,
+		WithinGroupSort:      topGroups.WithinGroupSort,
+		MaxScore:             topGroups.MaxScore,
+	}
 }

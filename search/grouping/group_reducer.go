@@ -9,103 +9,140 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// Ported from Apache Lucene 10.5.0:
-//   lucene/grouping/src/java/org/apache/lucene/search/grouping/GroupReducer.java
-
-// GroupReducer defines what to collect for individual groups during the second
-// pass of a grouping search.
+// GroupReducer defines what to collect for individual groups during the
+// second-pass of a grouping search.
 //
-// Mirrors the abstract org.apache.lucene.search.grouping.GroupReducer<T, C>.
-// Java's two abstract members, needsScores() and newCollector(), are rendered
-// as the fields a concrete reducer supplies at construction: an embedded Go
-// struct cannot dispatch back to the type that embeds it, so the bodies travel
-// with the value.
-type GroupReducer[T any] struct {
-	groups map[any]*groupCollector
+// Each group is assigned a Collector returned by NewCollector, and
+// search.LeafCollector.Collect is called for each document that is in a
+// group.
+//
+// Mirrors the abstract class
+// org.apache.lucene.search.grouping.GroupReducer<T, C extends Collector>.
+// Java's second type parameter C is only ever used existentially by the
+// callers (SecondPassGroupingCollector holds a GroupReducer<T, ?> and casts
+// the result of getCollector), and Go has no wildcard, so the contract is an
+// interface over T alone with the collector typed search.Collector.
+//
+// See SecondPassGroupingCollector.
+type GroupReducer[T any] interface {
+	// SetGroups defines which groups should be reduced. Called by
+	// SecondPassGroupingCollector. Java's setGroups does not throw; the error
+	// here is the one Gocene's search.CollectorManager.NewCollector may
+	// return, which the Java counterparts of the shipped reducers cannot
+	// raise.
+	SetGroups(groups []*SearchGroup[T]) error
 
-	newCollector func() search.Collector
-	needsScores  bool
+	// NeedsScores reports whether or not this reducer requires collected
+	// documents to be scored.
+	NeedsScores() bool
+
+	// NewCollector creates a new Collector for each group. Mirrors the
+	// protected abstract C newCollector().
+	NewCollector() (search.Collector, error)
+
+	// GetCollector gets the Collector for a given group.
+	GetCollector(value T) search.Collector
+
+	// Collect collects a given document into a given group.
+	Collect(value T, doc int) error
+
+	// SetScorer sets the Scorer on all group collectors.
+	SetScorer(scorer search.Scorable) error
+
+	// SetNextReader is called when the parent SecondPassGroupingCollector
+	// moves to a new segment.
+	SetNextReader(ctx *index.LeafReaderContext) error
 }
 
-// groupCollector renders the private static nested class
+// groupReducerGroupCollector mirrors the private static final class
 // GroupReducer.GroupCollector<C>.
-type groupCollector struct {
+type groupReducerGroupCollector struct {
 	collector     search.Collector
 	leafCollector search.LeafCollector
 }
 
-// NewGroupReducer builds a reducer whose per-group collector is produced by
-// newCollector and whose needsScores answer is fixed at construction.
-func NewGroupReducer[T any](newCollector func() search.Collector, needsScores bool) *GroupReducer[T] {
-	return &GroupReducer[T]{
-		groups:       make(map[any]*groupCollector),
-		newCollector: newCollector,
-		needsScores:  needsScores,
+// newGroupReducerGroupCollector mirrors GroupCollector(C).
+func newGroupReducerGroupCollector(collector search.Collector) *groupReducerGroupCollector {
+	return &groupReducerGroupCollector{collector: collector}
+}
+
+// BaseGroupReducer carries the concrete (final) members of the abstract class
+// GroupReducer<T, C>; the two abstract members, needsScores() and
+// newCollector(), are supplied by the concrete reducer registered in Outer.
+type BaseGroupReducer[T any] struct {
+	// Outer is the concrete GroupReducer that embeds this base. It renders
+	// Java's dynamic dispatch to the abstract newCollector().
+	Outer GroupReducer[T]
+
+	groups *groupMap[T, *groupReducerGroupCollector]
+}
+
+// ensureGroups renders the field initialiser
+// `private final Map<T, GroupCollector<C>> groups = new HashMap<>()`.
+func (g *BaseGroupReducer[T]) ensureGroups() {
+	if g.groups == nil {
+		g.groups = newGroupMap[T, *groupReducerGroupCollector]()
 	}
 }
 
 // SetGroups defines which groups should be reduced.
 //
-// Mirrors setGroups(Collection<SearchGroup<T>>).
-func (r *GroupReducer[T]) SetGroups(groups []SearchGroup[T]) {
-	for _, g := range groups {
-		r.groups[getComparableKey(g.GroupValue)] = &groupCollector{
-			collector: r.newCollector(),
-		}
-	}
-}
-
-// GetCollector returns the Collector for the given group.
-//
-// Mirrors getCollector(T).
-func (r *GroupReducer[T]) GetCollector(value T) search.Collector {
-	if gc, ok := r.groups[getComparableKey(value)]; ok {
-		return gc.collector
-	}
-	return nil
-}
-
-// Collect collects a given document into the collector of the group it belongs
-// to.
-//
-// Mirrors collect(T, int).
-func (r *GroupReducer[T]) Collect(value T, doc int) error {
-	gc, ok := r.groups[getComparableKey(value)]
-	if !ok {
-		return nil
-	}
-	if gc.leafCollector == nil {
-		return nil
-	}
-	return gc.leafCollector.Collect(doc)
-}
-
-// SetScorer mirrors setScorer(Scorable).
-func (r *GroupReducer[T]) SetScorer(scorer search.Scorable) error {
-	for _, gc := range r.groups {
-		if gc.leafCollector != nil {
-			if err := gc.leafCollector.SetScorer(scorer); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// SetNextReader mirrors setNextReader(LeafReaderContext).
-func (r *GroupReducer[T]) SetNextReader(ctx *index.LeafReaderContext) error {
-	for _, gc := range r.groups {
-		lc, err := gc.collector.GetLeafCollector(ctx)
+// Mirrors public void setGroups(Collection<SearchGroup<T>>).
+func (g *BaseGroupReducer[T]) SetGroups(groups []*SearchGroup[T]) error {
+	g.ensureGroups()
+	for _, group := range groups {
+		collector, err := g.Outer.NewCollector()
 		if err != nil {
 			return err
 		}
-		gc.leafCollector = lc
+		g.groups.put(group.GroupValue, newGroupReducerGroupCollector(collector))
 	}
 	return nil
 }
 
-// NeedsScores reports whether this reducer requires collected documents to be
-// scored.
+// GetCollector gets the Collector for a given group.
 //
-// Mirrors the abstract needsScores().
-func (r *GroupReducer[T]) NeedsScores() bool { return r.needsScores }
+// Mirrors public final C getCollector(T value).
+func (g *BaseGroupReducer[T]) GetCollector(value T) search.Collector {
+	g.ensureGroups()
+	collector, _ := g.groups.get(value)
+	return collector.collector
+}
+
+// Collect collects a given document into a given group.
+//
+// Mirrors public final void collect(T value, int doc) throws IOException.
+func (g *BaseGroupReducer[T]) Collect(value T, doc int) error {
+	g.ensureGroups()
+	collector, _ := g.groups.get(value)
+	return collector.leafCollector.Collect(doc)
+}
+
+// SetScorer sets the Scorer on all group collectors.
+//
+// Mirrors public final void setScorer(Scorable scorer) throws IOException.
+func (g *BaseGroupReducer[T]) SetScorer(scorer search.Scorable) error {
+	g.ensureGroups()
+	for _, collector := range g.groups.values() {
+		if err := collector.leafCollector.SetScorer(scorer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetNextReader is called when the parent SecondPassGroupingCollector moves
+// to a new segment.
+//
+// Mirrors public final void setNextReader(LeafReaderContext ctx) throws IOException.
+func (g *BaseGroupReducer[T]) SetNextReader(ctx *index.LeafReaderContext) error {
+	g.ensureGroups()
+	for _, collector := range g.groups.values() {
+		leafCollector, err := collector.collector.GetLeafCollector(ctx)
+		if err != nil {
+			return err
+		}
+		collector.leafCollector = leafCollector
+	}
+	return nil
+}

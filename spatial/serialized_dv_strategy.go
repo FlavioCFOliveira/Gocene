@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -247,7 +246,7 @@ func (s *SerializedDVStrategy) matchShape(operation SpatialOperation, queryShape
 // from indexed shapes to the specified point.
 //
 // The distance is calculated from the center of each shape to the specified point.
-func (s *SerializedDVStrategy) MakeDistanceValueSource(center Point, multiplier float64) (grouping.ValueSource, error) {
+func (s *SerializedDVStrategy) MakeDistanceValueSource(center Point, multiplier float64) (ValueSource, error) {
 	return NewSerializedDVDistanceValueSource(
 		s.dvFieldName,
 		center,
@@ -278,7 +277,7 @@ func NewSerializedDVDistanceValueSource(dvFieldName string, center Point, multip
 }
 
 // GetValues returns the values for the given context.
-func (dvs *SerializedDVDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+func (dvs *SerializedDVDistanceValueSource) GetValues(context *index.LeafReaderContext) (ValueSourceValues, error) {
 	var reader index.LeafReaderInterface
 	if context != nil {
 		reader = context.LeafReader()
@@ -300,7 +299,7 @@ func (dvs *SerializedDVDistanceValueSource) Description() string {
 }
 
 // Ensure SerializedDVDistanceValueSource implements ValueSource
-var _ grouping.ValueSource = (*SerializedDVDistanceValueSource)(nil)
+var _ ValueSource = (*SerializedDVDistanceValueSource)(nil)
 
 // serializedDVDistanceValueSourceValues provides distance values for documents.
 type serializedDVDistanceValueSourceValues struct {
@@ -406,4 +405,4 @@ func (dvv *serializedDVDistanceValueSourceValues) Exists(doc int) bool {
 }
 
 // Ensure serializedDVDistanceValueSourceValues implements ValueSourceValues
-var _ grouping.ValueSourceValues = (*serializedDVDistanceValueSourceValues)(nil)
+var _ ValueSourceValues = (*serializedDVDistanceValueSourceValues)(nil)

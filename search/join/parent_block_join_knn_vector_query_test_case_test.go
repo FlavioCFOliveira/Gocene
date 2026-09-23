@@ -2,548 +2,502 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package join contains tests porting
-// org.apache.lucene.search.join.ParentBlockJoinKnnVectorQueryTestCase
-// (the shared abstract test case driving both the Float and Byte
-// DiversifyingChildren KnnVectorQuery families).
-//
-// The DiversifyingChildren{Float,Byte}KnnVectorQuery types are runnable
-// search.Query implementations (rmp #4757) and the Lucene99 flat vectors
-// writer/reader now supports the sparse (IndexedDISI + DirectMonotonic
-// ord->doc) layout (rmp #4755), so the parent/child block index — in which
-// the parents carry no vector and the field is therefore sparse — round-trips
-// end-to-end through IndexWriter + OpenDirectoryReader + IndexSearcher.
-//
-// Deviations from the Lucene reference, applied uniformly here:
-//   - These ports use the float DiversifyingChildrenFloatKnnVectorQuery only;
-//     the byte family is covered by parent_block_join_byte_knn_vector_query_test.go.
-//   - Gocene's diversifying query drives the codec reader's HNSW graph
-//     traversal through a DiversifyingNearestChildrenKnnCollector on every
-//     real-segment leaf (the collector-driven approximate path, rmp #4770),
-//     falling back to the faithful exact diversifying scan only when a leaf
-//     reader exposes no collector-driven search surface. On these small
-//     corpora the HNSW path returns the same result identities as the exact
-//     scan, so the tests assert the exact result identities and scores.
-//   - testTimeout is not ported here: it requires IndexSearcher.setTimeout /
-//     IndexSearcher.count, which Gocene's IndexSearcher does not yet expose
-//     (unrelated to the vector layout). It is covered by a dedicated, focused
-//     assertion in TestParentBlockJoinKnnQueryTestCase_Timeout below using the
-//     query's own QueryTimeout hook on ExactSearch.
 package join
 
 import (
+	"math"
+	"math/rand"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// pbjMakeChild builds a child document with a float vector for field and a
-// stored "id". Mirrors the per-child documents created throughout
-// ParentBlockJoinKnnVectorQueryTestCase.
-func pbjMakeChild(t *testing.T, field string, vector []float32, id string, sim index.VectorSimilarityFunction) *document.Document {
+// Port of
+// lucene/join/src/test/org/apache/lucene/search/join/ParentBlockJoinKnnVectorQueryTestCase.java
+// (Apache Lucene 10.5.0).
+//
+// The abstract class is rendered as parentBlockJoinKnnVectorQueryTestCase,
+// whose abstract methods are function fields supplied by the two concrete
+// subclasses (TestParentBlockJoinByteKnnVectorQuery,
+// TestParentBlockJoinFloatKnnVectorQuery); each subclass file declares one Go
+// test per inherited test method.
+type parentBlockJoinKnnVectorQueryTestCase struct {
+	// randomVector renders the abstract randomVector(int).
+	randomVector func(dim int) []float32
+	// getParentJoinKnnQuery renders the abstract getParentJoinKnnQuery(String,
+	// float[], Query, int, BitSetProducer).
+	getParentJoinKnnQuery func(t testing.TB, fieldName string, queryVector []float32, childFilter search.Query, k int,
+		parentBitSet BitSetProducer) search.Query
+	// getKnnVectorField renders the abstract getKnnVectorField(String, float[]).
+	getKnnVectorField func(t testing.TB, name string, vector []float32) document.IndexableField
+	// getKnnVectorFieldWithSimilarity renders the abstract
+	// getKnnVectorField(String, float[], VectorSimilarityFunction).
+	getKnnVectorFieldWithSimilarity func(t testing.TB, name string, vector []float32,
+		vectorSimilarityFunction spi.VectorSimilarityFunction) document.IndexableField
+}
+
+// encodeInts renders the static encodeInts(int[]): Arrays.toString(int[]).
+func encodeInts(ints []int) string {
+	parts := make([]string, len(ints))
+	for i, v := range ints {
+		parts[i] = strconv.Itoa(v)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// knnParentFilter renders the static parentFilter(IndexReader).
+func knnParentFilter(t testing.TB, r index.IndexReaderInterface) BitSetProducer {
 	t.Helper()
-	d := document.NewDocument()
-	vf, err := document.NewKnnFloatVectorField(field, vector, sim)
-	if err != nil {
-		t.Fatalf("NewKnnFloatVectorField(%q): %v", field, err)
-	}
-	d.Add(vf)
-	d.Add(mustStringField(t, "id", id, true))
-	return d
+	// Create a filter that defines "parent" documents in the index
+	parentsFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
+	mustCheckJoinIndex(t, r, parentsFilter)
+	return parentsFilter
 }
 
-// pbjMakeParent builds a parent document (docType=_parent), optionally storing
-// a parentId. Mirrors makeParent / the createFamily parent.
-func pbjMakeParent(t *testing.T, parentID string) *document.Document {
+// makeKnnParent renders makeParent(int[]).
+func makeKnnParent(t testing.TB, children []int) *document.Document {
 	t.Helper()
-	d := document.NewDocument()
-	d.Add(mustStringField(t, "docType", "_parent", false))
-	if parentID != "" {
-		d.Add(mustStringField(t, "parentId", parentID, true))
-	}
-	return d
+	return newTestDocument(
+		newStringField(t, "docType", "_parent", false),
+		newStringField(t, "id", encodeInts(children), true))
 }
 
-// pbjMakeOther builds a non-vector child document carrying only "other=value".
-// Mirrors the no-vector child documents in getIndexStore / testIndexWithNoVectors.
-func pbjMakeOther(t *testing.T) *document.Document {
-	t.Helper()
-	d := document.NewDocument()
-	d.Add(mustStringField(t, "other", "value", false))
-	return d
-}
-
-// pbjParentsFilter is the canonical parents filter used by the test case.
-func pbjParentsFilter() BitSetProducer {
-	return NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
-}
-
-// pbjOpen commits/closes the writer and opens a reader + searcher.
-func pbjOpen(t *testing.T, dir store.Directory, w *index.IndexWriter) (*index.DirectoryReader, *search.IndexSearcher) {
-	t.Helper()
-	return commitAndOpen(t, dir, w)
-}
-
-// TestParentBlockJoinKnnQueryTestCase_EmptyIndex corresponds to
-// ParentBlockJoinKnnVectorQueryTestCase.testEmptyIndex: an index with no
-// documents yields zero matches and the query rewrites to MatchNoDocsQuery.
-func TestParentBlockJoinKnnQueryTestCase_EmptyIndex(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	r, s := pbjOpen(t, dir, w)
-
-	kvq := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{1, 2}, 2, nil, pbjParentsFilter())
-	td, err := s.Search(kvq, 1000)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(td.ScoreDocs) != 0 {
-		t.Errorf("empty index returned %d hits, want 0", len(td.ScoreDocs))
-	}
-
-	rewritten, err := kvq.Rewrite(search.NewIndexSearcher(r))
-	if err != nil {
-		t.Fatalf("Rewrite: %v", err)
-	}
-	if _, ok := rewritten.(*search.MatchNoDocsQuery); !ok {
-		t.Errorf("Rewrite on empty index = %T, want *search.MatchNoDocsQuery", rewritten)
+func (c *parentBlockJoinKnnVectorQueryTestCase) testEmptyIndex(t *testing.T) {
+	indexStore := c.getIndexStore(t, "field")
+	reader := mustOpenDirectoryReader(t, indexStore)
+	defer mustClose(t, indexStore)
+	defer mustClose(t, reader)
+	searcher := newSearcher(t, reader)
+	kvq := c.getParentJoinKnnQuery(t, "field", []float32{1, 2}, nil, 2,
+		NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent"))))
+	assertKnnMatches(t, searcher, kvq, 0)
+	q := mustRewrite(t, searcher, kvq)
+	if _, ok := q.(*search.MatchNoDocsQuery); !ok {
+		t.Fatalf("expected MatchNoDocsQuery, got %T", q)
 	}
 }
 
-// TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents corresponds
-// to testIndexWithNoVectorsNorParents: documents without a vector and without
-// parents yield zero matches, both for approximate and exact (large-k) search.
-func TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	for i := 0; i < 5; i++ {
-		d := document.NewDocument()
-		d.Add(mustStringField(t, "other", "value", false))
-		if _, err := w.AddDocument(d); err != nil {
-			t.Fatalf("AddDocument: %v", err)
+func (c *parentBlockJoinKnnVectorQueryTestCase) testIndexWithNoVectorsNorParents(t *testing.T) {
+	d := newDirectory()
+	defer mustClose(t, d)
+	func() {
+		iwc := newIndexWriterConfig()
+		iwc.SetMergePolicy(newMergePolicyNoMock(t))
+		w := mustNewIndexWriter(t, d, iwc)
+		defer mustClose(t, w)
+		// Add some documents without a vector
+		for i := 0; i < 5; i++ {
+			mustAddDocument(t, w, newTestDocument(mustStringFieldPlain(t, "other", "value")))
 		}
-	}
-	_, s := pbjOpen(t, dir, w)
-
-	parentFilter := pbjParentsFilter()
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 3, nil, parentFilter)
-	td, err := s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if td.TotalHits.Value != 0 || len(td.ScoreDocs) != 0 {
-		t.Errorf("got %d hits, want 0", len(td.ScoreDocs))
-	}
-
-	// Match-all filter + large k exercises the exact-search branch.
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 10, search.NewMatchAllDocsQuery(), parentFilter)
-	td, err = s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search (exact): %v", err)
-	}
-	if td.TotalHits.Value != 0 || len(td.ScoreDocs) != 0 {
-		t.Errorf("exact got %d hits, want 0", len(td.ScoreDocs))
-	}
+	}()
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	searcher := search.NewIndexSearcher(reader)
+	// Create parent filter directly, tests use "check" to verify parentIds exist. Production
+	// may not verify we handle it gracefully
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
+	query := c.getParentJoinKnnQuery(t, "field", []float32{2, 2}, nil, 3, parentFilter)
+	topDocs := mustSearch(t, searcher, query, 3)
+	assertInt64Equals(t, 0, topDocs.TotalHits.Value)
+	assertIntEquals(t, 0, len(topDocs.ScoreDocs))
+	// Test with match_all filter and large k to test exact search
+	query = c.getParentJoinKnnQuery(t, "field", []float32{2, 2}, search.Instance, 10, parentFilter)
+	topDocs = mustSearch(t, searcher, query, 3)
+	assertInt64Equals(t, 0, topDocs.TotalHits.Value)
+	assertIntEquals(t, 0, len(topDocs.ScoreDocs))
 }
 
-// TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents corresponds to
-// testIndexWithNoParents: child vector documents exist but no parents, so the
-// query (whose parents filter matches nothing) yields zero matches.
-func TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	for i := 0; i < 3; i++ {
-		d := document.NewDocument()
-		vf, err := document.NewKnnFloatVectorFieldEuclidean("field", []float32{2, 2})
-		if err != nil {
-			t.Fatalf("NewKnnFloatVectorField: %v", err)
+func (c *parentBlockJoinKnnVectorQueryTestCase) testIndexWithNoParents(t *testing.T) {
+	d := newDirectory()
+	defer mustClose(t, d)
+	func() {
+		iwc := newIndexWriterConfig()
+		iwc.SetMergePolicy(newMergePolicyNoMock(t))
+		w := mustNewIndexWriter(t, d, iwc)
+		defer mustClose(t, w)
+		for i := 0; i < 3; i++ {
+			mustAddDocument(t, w, newTestDocument(
+				c.getKnnVectorField(t, "field", []float32{2, 2}),
+				newStringField(t, "id", strconv.Itoa(i), true)))
 		}
-		d.Add(vf)
-		d.Add(mustStringField(t, "id", string(rune('0'+i)), true))
-		if _, err := w.AddDocument(d); err != nil {
-			t.Fatalf("AddDocument: %v", err)
+		// Add some documents without a vector
+		for i := 0; i < 5; i++ {
+			mustAddDocument(t, w, newTestDocument(mustStringFieldPlain(t, "other", "value")))
 		}
-	}
-	for i := 0; i < 5; i++ {
-		d := document.NewDocument()
-		d.Add(mustStringField(t, "other", "value", false))
-		if _, err := w.AddDocument(d); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	_, s := pbjOpen(t, dir, w)
-
-	parentFilter := pbjParentsFilter()
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 3, nil, parentFilter)
-	td, err := s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if td.TotalHits.Value != 0 || len(td.ScoreDocs) != 0 {
-		t.Errorf("got %d hits, want 0", len(td.ScoreDocs))
-	}
-
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 10, search.NewMatchAllDocsQuery(), parentFilter)
-	td, err = s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search (exact): %v", err)
-	}
-	if td.TotalHits.Value != 0 || len(td.ScoreDocs) != 0 {
-		t.Errorf("exact got %d hits, want 0", len(td.ScoreDocs))
-	}
+	}()
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	searcher := search.NewIndexSearcher(reader)
+	// Create parent filter directly, tests use "check" to verify parentIds exist. Production
+	// may not
+	// verify we handle it gracefully
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
+	query := c.getParentJoinKnnQuery(t, "field", []float32{2, 2}, nil, 3, parentFilter)
+	topDocs := mustSearch(t, searcher, query, 3)
+	assertInt64Equals(t, 0, topDocs.TotalHits.Value)
+	assertIntEquals(t, 0, len(topDocs.ScoreDocs))
+	// Test with match_all filter and large k to test exact search
+	query = c.getParentJoinKnnQuery(t, "field", []float32{2, 2}, search.Instance, 10, parentFilter)
+	topDocs = mustSearch(t, searcher, query, 3)
+	assertInt64Equals(t, 0, topDocs.TotalHits.Value)
+	assertIntEquals(t, 0, len(topDocs.ScoreDocs))
 }
 
-// TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches corresponds to
-// testFilterWithNoVectorMatches: a child filter that matches a non-vector field
-// ("other"=value) selects no vector documents, so the join yields zero matches.
-func TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	// Three child/parent blocks, each child carrying a vector.
-	vectors := [][]float32{{0, 1}, {1, 2}, {0, 0}}
-	for i, v := range vectors {
-		addBlock(t, w,
-			pbjMakeChild(t, "field", v, string(rune('0'+i)), index.VectorSimilarityFunctionEuclidean),
-			pbjMakeParent(t, ""),
-		)
-	}
-	r, s := pbjOpen(t, dir, w)
-
-	parentFilter := pbjParentsFilter()
-	if err := Check(r, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	// Filter on "other"=value matches none of the vector children.
+func (c *parentBlockJoinKnnVectorQueryTestCase) testFilterWithNoVectorMatches(t *testing.T) {
+	indexStore := c.getIndexStore(t, "field", []float32{0, 1}, []float32{1, 2}, []float32{0, 0})
+	reader := mustOpenDirectoryReader(t, indexStore)
+	defer mustClose(t, indexStore)
+	defer mustClose(t, reader)
+	searcher := newSearcher(t, reader)
 	filter := search.NewTermQuery(index.NewTerm("other", "value"))
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{1, 2}, 2, filter, parentFilter)
-	td, err := s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if td.TotalHits.Value != 0 {
-		t.Errorf("got %d total hits, want 0", td.TotalHits.Value)
-	}
+	parentFilter := knnParentFilter(t, reader)
+	kvq := c.getParentJoinKnnQuery(t, "field", []float32{1, 2}, filter, 2, parentFilter)
+	topDocs := mustSearch(t, searcher, kvq, 3)
+	assertInt64Equals(t, 0, topDocs.TotalHits.Value)
 }
 
-// TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren corresponds
-// to testScoringWithMultipleChildren: two parent blocks of five children each,
-// the diversifying join keeps the single best child per parent, and the
-// scorer-level scores/ids match. EUCLIDEAN similarity is used (Gocene's
-// equivalent of the reference's default), so the asserted scores are the
-// EUCLIDEAN normalized scores rather than the dot-product ones.
-func TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	// Block 1: children {1,1}..{5,5}, ids "1".."5".
-	var block []*document.Document
-	for j := 1; j <= 5; j++ {
-		block = append(block, pbjMakeChild(t, "field", []float32{float32(j), float32(j)}, pbjItoa(j), index.VectorSimilarityFunctionEuclidean))
-	}
-	block = append(block, pbjMakeParent(t, "p1"))
-	addBlock(t, w, block...)
-
-	// Block 2: children {7,7}..{11,11}, ids "7".."11".
-	block = nil
-	for j := 7; j <= 11; j++ {
-		block = append(block, pbjMakeChild(t, "field", []float32{float32(j), float32(j)}, pbjItoa(j), index.VectorSimilarityFunctionEuclidean))
-	}
-	block = append(block, pbjMakeParent(t, "p2"))
-	addBlock(t, w, block...)
-
-	r, s := pbjOpen(t, dir, w)
-	parentFilter := pbjParentsFilter()
-	if err := Check(r, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Query {2,2}: best child of block 1 is {2,2} (id "2", exact match);
-	// best child of block 2 is {7,7} (id "7", nearest in that block).
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 2}, 3, nil, parentFilter)
-	want2 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{2, 2}, []float32{2, 2})
-	want7 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{2, 2}, []float32{7, 7})
-	pbjAssertScorerResults(t, s, r, q, map[string]float32{"2": want2, "7": want7}, 2)
-
-	// Query {6,6}: best of block 1 is {5,5} (id "5"); best of block 2 is {7,7}
-	// (id "7"); both at the same EUCLIDEAN distance sqrt(2).
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{6, 6}, 3, nil, parentFilter)
-	want5 := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{6, 6}, []float32{5, 5})
-	want7b := index.VectorSimilarityFunctionEuclidean.CompareFloat([]float32{6, 6}, []float32{7, 7})
-	pbjAssertScorerResults(t, s, r, q, map[string]float32{"5": want5, "7": want7b}, 2)
-
-	// Exact search (match-all filter, large k) yields the same result.
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{6, 6}, 20, search.NewMatchAllDocsQuery(), parentFilter)
-	pbjAssertScorerResults(t, s, r, q, map[string]float32{"5": want5, "7": want7b}, 2)
-
-	// k=1 keeps only the single best parent's best child.
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{6, 6}, 1, search.NewMatchAllDocsQuery(), parentFilter)
-	pbjAssertScorerResults(t, s, r, q, map[string]float32{"5": want5, "7": want7b}, 1)
+func (c *parentBlockJoinKnnVectorQueryTestCase) testScoringWithMultipleChildren(t *testing.T) {
+	d := newDirectory()
+	defer mustClose(t, d)
+	func() {
+		iwc := newIndexWriterConfig()
+		iwc.SetMergePolicy(newMergePolicyNoMock(t))
+		w := mustNewIndexWriter(t, d, iwc)
+		defer mustClose(t, w)
+		toAdd := make([]*document.Document, 0)
+		for j := 1; j <= 5; j++ {
+			toAdd = append(toAdd, newTestDocument(
+				c.getKnnVectorField(t, "field", []float32{float32(j), float32(j)}),
+				newStringField(t, "id", strconv.Itoa(j), true)))
+		}
+		toAdd = append(toAdd, makeKnnParent(t, []int{1, 2, 3, 4, 5}))
+		mustAddDocuments(t, w, toAdd...)
+		toAdd = make([]*document.Document, 0)
+		for j := 7; j <= 11; j++ {
+			toAdd = append(toAdd, newTestDocument(
+				c.getKnnVectorField(t, "field", []float32{float32(j), float32(j)}),
+				newStringField(t, "id", strconv.Itoa(j), true)))
+		}
+		toAdd = append(toAdd, makeKnnParent(t, []int{6, 7, 8, 9, 10}))
+		mustAddDocuments(t, w, toAdd...)
+		if err := w.ForceMerge(1); err != nil {
+			t.Fatalf("forceMerge: %v", err)
+		}
+	}()
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	assertIntEquals(t, 1, len(mustLeaves(t, reader)))
+	searcher := search.NewIndexSearcher(reader)
+	parentFilter := knnParentFilter(t, searcher.GetIndexReader())
+	query := c.getParentJoinKnnQuery(t, "field", []float32{2, 2}, nil, 3, parentFilter)
+	assertScorerResults(t, searcher, query, []float32{1, 1.0 / 51}, []string{"2", "7"}, 2)
+	query = c.getParentJoinKnnQuery(t, "field", []float32{6, 6}, nil, 3, parentFilter)
+	assertScorerResults(t, searcher, query, []float32{1.0 / 3, 1.0 / 3}, []string{"5", "7"}, 2)
+	query = c.getParentJoinKnnQuery(t, "field", []float32{6, 6}, search.Instance, 20, parentFilter)
+	assertScorerResults(t, searcher, query, []float32{1.0 / 3, 1.0 / 3}, []string{"5", "7"}, 2)
+	query = c.getParentJoinKnnQuery(t, "field", []float32{6, 6}, search.Instance, 1, parentFilter)
+	assertScorerResults(t, searcher, query, []float32{1.0 / 3, 1.0 / 3}, []string{"5", "7"}, 1)
 }
 
-// TestParentBlockJoinKnnQueryTestCase_SkewedIndex corresponds to
-// testSkewedIndex: 25 single-child blocks flushed across 5 segments; an 8-NN
-// query must still find the global top-8 across segments.
-func TestParentBlockJoinKnnQueryTestCase_SkewedIndex(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	r := 0
-	for i := 0; i < 5; i++ {
-		for j := 0; j < 5; j++ {
-			addBlock(t, w,
-				pbjMakeChild(t, "field", []float32{float32(r), float32(r)}, pbjItoa(r), index.VectorSimilarityFunctionEuclidean),
-				pbjMakeParent(t, ""),
-			)
-			r++
-		}
-		if _, err := w.Commit(); err != nil {
-			t.Fatalf("Commit (flush %d): %v", i, err)
-		}
-	}
-	reader, s := pbjOpen(t, dir, w)
-	parentFilter := pbjParentsFilter()
-	if err := Check(reader, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Query {0,0}: nearest children are r=0..7 in ascending order.
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{0, 0}, 8, nil, parentFilter)
-	td, err := s.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(td.ScoreDocs) != 8 {
-		t.Fatalf("got %d hits, want 8 (%v)", len(td.ScoreDocs), pbjIDs(t, s, td))
-	}
-	pbjAssertIDMatches(t, s, "0", td.ScoreDocs[0].Doc)
-	pbjAssertIDMatches(t, s, "7", td.ScoreDocs[7].Doc)
-
-	// Query {10,10}: nearest is r=10, eighth nearest is r=6 (tie-break by
-	// ascending distance then docid: 10,9,11,8,12,7,13,6).
-	q = NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{10, 10}, 8, nil, parentFilter)
-	td, err = s.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(td.ScoreDocs) != 8 {
-		t.Fatalf("got %d hits, want 8 (%v)", len(td.ScoreDocs), pbjIDs(t, s, td))
-	}
-	pbjAssertIDMatches(t, s, "10", td.ScoreDocs[0].Doc)
-	pbjAssertIDMatches(t, s, "6", td.ScoreDocs[7].Doc)
-}
-
-// TestParentBlockJoinKnnQueryTestCase_Timeout corresponds to
-// testTimeout, restricted to the parts Gocene's infrastructure supports: the
-// query's ExactSearch honours a QueryTimeout that exits immediately (no
-// results) and one that scores a single parent (at most one result). The
-// IndexSearcher.setTimeout / count surface used by the reference is not yet
-// ported, so the timeout is driven directly through ExactSearch.
-func TestParentBlockJoinKnnQueryTestCase_Timeout(t *testing.T) {
-	dir, w := newBlockWriter(t)
-	vectors := [][]float32{{0, 1}, {1, 2}, {0, 0}}
-	for i, v := range vectors {
-		addBlock(t, w,
-			pbjMakeChild(t, "field", v, pbjItoa(i), index.VectorSimilarityFunctionEuclidean),
-			pbjMakeParent(t, ""),
-		)
-	}
-	reader, s := pbjOpen(t, dir, w)
-	parentFilter := pbjParentsFilter()
-	if err := Check(reader, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	// Baseline: no timeout yields 3 results (one best child per parent).
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{1, 2}, 2, nil, parentFilter)
-	td, err := s.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if td.TotalHits.Value == 0 {
-		t.Fatalf("baseline returned no results")
-	}
-
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	ctx := leaves[0]
-	iter, err := pbjAllDocsIterator(s, ctx, q)
-	if err != nil {
-		t.Fatalf("acceptIterator: %v", err)
-	}
-
-	// Immediate timeout: no parents scored.
-	immediate := &pbjCountingTimeout{remaining: 0}
-	tdTO, err := q.ExactSearch(ctx, iter, immediate)
-	if err != nil {
-		t.Fatalf("ExactSearch (immediate timeout): %v", err)
-	}
-	if len(tdTO.ScoreDocs) != 0 {
-		t.Errorf("immediate timeout returned %d results, want 0", len(tdTO.ScoreDocs))
-	}
-
-	// Score exactly one parent: at most one result.
-	iter, err = pbjAllDocsIterator(s, ctx, q)
-	if err != nil {
-		t.Fatalf("acceptIterator: %v", err)
-	}
-	one := &pbjCountingTimeout{remaining: 1}
-	tdOne, err := q.ExactSearch(ctx, iter, one)
-	if err != nil {
-		t.Fatalf("ExactSearch (count=1 timeout): %v", err)
-	}
-	if len(tdOne.ScoreDocs) > 1 {
-		t.Errorf("count=1 timeout returned %d results, want <= 1", len(tdOne.ScoreDocs))
-	}
-}
-
-// TestParentBlockJoinKnnQueryTestCase_TwoSegments corresponds to
-// testTwoSegments: three families committed across two segments; a 3-NN query
-// returns three hits with three distinct parent ids {a, b, c}.
-func TestParentBlockJoinKnnQueryTestCase_TwoSegments(t *testing.T) {
-	const dim = 4
-	dir, w := newBlockWriter(t)
-	pbjAddFamily(t, w, "a", 2, dim)
-	pbjAddFamily(t, w, "b", 3, dim)
-	if _, err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	pbjAddFamily(t, w, "c", 1, dim)
-	reader, s := pbjOpen(t, dir, w)
-	parentFilter := pbjParentsFilter()
-	if err := Check(reader, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", pbjVector(dim, 0.5), 3, nil, parentFilter)
-	td, err := s.Search(q, 3)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(td.ScoreDocs) != 3 {
-		t.Fatalf("got %d hits, want 3", len(td.ScoreDocs))
-	}
-	if td.TotalHits.Value < int64(len(td.ScoreDocs)) {
-		t.Errorf("totalHits %d < scoreDocs %d", td.TotalHits.Value, len(td.ScoreDocs))
-	}
-	seen := map[string]bool{}
-	for _, sd := range td.ScoreDocs {
-		doc, err := s.Doc(sd.Doc)
-		if err != nil {
-			t.Fatalf("Doc(%d): %v", sd.Doc, err)
-		}
-		pid := storedString(doc, "parentId")
-		if seen[pid] {
-			t.Errorf("duplicate parentId %q in results", pid)
-		}
-		seen[pid] = true
-	}
-	for _, want := range []string{"a", "b", "c"} {
-		if !seen[want] {
-			t.Errorf("missing parentId %q in results (got %v)", want, seen)
-		}
-	}
-}
-
-// TestParentBlockJoinKnnQueryTestCase_Random corresponds to testRandom: build a
-// block index of many families with random vectors and verify the join returns
-// exactly min(n, k, numParentsWithChildren) hits, each a distinct parent, in
-// descending score order. A fixed seed keeps the test deterministic (Gocene has
-// no RandomIndexWriter scaffolding); this is a behavioural, not byte, match.
-func TestParentBlockJoinKnnQueryTestCase_Random(t *testing.T) {
-	const (
-		dim       = 5
-		numFamily = 40
-	)
-	rng := newPBJRand(0x5DEECE66D)
-	dir, w := newBlockWriter(t)
-	numParentsWithChildren := 0
-	for i := 0; i < numFamily; i++ {
-		size := 1 + rng.intn(3) // 1..3 children
-		var block []*document.Document
-		for c := 0; c < size; c++ {
-			block = append(block, pbjMakeChild(t, "field", pbjRandomVector(rng, dim), pbjItoa(i*10+c), index.VectorSimilarityFunctionEuclidean))
-		}
-		block = append(block, pbjMakeParent(t, pbjItoa(i)))
-		addBlock(t, w, block...)
-		numParentsWithChildren++
-	}
-	reader, s := pbjOpen(t, dir, w)
-	parentFilter := pbjParentsFilter()
-	if err := Check(reader, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-
-	for iter := 0; iter < 10; iter++ {
-		k := rng.intn(20) + 1
-		n := rng.intn(30) + 1
-		q := NewDiversifyingChildrenFloatKnnVectorQuery("field", pbjRandomVector(rng, dim), k, nil, parentFilter)
-		td, err := s.Search(q, n)
-		if err != nil {
-			t.Fatalf("Search (iter %d): %v", iter, err)
-		}
-		expected := min3(n, k, numParentsWithChildren)
-		if len(td.ScoreDocs) != expected {
-			t.Fatalf("iter %d: got %d hits, want %d (k=%d n=%d parents=%d)",
-				iter, len(td.ScoreDocs), expected, k, n, numParentsWithChildren)
-		}
-		if td.TotalHits.Value < int64(len(td.ScoreDocs)) {
-			t.Errorf("iter %d: totalHits %d < scoreDocs %d", iter, td.TotalHits.Value, len(td.ScoreDocs))
-		}
-		last := float32(3.4e38)
-		for _, sd := range td.ScoreDocs {
-			if sd.Score > last {
-				t.Errorf("iter %d: scores not descending: %v", iter, pbjScores(td))
-				break
+// testSkewedIndex tests that when vectors are abnormally distributed among
+// segments, we still find the top K.
+func (c *parentBlockJoinKnnVectorQueryTestCase) testSkewedIndex(t *testing.T) {
+	/* We have to choose the numbers carefully here so that some segment has more than the expected
+	 * number of top K documents, but no more than K documents in total (otherwise we might occasionally
+	 * randomly fail to find one).
+	 */
+	d := newDirectory()
+	defer mustClose(t, d)
+	func() {
+		w := mustNewIndexWriter(t, d, index.NewIndexWriterConfig())
+		defer mustClose(t, w)
+		r := 0
+		for i := 0; i < 5; i++ {
+			for j := 0; j < 5; j++ {
+				mustAddDocuments(t, w,
+					newTestDocument(
+						c.getKnnVectorField(t, "field", []float32{float32(r), float32(r)}),
+						newStringField(t, "id", strconv.Itoa(r), true)),
+					makeKnnParent(t, []int{r}))
+				r++
 			}
-			last = sd.Score
+			if err := w.Flush(); err != nil {
+				t.Fatalf("flush: %v", err)
+			}
+		}
+	}()
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	searcher := newSearcher(t, reader)
+	results := mustSearch(t, searcher,
+		c.getParentJoinKnnQuery(t, "field", []float32{0, 0}, nil, 8, knnParentFilter(t, searcher.GetIndexReader())), 10)
+	assertIntEquals(t, 8, len(results.ScoreDocs))
+	assertIDMatches(t, reader, "0", results.ScoreDocs[0].Doc)
+	assertIDMatches(t, reader, "7", results.ScoreDocs[7].Doc)
+	// test some results in the middle of the sequence - also tests docid tiebreaking
+	results = mustSearch(t, searcher,
+		c.getParentJoinKnnQuery(t, "field", []float32{10, 10}, nil, 8, knnParentFilter(t, searcher.GetIndexReader())), 10)
+	assertIntEquals(t, 8, len(results.ScoreDocs))
+	assertIDMatches(t, reader, "10", results.ScoreDocs[0].Doc)
+	assertIDMatches(t, reader, "6", results.ScoreDocs[7].Doc)
+}
+
+// testTimeout tests that the query times out correctly.
+func (c *parentBlockJoinKnnVectorQueryTestCase) testTimeout(t *testing.T) {
+	indexStore := c.getIndexStore(t, "field", []float32{0, 1}, []float32{1, 2}, []float32{0, 0})
+	reader := mustOpenDirectoryReader(t, indexStore)
+	defer mustClose(t, indexStore)
+	defer mustClose(t, reader)
+	parentFilter := knnParentFilter(t, reader)
+	searcher := newSearcher(t, reader)
+	query := c.getParentJoinKnnQuery(t, "field", []float32{1, 2}, nil, 2, parentFilter)
+	exactQuery := c.getParentJoinKnnQuery(t, "field", []float32{1, 2}, search.Instance, 10, parentFilter)
+	assertIntEquals(t, 2, mustCount(t, searcher, query))      // Expect some results without timeout
+	assertIntEquals(t, 3, mustCount(t, searcher, exactQuery)) // Same for exact search
+	searcher.SetTimeout(alwaysTimeout{})                      // Immediately timeout
+	assertIntEquals(t, 0, mustCount(t, searcher, query))      // Expect no results with the timeout
+	assertIntEquals(t, 0, mustCount(t, searcher, exactQuery)) // Same for exact search
+	searcher.SetTimeout(&countingQueryTimeout{remaining: 1})  // Only score 1 parent
+	// Note: We get partial results when the HNSW graph has 1 layer, but no results for > 1 layer
+	// because the timeout is exhausted while finding the best entry node for the last level
+	if n := mustCount(t, searcher, query); !(n <= 1) {
+		t.Fatalf("count: expected <= 1, got %d", n)
+	}
+	searcher.SetTimeout(&countingQueryTimeout{remaining: 1}) // Only score 1 parent
+	if n := mustCount(t, searcher, exactQuery); !(n <= 1) {
+		t.Fatalf("count: expected <= 1, got %d", n)
+	}
+}
+
+// alwaysTimeout renders the lambda () -> true.
+type alwaysTimeout struct{}
+
+func (alwaysTimeout) ShouldExit() bool { return true }
+
+func (c *parentBlockJoinKnnVectorQueryTestCase) getIndexStore(t testing.TB, field string, contents ...[]float32) store.Directory {
+	t.Helper()
+	indexStore := newDirectory()
+	iwc := newIndexWriterConfig()
+	iwc.SetMergePolicy(newMergePolicyNoMock(t))
+	writer := newRandomIndexWriterWithConfig(t, indexStore, iwc)
+	for i := range contents {
+		mustAddDocuments(t, writer,
+			newTestDocument(
+				c.getKnnVectorField(t, field, contents[i]),
+				newStringField(t, "id", strconv.Itoa(i), true)),
+			makeKnnParent(t, []int{i}))
+	}
+	// Add some documents without a vector
+	for i := 0; i < 5; i++ {
+		mustAddDocuments(t, writer,
+			newTestDocument(mustStringFieldPlain(t, "other", "value")),
+			makeKnnParent(t, []int{}))
+	}
+	mustClose(t, writer)
+	return indexStore
+}
+
+func assertKnnMatches(t testing.TB, searcher *search.IndexSearcher, q search.Query, expectedMatches int) {
+	t.Helper()
+	result := mustSearch(t, searcher, q, 1000).ScoreDocs
+	assertIntEquals(t, expectedMatches, len(result))
+}
+
+func assertIDMatches(t testing.TB, reader index.IndexReaderInterface, expectedID string, docID int) {
+	t.Helper()
+	assertStringEquals(t, expectedID, storedGet(t, reader, docID, "id"))
+}
+
+func assertScorerResults(t testing.TB, searcher *search.IndexSearcher, query search.Query, possibleScores []float32,
+	possibleIDs []string, count int) {
+	t.Helper()
+	reader := searcher.GetIndexReader()
+	rewritten, err := query.Rewrite(searcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	weight := mustCreateWeight(t, searcher, rewritten, search.COMPLETE, 1)
+	scorer := mustScorer(t, weight, mustLeaves(t, searcher.GetIndexReader())[0])
+	// prior to advancing, score is undefined
+	assertIntEquals(t, -1, scorer.DocID())
+	// expectThrows(ArrayIndexOutOfBoundsException.class, scorer::score)
+	expectThrowsPanicOrError(t, func() error {
+		_, err := scorer.Score()
+		return err
+	})
+	it := scorer.Iterator()
+	idToScore := map[string]float32{}
+	for i := range possibleIDs {
+		idToScore[possibleIDs[i]] = possibleScores[i]
+	}
+	for i := 0; i < count; i++ {
+		docID := mustNextDoc(t, it)
+		if docID == search.NO_MORE_DOCS {
+			t.Fatal("assertNotEquals(NO_MORE_DOCS, docId)")
+		}
+		actualID := storedGet(t, reader, docID, "id")
+		want, ok := idToScore[actualID]
+		if !ok {
+			t.Fatalf("unexpected id %q", actualID)
+		}
+		if got := mustScore(t, scorer); math.Abs(float64(want-got)) > 0.0001 {
+			t.Fatalf("score of %q: expected %v, got %v", actualID, want, got)
 		}
 	}
 }
 
-// TestParentBlockJoinKnnQueryTestCase_DescriptorConstruction verifies that
-// both Float and Byte query descriptors can be constructed without error,
-// mirroring the structural intent of the test case setup methods.
-func TestParentBlockJoinKnnQueryTestCase_DescriptorConstruction(t *testing.T) {
-	floatQ := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{1, 2}, 10, nil, nil)
-	if floatQ == nil {
-		t.Fatal("expected non-nil DiversifyingChildrenFloatKnnVectorQuery")
-	}
-	if floatQ.Field != "field" {
-		t.Errorf("Field = %q, want %q", floatQ.Field, "field")
-	}
-	if floatQ.K != 10 {
-		t.Errorf("K = %d, want 10", floatQ.K)
-	}
-	if len(floatQ.Target) != 2 || floatQ.Target[0] != 1 || floatQ.Target[1] != 2 {
-		t.Errorf("Target = %v, want [1 2]", floatQ.Target)
-	}
-
-	byteQ := NewDiversifyingChildrenByteKnnVectorQuery("vec", []byte{3, 4}, 5, nil, nil)
-	if byteQ == nil {
-		t.Fatal("expected non-nil DiversifyingChildrenByteKnnVectorQuery")
-	}
-	if byteQ.Field != "vec" {
-		t.Errorf("Field = %q, want %q", byteQ.Field, "vec")
-	}
-	if byteQ.K != 5 {
-		t.Errorf("K = %d, want 5", byteQ.K)
-	}
-	if len(byteQ.Target) != 2 || byteQ.Target[0] != 3 || byteQ.Target[1] != 4 {
-		t.Errorf("Target = %v, want [3 4]", byteQ.Target)
+// expectThrowsPanicOrError renders expectThrows for a Java unchecked
+// exception, which a Go port surfaces as either an error or a panic.
+func expectThrowsPanicOrError(t testing.TB, fn func() error) {
+	t.Helper()
+	var err error
+	panicked := func() (p bool) {
+		defer func() {
+			if recover() != nil {
+				p = true
+			}
+		}()
+		err = fn()
+		return false
+	}()
+	if !panicked && err == nil {
+		t.Fatal("expected an exception")
 	}
 }
 
-// TestParentBlockJoinKnnQueryTestCase_TargetImmutability verifies that the
-// query clones its target vector so external mutations do not affect the query.
-func TestParentBlockJoinKnnQueryTestCase_TargetImmutability(t *testing.T) {
-	orig := []float32{1, 2, 3}
-	q := NewDiversifyingChildrenFloatKnnVectorQuery("f", orig, 5, nil, nil)
-	orig[0] = 99
-	if q.Target[0] == 99 {
-		t.Error("query target was mutated by modifying original slice — clone is missing")
-	}
+// countingQueryTimeout renders the private static class CountingQueryTimeout.
+type countingQueryTimeout struct {
+	remaining int
+}
 
-	origB := []byte{10, 20}
-	bq := NewDiversifyingChildrenByteKnnVectorQuery("f", origB, 3, nil, nil)
-	origB[0] = 0
-	if bq.Target[0] == 0 {
-		t.Error("byte query target was mutated — clone is missing")
+func (c *countingQueryTimeout) ShouldExit() bool {
+	if c.remaining > 0 {
+		c.remaining--
+		return false
 	}
+	return true
+}
+
+func (c *parentBlockJoinKnnVectorQueryTestCase) testTwoSegments(t *testing.T) {
+	// see https://github.com/apache/lucene/issues/15005
+	dim := 1 + random().Intn(9) // random().nextInt(1, 10)
+	d := newDirectory()
+	defer mustClose(t, d)
+	writer := newRandomIndexWriterWithConfig(t, d, newIndexWriterConfig())
+	mustAddDocuments(t, writer, c.createFamily(t, "a", 2, dim)...)
+	mustAddDocuments(t, writer, c.createFamily(t, "b", 3, dim)...)
+	mustCommit(t, writer)
+	mustAddDocuments(t, writer, c.createFamily(t, "c", 1, dim)...)
+	mustClose(t, writer)
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
+	searcher := newSearcher(t, reader)
+	query := c.getParentJoinKnnQuery(t, "field", c.randomVector(dim), nil, 3, parentFilter)
+	results := mustSearch(t, searcher, query, 3)
+	assertIntEquals(t, 3, len(results.ScoreDocs))
+	if !(results.TotalHits.Value >= int64(len(results.ScoreDocs))) {
+		t.Fatalf("totalHits %d < %d", results.TotalHits.Value, len(results.ScoreDocs))
+	}
+	resultParentIDs := map[string]struct{}{}
+	for _, scoreDoc := range results.ScoreDocs {
+		parentID := storedGet(t, reader, scoreDoc.Doc, "parentId")
+		if _, ok := resultParentIDs[parentID]; ok {
+			t.Fatalf("duplicate parent %q", parentID)
+		}
+		resultParentIDs[parentID] = struct{}{}
+	}
+	assertSetEquals(t, asSet("a", "b", "c"), resultParentIDs)
+}
+
+func (c *parentBlockJoinKnnVectorQueryTestCase) createFamily(t testing.TB, parentID string, size, dim int) []*document.Document {
+	family := make([]*document.Document, 0)
+	for i := 0; i < size; i++ {
+		family = append(family, newTestDocument(
+			c.getKnnVectorField(t, "field", c.randomVector(dim)),
+			mustStoredStringField(t, "parentId", parentID)))
+	}
+	family = append(family, newTestDocument(mustStringFieldPlain(t, "docType", "_parent")))
+	return family
+}
+
+// testRandom tests with random vectors, number of documents, etc. Uses
+// RandomIndexWriter.
+func (c *parentBlockJoinKnnVectorQueryTestCase) testRandom(t *testing.T) {
+	numDocs := atLeast(100)
+	dimension := atLeast(5)
+	numIters := atLeast(10)
+	everyDocHasAVector := random().Intn(2) == 0
+	numParentsWithChildren := 0
+	d := newDirectory()
+	defer mustClose(t, d)
+	w := newRandomIndexWriter(t, d)
+	family := make([]*document.Document, 0)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		if random().Intn(5) == 1 {
+			if len(family) != 0 {
+				numParentsWithChildren++
+				doc.Add(mustStoredStringField(t, "id", strconv.Itoa(i)))
+			} else {
+				doc.Add(mustStoredStringField(t, "id", "pnoc"+strconv.Itoa(i)))
+			}
+			doc.Add(mustStringFieldPlain(t, "docType", "_parent"))
+			family = append(family, doc)
+			mustAddDocuments(t, w, family...)
+			family = family[:0]
+		} else if everyDocHasAVector || random().Intn(10) != 2 {
+			// NOTE: only child documents are allowed to have a vector!
+			// Otherwise the query's assumptions are invalidated??
+			doc.Add(c.getKnnVectorField(t, "field", c.randomVector(dimension)))
+			doc.Add(mustStoredStringField(t, "id", "c"+strconv.Itoa(i)))
+			family = append(family, doc)
+		}
+	}
+	mustClose(t, w)
+	// trailing children with no parent document are dropped
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("docType", "_parent")))
+	searcher := newSearcher(t, reader)
+	for i := 0; i < numIters; i++ {
+		k := random().Intn(80) + 1
+		// TODO: test with child filter
+		query := c.getParentJoinKnnQuery(t, "field", c.randomVector(dimension), nil, k, parentFilter)
+		n := random().Intn(100) + 1
+		results := mustSearch(t, searcher, query, n)
+		expected := min(min(n, k), numParentsWithChildren)
+		// we may get fewer results than requested if there are deletions, but this test doesn't
+		// test that
+		if util.AssertsEnabled() && reader.HasDeletions() {
+			t.Fatal(util.NewAssertionError("reader.hasDeletions() == false"))
+		}
+		assertIntEquals(t, expected, len(results.ScoreDocs))
+		if !(results.TotalHits.Value >= int64(len(results.ScoreDocs))) {
+			t.Fatalf("totalHits %d < %d", results.TotalHits.Value, len(results.ScoreDocs))
+		}
+		// verify the results are in descending score order
+		last := float32(math.MaxFloat32)
+		for _, scoreDoc := range results.ScoreDocs {
+			if !(scoreDoc.Score <= last) {
+				t.Fatalf("scores not descending: %v after %v", scoreDoc.Score, last)
+			}
+			last = scoreDoc.Score
+		}
+	}
+}
+
+// randomBinaryTerm renders TestUtil.randomBinaryTerm(Random, int): length
+// random bytes.
+func randomBinaryTerm(r *rand.Rand, length int) []byte {
+	b := make([]byte, length)
+	r.Read(b)
+	return b
 }

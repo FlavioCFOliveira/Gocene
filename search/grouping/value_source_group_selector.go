@@ -1,28 +1,38 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package grouping
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util/mutable"
 )
 
-// ValueSourceGroupSelector implements GroupSelector using a ValueSource.
+// ValueSourceGroupSelector is a GroupSelector that groups via a ValueSource.
+//
+// Mirrors org.apache.lucene.search.grouping.ValueSourceGroupSelector (Apache
+// Lucene 10.5.0), which extends GroupSelector<MutableValue>.
 type ValueSourceGroupSelector struct {
-	valueSource function.ValueSource
-	context     map[any]any
-
-	secondPassGroups map[*function.MutableValueFloat]struct{}
+	valueSource      function.ValueSource
+	context          function.Context
+	secondPassGroups *groupSet[mutable.MutableValue]
 	includeEmpty     bool
-	filler           function.ValueFiller
+
+	filler function.ValueFiller
 }
 
-func NewValueSourceGroupSelector(valueSource function.ValueSource, context map[any]any) *ValueSourceGroupSelector {
-	return &ValueSourceGroupSelector{
-		valueSource: valueSource,
-		context:     context,
-	}
+// NewValueSourceGroupSelector creates a new ValueSourceGroupSelector.
+//
+// valueSource is the ValueSource to group by; context is a context map for
+// the ValueSource (Java's Map<Object, Object>).
+func NewValueSourceGroupSelector(valueSource function.ValueSource, context function.Context) *ValueSourceGroupSelector {
+	return &ValueSourceGroupSelector{valueSource: valueSource, context: context}
 }
 
+// SetNextReader renders setNextReader(LeafReaderContext).
 func (s *ValueSourceGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
 	values, err := s.valueSource.GetValues(s.context, readerContext)
 	if err != nil {
@@ -32,48 +42,49 @@ func (s *ValueSourceGroupSelector) SetNextReader(readerContext *index.LeafReader
 	return nil
 }
 
-func (s *ValueSourceGroupSelector) SetScorer(scorer search.Scorable) error {
-	return nil
-}
+// SetScorer renders setScorer(Scorable), which does nothing.
+func (s *ValueSourceGroupSelector) SetScorer(scorer search.Scorable) error { return nil }
 
-func (s *ValueSourceGroupSelector) AdvanceTo(doc int) (State, error) {
+// AdvanceTo renders advanceTo(int).
+func (s *ValueSourceGroupSelector) AdvanceTo(doc int) (GroupSelectorState, error) {
 	if err := s.filler.FillValue(doc); err != nil {
-		return StateSkip, err
+		return GroupSelectorStateSkip, err
 	}
 	value := s.filler.GetValue()
-	if !value.Exists {
+	if value.Exists() == false {
 		if s.includeEmpty {
-			return StateAccept, nil
+			return GroupSelectorStateAccept, nil
 		}
-		return StateSkip, nil
+		return GroupSelectorStateSkip, nil
 	}
 	if s.secondPassGroups != nil {
-		if _, ok := s.secondPassGroups[value]; !ok {
-			return StateSkip, nil
+		if s.secondPassGroups.contains(value) == false {
+			return GroupSelectorStateSkip, nil
 		}
 	}
-	return StateAccept, nil
+	return GroupSelectorStateAccept, nil
 }
 
-func (s *ValueSourceGroupSelector) CurrentValue() (*function.MutableValueFloat, error) {
+// CurrentValue renders currentValue().
+func (s *ValueSourceGroupSelector) CurrentValue() (mutable.MutableValue, error) {
 	return s.filler.GetValue(), nil
 }
 
-func (s *ValueSourceGroupSelector) CopyValue() (*function.MutableValueFloat, error) {
-	val := s.filler.GetValue()
-	return &function.MutableValueFloat{
-		Value:  val.Value,
-		Exists: val.Exists,
-	}, nil
+// CopyValue renders copyValue(): filler.getValue().duplicate().
+func (s *ValueSourceGroupSelector) CopyValue() (mutable.MutableValue, error) {
+	return s.filler.GetValue().Duplicate(), nil
 }
 
-func (s *ValueSourceGroupSelector) SetGroups(groups []SearchGroup[*function.MutableValueFloat]) {
-	s.secondPassGroups = make(map[*function.MutableValueFloat]struct{})
-	for _, group := range groups {
-		if group.GroupValue == nil || !group.GroupValue.Exists {
+// SetGroups renders setGroups(Collection<SearchGroup<MutableValue>>).
+func (s *ValueSourceGroupSelector) SetGroups(searchGroups []*SearchGroup[mutable.MutableValue]) {
+	s.secondPassGroups = newGroupSet[mutable.MutableValue]()
+	for _, group := range searchGroups {
+		if group.GroupValue.Exists() == false {
 			s.includeEmpty = true
 		} else {
-			s.secondPassGroups[group.GroupValue] = struct{}{}
+			s.secondPassGroups.add(group.GroupValue)
 		}
 	}
 }
+
+var _ GroupSelector[mutable.MutableValue] = (*ValueSourceGroupSelector)(nil)

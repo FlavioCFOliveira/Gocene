@@ -7,6 +7,8 @@ package function
 import (
 	"errors"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util/mutable"
 )
 
 // fixedFloatValues is a minimal FunctionValues used to exercise the
@@ -95,8 +97,11 @@ func TestBaseFunctionValues_DefaultValueFillerUsesFloatVal(t *testing.T) {
 	if err := filler.FillValue(0); err != nil {
 		t.Fatalf("FillValue: %v", err)
 	}
-	mv := filler.GetValue()
-	if !mv.Exists || mv.Value != 2.5 {
+	mv, ok := filler.GetValue().(*mutable.MutableValueFloat)
+	if !ok {
+		t.Fatalf("GetValue() = %T, want *mutable.MutableValueFloat", filler.GetValue())
+	}
+	if !mv.Exists() || mv.Value != 2.5 {
 		t.Fatalf("MutableValueFloat = %+v, want {Value:2.5 Exists:true}", *mv)
 	}
 }

@@ -2,269 +2,414 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package join contains tests porting
-// org.apache.lucene.search.join.TestBlockJoinSorting.
-//
-// testNestedSorting sorts parent docs by an aggregate of a child SortedDocValues
-// field via ToParentBlockJoinSortField + searcher.search(query, n, sort), wired
-// end-to-end on top of the field-sorted-over-DocValues search subsystem
-// (rmp #4778) and the ToParentBlockJoinSortField / BlockJoinSelector.wrap
-// plumbing (rmp #4779 / #4758).
-//
-// Deviation from the Lucene reference, behaviourally exact for this
-// deterministic corpus:
-//
-//   - Lucene's child query and child filter use PrefixQuery(field2) to select
-//     every child that has a field2 value. Gocene's PrefixQuery yields a nil
-//     weight (rmp #4760), so it is substituted by an equivalent SHOULD set of
-//     TermQuery(field2, letter) over the corpus alphabet. Every child here has a
-//     field2 value, so the substitution selects exactly the same children. The
-//     fourth variant uses a real TermQuery(filter_1, "T"), matching Lucene
-//     verbatim.
-//
-// As of rmp #4780 a single field name carries both the indexed term and the
-// SortedDocValues, exactly as Lucene does: the per-child sort value lives on a
-// SortedDocValuesField named field2 (the same name as the indexed StringField),
-// and the sort reads it directly from that field. The earlier sibling-field
-// (field2dv) workaround has been removed now that the dual-purpose-field bug is
-// fixed.
-//
-// The index is built in a single segment (no intermediate commits) so the parent
-// global doc ids are 3, 7, 11, 15, 19, 23, 27 exactly as the Lucene assertions
-// expect.
 package join
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// sortChild builds one child document for the sorting corpus: a StringField
-// field2 (for term-based child queries/filters), a SortedDocValuesField on the
-// same name field2 carrying the same letter (the value the parent is sorted by;
-// dual-purpose field, rmp #4780), and a StringField filter_1.
-func sortChild(t *testing.T, field2, filter1 string) *document.Document {
+// Port of
+// lucene/join/src/test/org/apache/lucene/search/join/TestBlockJoinSorting.java
+// (Apache Lucene 10.5.0).
+
+// sortingChild renders the child document of testNestedSorting: field2 as a
+// StringField and a SortedDocValuesField, and filter_1.
+func sortingChild(t testing.TB, field2, filter1 string) *document.Document {
 	t.Helper()
-	d := document.NewDocument()
-	d.Add(mustStringField(t, "field2", field2, false))
-	dv, err := document.NewSortedDocValuesField("field2", []byte(field2))
-	if err != nil {
-		t.Fatalf("NewSortedDocValuesField(field2=%q): %v", field2, err)
-	}
-	d.Add(dv)
-	d.Add(mustStringField(t, "filter_1", filter1, false))
-	return d
+	return newTestDocument(
+		newStringField(t, "field2", field2, false),
+		mustSortedDVField(t, "field2", field2),
+		newStringField(t, "filter_1", filter1, false))
 }
 
-// sortParent builds the trailing parent document of a block.
-func sortParent(t *testing.T, field1 string) *document.Document {
+// sortingParent renders the parent document of testNestedSorting.
+func sortingParent(t testing.TB, field1 string) *document.Document {
 	t.Helper()
-	d := document.NewDocument()
-	d.Add(mustStringField(t, "__type", "parent", false))
-	d.Add(mustStringField(t, "field1", field1, false))
-	return d
+	return newTestDocument(
+		newStringField(t, "__type", "parent", false),
+		newStringField(t, "field1", field1, false))
 }
 
-// allField2 builds the PrefixQuery(field2) substitute: a SHOULD set of
-// TermQuery(field2, letter) over the corpus alphabet a..o. It selects every
-// child that has a field2 value, exactly like the Lucene PrefixQuery.
-func allField2() search.Query {
-	bq := search.NewBooleanQueryBuilder()
-	for c := 'a'; c <= 'o'; c++ {
-		bq.Add(search.NewTermQuery(index.NewTerm("field2", string(c))), search.SHOULD)
-	}
-	return bq.Build()
-}
-
-// sortValues extracts the FieldDoc[0] sort value of every hit as a string.
-func sortValues(t *testing.T, td *search.TopFieldDocs) []string {
-	t.Helper()
-	out := make([]string, len(td.FieldDocs))
-	for i, fd := range td.FieldDocs {
-		if len(fd.Fields) != 1 {
-			t.Fatalf("hit %d: Fields len = %d, want 1", i, len(fd.Fields))
-		}
-		b, ok := fd.Fields[0].([]byte)
-		if !ok {
-			t.Fatalf("hit %d: Fields[0] = %v (%T), want []byte", i, fd.Fields[0], fd.Fields[0])
-		}
-		out[i] = string(b)
-	}
-	return out
-}
-
-// TestBlockJoinSorting_NestedSorting corresponds to
-// TestBlockJoinSorting.testNestedSorting. It indexes seven parent/child blocks
-// and sorts the parents by an aggregate (MIN/MAX) of the child field2
-// SortedDocValues via ToParentBlockJoinSortField driving searcher.SearchWithSort.
-func TestBlockJoinSorting_NestedSorting(t *testing.T) {
-	dir, w := newBlockWriter(t)
-
-	// Block 0: children a,b,c -> parent doc 3 (field1=a)
-	addBlock(t, w, sortChild(t, "a", "T"), sortChild(t, "b", "T"), sortChild(t, "c", "T"), sortParent(t, "a"))
-	// Block 1: children c,d,e -> parent doc 7 (field1=b)
-	addBlock(t, w, sortChild(t, "c", "T"), sortChild(t, "d", "T"), sortChild(t, "e", "T"), sortParent(t, "b"))
-	// Block 2: children e,f,g -> parent doc 11 (field1=c)
-	addBlock(t, w, sortChild(t, "e", "T"), sortChild(t, "f", "T"), sortChild(t, "g", "T"), sortParent(t, "c"))
-	// Block 3: children g,h,i -> parent doc 15 (field1=d), filter_1 g=T h=F i=F
-	addBlock(t, w, sortChild(t, "g", "T"), sortChild(t, "h", "F"), sortChild(t, "i", "F"), sortParent(t, "d"))
-	// Block 4: children i,j,k -> parent doc 19 (field1=f), filter_1 all F
-	addBlock(t, w, sortChild(t, "i", "F"), sortChild(t, "j", "F"), sortChild(t, "k", "F"), sortParent(t, "f"))
-	// Block 5: children k,l,m -> parent doc 23 (field1=g), filter_1 all T
-	addBlock(t, w, sortChild(t, "k", "T"), sortChild(t, "l", "T"), sortChild(t, "m", "T"), sortParent(t, "g"))
-	// Block 6: children m,n,o -> parent doc 27 (field1=i), filter_1 m=T n=F o=F
-	addBlock(t, w, sortChild(t, "m", "T"), sortChild(t, "n", "F"), sortChild(t, "o", "F"), sortParent(t, "i"))
-
-	r, s := commitAndOpen(t, dir, w)
-
-	parentFilter := newQueryBitSetParents("__type", "parent")
-	if err := Check(r, parentFilter); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	childFilter := NewQueryBitSetProducer(allField2())
-	query := NewToParentBlockJoinQuery(allField2(), parentFilter, None)
-
-	assertHits := func(name string, td *search.TopFieldDocs, wantTotal int64, wantDocs []int, wantVals []string) {
+func mustSortField(t testing.TB) func(*ToParentBlockJoinSortField, error) *ToParentBlockJoinSortField {
+	return func(sf *ToParentBlockJoinSortField, err error) *ToParentBlockJoinSortField {
 		t.Helper()
-		if td.TotalHits.Value != wantTotal {
-			t.Fatalf("%s: totalHits = %d, want %d", name, td.TotalHits.Value, wantTotal)
+		if err != nil {
+			t.Fatalf("new ToParentBlockJoinSortField: %v", err)
 		}
-		if len(td.ScoreDocs) != len(wantDocs) {
-			t.Fatalf("%s: scoreDocs len = %d, want %d", name, len(td.ScoreDocs), len(wantDocs))
+		return sf
+	}
+}
+
+func mustSearchSorted(t testing.TB, s *search.IndexSearcher, q search.Query, n int, sortField *ToParentBlockJoinSortField) *search.TopFieldDocs {
+	t.Helper()
+	td, err := s.SearchWithSortNoScores(q, n, search.NewSort(sortField.SortField()))
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	return td
+}
+
+// assertSortedHit asserts topDocs.scoreDocs[i].doc and the FieldDoc's first
+// sort value; want is a string (BytesRef.utf8ToString()), an int ((int)
+// Integer) or nil (assertNull).
+func assertSortedHit(t testing.TB, topDocs *search.TopFieldDocs, i, doc int, want any) {
+	t.Helper()
+	if topDocs.ScoreDocs[i].Doc != doc {
+		t.Fatalf("scoreDocs[%d].doc: expected %d, got %d", i, doc, topDocs.ScoreDocs[i].Doc)
+	}
+	got := topDocs.FieldDocs[i].Fields[0]
+	switch w := want.(type) {
+	case nil:
+		if got != nil {
+			if b, ok := got.(*util.BytesRef); !ok || b != nil {
+				t.Fatalf("fields[0] of hit %d: expected null, got %v", i, got)
+			}
 		}
-		if got := docOrderJoin(td); !equalIntSlices(got, wantDocs) {
-			t.Fatalf("%s: doc order = %v, want %v", name, got, wantDocs)
+	case string:
+		b, ok := got.(*util.BytesRef)
+		if !ok || b == nil || b.Utf8ToString() != w {
+			t.Fatalf("fields[0] of hit %d: expected %q, got %v", i, w, got)
 		}
-		if got := sortValues(t, td); !equalStringSlices(got, wantVals) {
-			t.Fatalf("%s: sort values = %v, want %v", name, got, wantVals)
+	case int:
+		var v int
+		switch n := got.(type) {
+		case int32:
+			v = int(n)
+		case int:
+			v = n
+		case int64:
+			v = int(n)
+		default:
+			t.Fatalf("fields[0] of hit %d: expected an Integer, got %T", i, got)
+		}
+		if v != w {
+			t.Fatalf("fields[0] of hit %d: expected %d, got %d", i, w, v)
+		}
+	}
+}
+
+func assertSortedTotals(t testing.TB, topDocs *search.TopFieldDocs, totalHits int64, length int) {
+	t.Helper()
+	if topDocs.TotalHits.Value != totalHits {
+		t.Fatalf("totalHits: expected %d, got %d", totalHits, topDocs.TotalHits.Value)
+	}
+	if len(topDocs.ScoreDocs) != length {
+		t.Fatalf("scoreDocs.length: expected %d, got %d", length, len(topDocs.ScoreDocs))
+	}
+}
+
+func TestBlockJoinSortingNestedSorting(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newLogMergePolicy())
+	w := newRandomIndexWriterWithConfig(t, dir, iwc)
+
+	addBlock := func(docs ...*document.Document) {
+		t.Helper()
+		if _, err := w.AddDocuments(docs); err != nil {
+			t.Fatalf("addDocuments: %v", err)
 		}
 	}
 
-	// Variant 1: sort by field ascending, order first (MIN, ascending).
-	sf1, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, false, parentFilter, childFilter)
-	if err != nil {
-		t.Fatalf("NewToParentBlockJoinSortField v1: %v", err)
-	}
-	td, err := s.SearchWithSort(query, 5, sf1.Sort(), false)
-	if err != nil {
-		t.Fatalf("SearchWithSort v1: %v", err)
-	}
-	assertHits("v1 MIN asc", td, 7,
-		[]int{3, 7, 11, 15, 19},
-		[]string{"a", "c", "e", "g", "i"})
+	addBlock(sortingChild(t, "a", "T"), sortingChild(t, "b", "T"), sortingChild(t, "c", "T"), sortingParent(t, "a"))
+	mustCommit(t, w)
 
-	// Variant 2: sort by field ascending, order last (MAX, ascending).
-	sf2, err := NewToParentBlockJoinSortFieldOrder("field2", spi.SortFieldTypeString, false, true, parentFilter, childFilter)
-	if err != nil {
-		t.Fatalf("NewToParentBlockJoinSortFieldOrder v2: %v", err)
-	}
-	td, err = s.SearchWithSort(query, 5, sf2.Sort(), false)
-	if err != nil {
-		t.Fatalf("SearchWithSort v2: %v", err)
-	}
-	assertHits("v2 MAX asc", td, 7,
-		[]int{3, 7, 11, 15, 19},
-		[]string{"c", "e", "g", "i", "k"})
+	addBlock(sortingChild(t, "c", "T"), sortingChild(t, "d", "T"), sortingChild(t, "e", "T"), sortingParent(t, "b"))
 
-	// Variant 3: sort by field descending, order last (MAX, descending).
-	sf3, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter)
-	if err != nil {
-		t.Fatalf("NewToParentBlockJoinSortField v3: %v", err)
-	}
-	td, err = s.SearchWithSort(query, 5, sf3.Sort(), false)
-	if err != nil {
-		t.Fatalf("SearchWithSort v3: %v", err)
-	}
-	assertHits("v3 MAX desc", td, 7,
-		[]int{27, 23, 19, 15, 11},
-		[]string{"o", "m", "k", "i", "g"})
+	addBlock(sortingChild(t, "e", "T"), sortingChild(t, "f", "T"), sortingChild(t, "g", "T"), sortingParent(t, "c"))
 
-	// Variant 4: sort by field descending, order last, childFilter filter_1:T.
+	addBlock(sortingChild(t, "g", "T"), sortingChild(t, "h", "F"), sortingChild(t, "i", "F"), sortingParent(t, "d"))
+	mustCommit(t, w)
+
+	addBlock(sortingChild(t, "i", "F"), sortingChild(t, "j", "F"), sortingChild(t, "k", "F"), sortingParent(t, "f"))
+
+	addBlock(sortingChild(t, "k", "T"), sortingChild(t, "l", "T"), sortingChild(t, "m", "T"), sortingParent(t, "g"))
+
+	addBlock(sortingChild(t, "m", "T"), sortingChild(t, "n", "F"), sortingChild(t, "o", "F"), sortingParent(t, "i"))
+	mustCommit(t, w)
+
+	searcher := search.NewIndexSearcher(mustOpenDirectoryReaderFromWriter(t, w.W))
+	mustClose(t, w)
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("__type", "parent")))
+	if err := Check(searcher.GetIndexReader(), parentFilter); err != nil {
+		t.Fatalf("CheckJoinIndex.check: %v", err)
+	}
+	childFilter := NewQueryBitSetProducer(search.NewPrefixQuery(index.NewTerm("field2", "")))
+	query := NewToParentBlockJoinQuery(search.NewPrefixQuery(index.NewTerm("field2", "")), parentFilter, None)
+
+	must := mustSortField(t)
+
+	// Sort by field ascending, order first
+	sortField := must(NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, false, parentFilter, childFilter))
+	topDocs := mustSearchSorted(t, searcher, query, 5, sortField)
+	assertSortedTotals(t, topDocs, 7, 5)
+	assertSortedHit(t, topDocs, 0, 3, "a")
+	assertSortedHit(t, topDocs, 1, 7, "c")
+	assertSortedHit(t, topDocs, 2, 11, "e")
+	assertSortedHit(t, topDocs, 3, 15, "g")
+	assertSortedHit(t, topDocs, 4, 19, "i")
+
+	// Sort by field ascending, order last
+	sortField = notEqualSortField(t, sortField, func() *ToParentBlockJoinSortField {
+		return must(NewToParentBlockJoinSortFieldOrder("field2", spi.SortFieldTypeString, false, true, parentFilter, childFilter))
+	})
+
+	topDocs = mustSearchSorted(t, searcher, query, 5, sortField)
+	assertSortedTotals(t, topDocs, 7, 5)
+	assertSortedHit(t, topDocs, 0, 3, "c")
+	assertSortedHit(t, topDocs, 1, 7, "e")
+	assertSortedHit(t, topDocs, 2, 11, "g")
+	assertSortedHit(t, topDocs, 3, 15, "i")
+	assertSortedHit(t, topDocs, 4, 19, "k")
+
+	// Sort by field descending, order last
+	sortField = notEqualSortField(t, sortField, func() *ToParentBlockJoinSortField {
+		return must(NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter))
+	})
+	topDocs = mustSearchSorted(t, searcher, query, 5, sortField)
+	assertSortedTotals(t, topDocs, 7, 5)
+	assertSortedHit(t, topDocs, 0, 27, "o")
+	assertSortedHit(t, topDocs, 1, 23, "m")
+	assertSortedHit(t, topDocs, 2, 19, "k")
+	assertSortedHit(t, topDocs, 3, 15, "i")
+	assertSortedHit(t, topDocs, 4, 11, "g")
+
+	// Sort by field descending, order last, sort filter (filter_1:T)
 	childFilter1T := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("filter_1", "T")))
-	query1T := NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("filter_1", "T")), parentFilter, None)
-	sf4, err := NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter1T)
-	if err != nil {
-		t.Fatalf("NewToParentBlockJoinSortField v4: %v", err)
-	}
-	td, err = s.SearchWithSort(query1T, 5, sf4.Sort(), false)
-	if err != nil {
-		t.Fatalf("SearchWithSort v4: %v", err)
-	}
-	assertHits("v4 MAX desc filter_1:T", td, 6,
-		[]int{23, 27, 11, 15, 7},
-		[]string{"m", "m", "g", "g", "e"})
+	query = NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("filter_1", "T")), parentFilter, None)
+
+	sortField = notEqualSortField(t, sortField, func() *ToParentBlockJoinSortField {
+		return must(NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true, parentFilter, childFilter1T))
+	})
+
+	topDocs = mustSearchSorted(t, searcher, query, 5, sortField)
+	assertSortedTotals(t, topDocs, 6, 5)
+	assertSortedHit(t, topDocs, 0, 23, "m")
+	assertSortedHit(t, topDocs, 1, 27, "m")
+	assertSortedHit(t, topDocs, 2, 11, "g")
+	assertSortedHit(t, topDocs, 3, 15, "g")
+	assertSortedHit(t, topDocs, 4, 7, "e")
+
+	notEqualSortField(t, sortField, func() *ToParentBlockJoinSortField {
+		return must(NewToParentBlockJoinSortField("field2", spi.SortFieldTypeString, true,
+			NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("__type", "another"))), childFilter1T))
+	})
+
+	mustClose(t, searcher.GetIndexReader(), dir)
 }
 
-// TestBlockJoinSorting_SortFieldDescriptor verifies the structural accessors of
-// ToParentBlockJoinSortField with the Lucene-faithful constructor signature.
-func TestBlockJoinSorting_SortFieldDescriptor(t *testing.T) {
-	parents := newQueryBitSetParents("__type", "parent")
-	children := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("field2", "a")))
+func TestBlockJoinSortingParentMissingValueNestedSorting(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newLogMergePolicy())
+	w := newRandomIndexWriterWithConfig(t, dir, iwc)
 
-	sf, err := NewToParentBlockJoinSortField("childField", spi.SortFieldTypeInt, false, parents, children)
-	if err != nil {
-		t.Fatalf("NewToParentBlockJoinSortField: %v", err)
+	child := func(sortVal *int64) *document.Document {
+		d := newTestDocument(newStringField(t, "child", "true", false))
+		if sortVal != nil {
+			d.Add(mustNumericDVField(t, "sort_val", *sortVal))
+		}
+		return d
 	}
-	if sf.Field() != "childField" {
-		t.Errorf("Field = %q, want %q", sf.Field(), "childField")
+	parent := func() *document.Document {
+		return newTestDocument(newStringField(t, "__type", "parent", false))
 	}
-	if sf.Type() != spi.SortFieldTypeInt {
-		t.Errorf("Type = %v, want spi.SortFieldTypeInt", sf.Type())
-	}
-	if sf.Reverse() {
-		t.Error("Reverse should be false")
-	}
-	if !sf.IsAscending() {
-		t.Error("IsAscending() should be true")
-	}
-	// MIN selection for ascending order.
-	if got := sf.selectorType(); got != BlockJoinSelectorMin {
-		t.Errorf("selectorType() = %v, want BlockJoinMin", got)
-	}
-	// The produced SortField must carry the field and STRING/numeric type.
-	if produced := sf.SortField(); produced.Field != "childField" || produced.Type != spi.SortFieldTypeInt {
-		t.Errorf("SortField() = {Field:%q Type:%v}, want {childField Int}", produced.Field, produced.Type)
-	}
-
-	// An unsupported type is rejected.
-	if _, err := NewToParentBlockJoinSortField("f", spi.SortFieldTypeScore, false, parents, children); err == nil {
-		t.Error("expected error for unsupported sort type SCORE")
-	}
-}
-
-// docOrderJoin returns the doc ids of a TopFieldDocs in result order.
-func docOrderJoin(td *search.TopFieldDocs) []int {
-	out := make([]int, len(td.ScoreDocs))
-	for i, sd := range td.ScoreDocs {
-		out[i] = sd.Doc
-	}
-	return out
-}
-
-func equalIntSlices(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	v := func(x int64) *int64 { return &x }
+	addBlock := func(docs ...*document.Document) {
+		t.Helper()
+		if _, err := w.AddDocuments(docs); err != nil {
+			t.Fatalf("addDocuments: %v", err)
 		}
 	}
-	return true
+
+	// Parent A (doc 2): children with values
+	addBlock(child(v(20)), child(v(40)), parent())
+	mustCommit(t, w)
+
+	// Parent B (doc 5): children with values
+	addBlock(child(v(10)), child(v(30)), parent())
+
+	// Parent C (doc 8): children without values
+	addBlock(child(nil), child(nil), parent())
+	mustCommit(t, w)
+
+	searcher := search.NewIndexSearcher(mustOpenDirectoryReaderFromWriter(t, w.W))
+	mustClose(t, w)
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("__type", "parent")))
+	if err := Check(searcher.GetIndexReader(), parentFilter); err != nil {
+		t.Fatalf("CheckJoinIndex.check: %v", err)
+	}
+	childFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("child", "true")))
+	query := NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("child", "true")), parentFilter, None)
+
+	must := mustSortField(t)
+
+	// Sort by ascending, with smaller missing value
+	sortField := must(NewToParentBlockJoinSortFieldMissing("sort_val", spi.SortFieldTypeInt, false, int32(5), nil, parentFilter, childFilter))
+	topDocs := mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 3, 3)
+	assertSortedHit(t, topDocs, 0, 8, 5)
+	assertSortedHit(t, topDocs, 1, 5, 10)
+	assertSortedHit(t, topDocs, 2, 2, 20)
+
+	// Sort by descending, with smaller missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_val", spi.SortFieldTypeInt, true, int32(5), nil, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 3, 3)
+	assertSortedHit(t, topDocs, 0, 2, 40)
+	assertSortedHit(t, topDocs, 1, 5, 30)
+	assertSortedHit(t, topDocs, 2, 8, 5)
+
+	// Sort by ascending, with greater missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_val", spi.SortFieldTypeInt, false, int32(100), nil, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 3, 3)
+	assertSortedHit(t, topDocs, 0, 5, 10)
+	assertSortedHit(t, topDocs, 1, 2, 20)
+	assertSortedHit(t, topDocs, 2, 8, 100)
+
+	// Sort descending with greater missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_val", spi.SortFieldTypeInt, true, int32(100), nil, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 3, 3)
+	assertSortedHit(t, topDocs, 0, 8, 100)
+	assertSortedHit(t, topDocs, 1, 2, 40)
+	assertSortedHit(t, topDocs, 2, 5, 30)
+
+	mustClose(t, searcher.GetIndexReader(), dir)
 }
 
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+func TestBlockJoinSortingChildMissingValueNestedSorting(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newLogMergePolicy())
+	w := newRandomIndexWriterWithConfig(t, dir, iwc)
+
+	child := func(val *int64) *document.Document {
+		d := newTestDocument(newStringField(t, "child", "true", false))
+		if val != nil {
+			d.Add(mustNumericDVField(t, "sort_numeric_val", *val))
+			d.Add(mustSortedDVField(t, "sort_string_val", fmtInt(*val)))
+		}
+		return d
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	parent := func() *document.Document {
+		return newTestDocument(newStringField(t, "__type", "parent", false))
+	}
+	v := func(x int64) *int64 { return &x }
+	addBlock := func(docs ...*document.Document) {
+		t.Helper()
+		if _, err := w.AddDocuments(docs); err != nil {
+			t.Fatalf("addDocuments: %v", err)
 		}
 	}
-	return true
+
+	// Parent A (doc 2): one child with value, one child without
+	addBlock(child(v(30)), child(nil), parent())
+	mustCommit(t, w)
+
+	// Parent B (doc 5): all children with values
+	addBlock(child(v(20)), child(v(40)), parent())
+	mustCommit(t, w)
+
+	searcher := search.NewIndexSearcher(mustOpenDirectoryReaderFromWriter(t, w.W))
+	mustClose(t, w)
+	parentFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("__type", "parent")))
+	if err := Check(searcher.GetIndexReader(), parentFilter); err != nil {
+		t.Fatalf("CheckJoinIndex.check: %v", err)
+	}
+	childFilter := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("child", "true")))
+	query := NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("child", "true")), parentFilter, None)
+
+	must := mustSortField(t)
+
+	// Sort by ascending with a smaller missing value
+	sortField := must(NewToParentBlockJoinSortFieldMissing("sort_numeric_val", spi.SortFieldTypeInt, false, nil, int32(5), parentFilter, childFilter))
+	topDocs := mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 2, 5)
+	assertSortedHit(t, topDocs, 1, 5, 20)
+
+	// Sort by descending with a smaller missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_numeric_val", spi.SortFieldTypeInt, true, nil, int32(5), parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 5, 40)
+	assertSortedHit(t, topDocs, 1, 2, 30)
+
+	// Sort by ascending with a greater missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_numeric_val", spi.SortFieldTypeInt, false, nil, int32(50), parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 5, 20)
+	assertSortedHit(t, topDocs, 1, 2, 30)
+
+	// Sort by descending with a greater missing value
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_numeric_val", spi.SortFieldTypeInt, true, nil, int32(50), parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 2, 50)
+	assertSortedHit(t, topDocs, 1, 5, 40)
+
+	// Sort by ascending with missing values first
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_string_val", spi.SortFieldTypeString, false, nil, nil, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 2, nil)
+	assertSortedHit(t, topDocs, 1, 5, "20")
+
+	// Sort by descending with missing values last in child level and last in
+	sortField = must(NewToParentBlockJoinSortFieldMissing("sort_string_val", spi.SortFieldTypeString, false, nil, search.STRING_LAST, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 5, "20")
+	assertSortedHit(t, topDocs, 1, 2, "30")
+
+	// Sort by ascending with missing values first in child level and reverse order in parent
+	sortField = must(NewToParentBlockJoinSortFieldOrderMissing("sort_string_val", spi.SortFieldTypeString, true, false, nil, search.STRING_FIRST, parentFilter, childFilter))
+	topDocs = mustSearchSorted(t, searcher, query, 10, sortField)
+	assertSortedTotals(t, topDocs, 2, 2)
+	assertSortedHit(t, topDocs, 0, 5, "20")
+	assertSortedHit(t, topDocs, 1, 2, nil)
+
+	mustClose(t, searcher.GetIndexReader(), dir)
+}
+
+// fmtInt renders the decimal string of the BytesRef values ("20", "30", "40").
+func fmtInt(v int64) string {
+	return strconv.FormatInt(v, 10)
+}
+
+func notEqualSortField(t testing.TB, old *ToParentBlockJoinSortField, create func() *ToParentBlockJoinSortField) *ToParentBlockJoinSortField {
+	t.Helper()
+	newObj := create()
+	if old.Equals(newObj) {
+		t.Fatal("old.equals(newObj)")
+	}
+	if old == newObj {
+		t.Fatal("assertNotSame(old, newObj)")
+	}
+
+	bro := create()
+	if !newObj.Equals(bro) {
+		t.Fatal("newObj != bro")
+	}
+	if newObj.HashCode() != bro.HashCode() {
+		t.Fatal("newObj.hashCode() != bro.hashCode()")
+	}
+	if bro == newObj {
+		t.Fatal("assertNotSame(bro, newObj)")
+	}
+
+	if old.Equals(bro) {
+		t.Fatal("old.equals(bro)")
+	}
+	return newObj
 }

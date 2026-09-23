@@ -9,21 +9,16 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// Ported from Apache Lucene 10.5.0:
-//   lucene/grouping/src/java/org/apache/lucene/search/grouping/LongRangeGroupSelector.java
-
 // LongRangeGroupSelector is a GroupSelector implementation that groups
 // documents by long values.
 //
 // Mirrors org.apache.lucene.search.grouping.LongRangeGroupSelector, which
-// extends GroupSelector<LongRange>. Java's currentValue and copyValue return
-// null when the selector is not positioned, so the Go type parameter is
-// *LongRange rather than LongRange: only a pointer can carry that null.
+// extends GroupSelector<LongRange>.
 type LongRangeGroupSelector struct {
 	source       search.LongValuesSource
 	rangeFactory *LongRangeFactory
 
-	inSecondPass map[LongRange]struct{}
+	inSecondPass *groupSet[*LongRange]
 	includeEmpty bool
 	positioned   bool
 	current      *LongRange
@@ -32,16 +27,15 @@ type LongRangeGroupSelector struct {
 	values  search.LongValues
 }
 
-// NewLongRangeGroupSelector creates a new LongRangeGroupSelector. source
-// retrieves long values per document; rangeFactory defines how to group those
-// long values into range buckets.
+// NewLongRangeGroupSelector creates a new LongRangeGroupSelector.
+//
+// source is a LongValuesSource to retrieve long values per document, and
+// rangeFactory is a LongRangeFactory that defines how to group the long
+// values into range buckets.
 //
 // Mirrors LongRangeGroupSelector(LongValuesSource, LongRangeFactory).
 func NewLongRangeGroupSelector(source search.LongValuesSource, rangeFactory *LongRangeFactory) *LongRangeGroupSelector {
-	return &LongRangeGroupSelector{
-		source:       source,
-		rangeFactory: rangeFactory,
-	}
+	return &LongRangeGroupSelector{source: source, rangeFactory: rangeFactory}
 }
 
 // SetNextReader mirrors setNextReader(LeafReaderContext).
@@ -61,63 +55,59 @@ func (s *LongRangeGroupSelector) SetScorer(scorer search.Scorable) error {
 }
 
 // AdvanceTo mirrors advanceTo(int).
-func (s *LongRangeGroupSelector) AdvanceTo(doc int) (State, error) {
+func (s *LongRangeGroupSelector) AdvanceTo(doc int) (GroupSelectorState, error) {
 	positioned, err := s.values.AdvanceExact(doc)
 	if err != nil {
-		return StateSkip, err
+		return GroupSelectorStateSkip, err
 	}
 	s.positioned = positioned
-	if !positioned {
+	if !s.positioned {
 		if s.includeEmpty {
-			return StateAccept, nil
+			return GroupSelectorStateAccept, nil
 		}
-		return StateSkip, nil
+		return GroupSelectorStateSkip, nil
 	}
 	value, err := s.values.LongValue()
 	if err != nil {
-		return StateSkip, err
+		return GroupSelectorStateSkip, err
 	}
 	s.current = s.rangeFactory.GetRange(value, s.current)
 	if s.inSecondPass == nil {
-		return StateAccept, nil
+		return GroupSelectorStateAccept, nil
 	}
-	if _, ok := s.inSecondPass[*s.current]; ok {
-		return StateAccept, nil
+	if s.inSecondPass.contains(s.current) {
+		return GroupSelectorStateAccept, nil
 	}
-	return StateSkip, nil
+	return GroupSelectorStateSkip, nil
 }
 
-// CurrentValue mirrors currentValue(), which returns null when the selector is
-// not positioned on a value.
+// CurrentValue mirrors currentValue().
 func (s *LongRangeGroupSelector) CurrentValue() (*LongRange, error) {
-	if !s.positioned {
-		return nil, nil
+	if s.positioned {
+		return s.current, nil
 	}
-	return s.current, nil
+	return nil, nil
 }
 
-// CopyValue mirrors copyValue(), which returns null when the selector is not
-// positioned on a value.
+// CopyValue mirrors copyValue().
 func (s *LongRangeGroupSelector) CopyValue() (*LongRange, error) {
-	if !s.positioned {
-		return nil, nil
+	if s.positioned {
+		return NewLongRange(s.current.Min, s.current.Max), nil
 	}
-	return NewLongRange(s.current.Min, s.current.Max), nil
+	return nil, nil
 }
 
-// SetGroups mirrors setGroups(Collection<SearchGroup<LongRange>>). Java holds
-// the restriction in a Set<LongRange>, whose membership test is
-// LongRange.equals — a value comparison; the Go map is therefore keyed by the
-// dereferenced range, not by the pointer.
-func (s *LongRangeGroupSelector) SetGroups(groups []SearchGroup[*LongRange]) {
-	s.inSecondPass = make(map[LongRange]struct{})
-	for _, group := range groups {
+// SetGroups mirrors setGroups(Collection<SearchGroup<LongRange>>).
+func (s *LongRangeGroupSelector) SetGroups(searchGroups []*SearchGroup[*LongRange]) {
+	s.inSecondPass = newGroupSet[*LongRange]()
+	for _, group := range searchGroups {
 		if group.GroupValue == nil {
 			s.includeEmpty = true
 		} else {
-			s.inSecondPass[*group.GroupValue] = struct{}{}
+			s.inSecondPass.add(group.GroupValue)
 		}
 	}
 }
 
+// Ensure LongRangeGroupSelector implements GroupSelector[*LongRange].
 var _ GroupSelector[*LongRange] = (*LongRangeGroupSelector)(nil)

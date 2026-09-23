@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util/mutable"
 )
 
 // ErrUnsupportedValue is returned by [FunctionValues] accessors whose typed
@@ -16,25 +17,13 @@ import (
 // Lucene's UnsupportedOperationException raised by the abstract base methods.
 var ErrUnsupportedValue = errors.New("function: value accessor not supported by this FunctionValues")
 
-// MutableValueFloat is the Go mirror of
-// org.apache.lucene.util.mutable.MutableValueFloat. It holds a single float32
-// payload plus the standard exists flag used by [ValueFiller].
-//
-// Gocene deviation: the full org.apache.lucene.util.mutable hierarchy is
-// not ported in Sprint 29; this type covers the only consumer needed by
-// the default [FunctionValues.GetValueFiller] implementation.
-type MutableValueFloat struct {
-	Value  float32
-	Exists bool
-}
-
-// ValueFiller is the Lucene-faithful counterpart to
-// FunctionValues.ValueFiller. Implementations expose a reusable
-// [MutableValueFloat] (or other concrete mutable value) that callers
-// re-read after every call to FillValue.
+// ValueFiller renders the abstract static class FunctionValues.ValueFiller:
+// abstract class to operate on a FunctionValues object. Implementations
+// expose a reusable mutable.MutableValue that callers re-read after every
+// call to FillValue.
 type ValueFiller interface {
-	// GetValue returns the mutable value reused across calls.
-	GetValue() *MutableValueFloat
+	// GetValue returns the MutableValue that will be reused across calls.
+	GetValue() mutable.MutableValue
 	// FillValue updates the reusable value for the supplied docID.
 	FillValue(doc int) error
 }
@@ -229,7 +218,7 @@ func (b *BaseFunctionValues) ToString(doc int) (string, error) {
 
 // GetValueFiller returns a reusable ValueFiller backed by FloatVal.
 func (b *BaseFunctionValues) GetValueFiller() ValueFiller {
-	return &floatValueFiller{vals: b.outer()}
+	return &floatValueFiller{vals: b.outer(), mval: mutable.NewMutableValueFloat()}
 }
 
 // ByteValMulti is unsupported by default.
@@ -290,22 +279,22 @@ func (b *BaseFunctionValues) GetRangeScorer(
 	return newRangeValueSourceScorer(readerContext, b.outer(), lo, hi, includeLower, includeUpper), nil
 }
 
-// floatValueFiller is the default ValueFiller backed by FloatVal.
+// floatValueFiller is the anonymous ValueFiller of the default
+// FunctionValues.getValueFiller(): a MutableValueFloat filled from floatVal.
 type floatValueFiller struct {
 	vals FunctionValues
-	mval MutableValueFloat
+	mval *mutable.MutableValueFloat
 }
 
-func (f *floatValueFiller) GetValue() *MutableValueFloat { return &f.mval }
+// GetValue renders getValue().
+func (f *floatValueFiller) GetValue() mutable.MutableValue { return f.mval }
 
+// FillValue renders fillValue(int): mval.value = floatVal(doc).
 func (f *floatValueFiller) FillValue(doc int) error {
 	v, err := f.vals.FloatVal(doc)
 	if err != nil {
-		f.mval.Value = 0
-		f.mval.Exists = false
 		return err
 	}
 	f.mval.Value = v
-	f.mval.Exists = true
 	return nil
 }

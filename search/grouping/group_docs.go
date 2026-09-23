@@ -8,46 +8,46 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// Ported from Apache Lucene 10.5.0:
-//   lucene/grouping/src/java/org/apache/lucene/search/grouping/GroupDocs.java
-
 // GroupDocs represents one group in the results.
 //
-// Mirrors the record org.apache.lucene.search.grouping.GroupDocs<T>, whose
-// components are score, maxScore, totalHits, scoreDocs, groupValue and
-// groupSortValues.
+// Mirrors the record org.apache.lucene.search.grouping.GroupDocs<T>. A Java
+// record component is both a field and an accessor of the same name; Go
+// forbids that pair, so the components are rendered as exported fields.
+//
+// lucene.experimental
 type GroupDocs[T any] struct {
-	// Score is the score of this group, or NaN when the score merge mode is
-	// None.
+	// Score is the overall aggregated score of this group (currently only set
+	// by join queries).
 	Score float32
 
 	// MaxScore is the max score in this group.
 	MaxScore float32
 
-	// TotalHits is the total hits count for this group.
+	// TotalHits is the total hits within this group.
 	TotalHits *search.TotalHits
 
-	// ScoreDocs are the hits of this group.
+	// ScoreDocs are the hits; these may be search.FieldDoc instances if the
+	// withinGroupSort sorted by fields.
 	ScoreDocs []*search.ScoreDoc
 
-	// FieldDocs are the per-hit FieldDocs when the within-group sort is not by
-	// relevance, in the same order as ScoreDocs, each embedding the identical
-	// *ScoreDoc. In Lucene the scoreDocs array of a field-sorted group holds
-	// FieldDoc instances directly; Go's invariant []*ScoreDoc cannot, so the
-	// sort values travel alongside, exactly as [search.TopFieldDocs] already
-	// renders the same Lucene fact.
-	FieldDocs []*search.FieldDoc
-
-	// GroupValue is the value that defines this group.
+	// GroupValue is the groupField value for all docs in this group; this may
+	// be null if hits did not have the groupField.
 	GroupValue T
 
-	// GroupSortValues are the sort values used during sorting. They are nil
-	// when fillFields=false was passed to the first-pass collector.
+	// GroupSortValues matches the groupSort passed to
+	// FirstPassGroupingCollector.
 	GroupSortValues []any
 }
 
-// NewGroupDocs mirrors the canonical GroupDocs record constructor.
-func NewGroupDocs[T any](score, maxScore float32, totalHits *search.TotalHits, scoreDocs []*search.ScoreDoc, groupValue T, groupSortValues []any) *GroupDocs[T] {
+// NewGroupDocs mirrors the canonical constructor of the record GroupDocs<T>.
+func NewGroupDocs[T any](
+	score float32,
+	maxScore float32,
+	totalHits *search.TotalHits,
+	scoreDocs []*search.ScoreDoc,
+	groupValue T,
+	groupSortValues []any,
+) *GroupDocs[T] {
 	return &GroupDocs[T]{
 		Score:           score,
 		MaxScore:        maxScore,

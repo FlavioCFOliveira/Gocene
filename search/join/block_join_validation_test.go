@@ -2,210 +2,206 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package join contains tests porting
-// org.apache.lucene.search.join.TestBlockJoinValidation.
-//
-// The validation tests assert that the block-join scorers reject mis-configured
-// queries (a child query that matches a parent, or a parent query that matches a
-// child). The Lucene reference uses WildcardQuery(parent,"*") as the parents
-// filter; Gocene's WildcardQuery is not yet runnable (its ConstantScoreQuery
-// weight is a stub, rmp #4760), so the corpus here marks parents with a
-// docType=parent field and the parents filter is TermQuery(docType,parent) — an
-// equivalent parent selector that preserves exactly what these tests verify.
 package join
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/document"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// Port of
+// lucene/join/src/test/org/apache/lucene/search/join/TestBlockJoinValidation.java
+// (Apache Lucene 10.5.0). Its setUp/tearDown pair is rendered as
+// setUpBlockJoinValidation, whose returned fixture every test closes.
 
 const (
-	bjvSegments   = 5
-	bjvParentDocs = 10
-	bjvChildDocs  = 5
+	amountOfSegments      = 5
+	amountOfParentDocs    = 10
+	amountOfChildDocs     = 5
+	amountOfDocsInSegment = amountOfParentDocs + amountOfParentDocs*amountOfChildDocs
 )
 
-// bjvFieldValue mirrors TestBlockJoinValidation.createFieldValue: underscore-
-// joined document numbers.
-func bjvFieldValue(nums ...int) string {
-	parts := make([]string, len(nums))
-	for i, n := range nums {
-		parts[i] = itoa(n)
-	}
-	return strings.Join(parts, "_")
+// blockJoinValidationFixture holds the instance fields set up by setUp().
+type blockJoinValidationFixture struct {
+	directory     store.Directory
+	indexReader   index.IndexReaderInterface
+	indexSearcher *search.IndexSearcher
+	parentsFilter BitSetProducer
 }
 
-// buildValidationIndex builds the AMOUNT_OF_SEGMENTS x AMOUNT_OF_PARENT_DOCS x
-// AMOUNT_OF_CHILD_DOCS block corpus used by the validation tests, with a
-// docType=parent marker on parents (see the package note).
-func buildValidationIndex(t *testing.T) (*index.DirectoryReader, *search.IndexSearcher, BitSetProducer) {
+// setUpBlockJoinValidation renders setUp(); the returned fixture's tearDown
+// is registered with t.Cleanup.
+func setUpBlockJoinValidation(t *testing.T) *blockJoinValidationFixture {
 	t.Helper()
-	dir, w := newBlockWriter(t)
-	for seg := 0; seg < bjvSegments; seg++ {
-		for p := 0; p < bjvParentDocs; p++ {
-			docs := make([]*document.Document, 0, bjvChildDocs+1)
-			for c := 0; c < bjvChildDocs; c++ {
-				docs = append(docs, newDoc(t, map[string]string{
-					"id":           bjvFieldValue(seg*bjvParentDocs+p, c),
-					"child":        bjvFieldValue(c),
-					"common_field": "1",
-				}))
-			}
-			docs = append(docs, newDoc(t, map[string]string{
-				"id":           bjvFieldValue(seg*bjvParentDocs + p),
-				"parent":       bjvFieldValue(p),
-				"docType":      "parent",
-				"common_field": "1",
-			}))
-			addBlock(t, w, docs...)
-		}
-		// One commit per segment (matches AMOUNT_OF_SEGMENTS), though Gocene
-		// flushes a single segment per commit only loosely; the block contiguity
-		// that block joins require is preserved by AddDocuments regardless.
+	f := &blockJoinValidationFixture{}
+	f.directory = newDirectory()
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	config.SetMergePolicy(newMergePolicyNoMock(t))
+	indexWriter := mustNewIndexWriter(t, f.directory, config)
+	for i := 0; i < amountOfSegments; i++ {
+		segmentDocs := createDocsForSegment(t, i)
+		mustAddDocuments(t, indexWriter, segmentDocs...)
+		mustCommit(t, indexWriter)
 	}
-	r, s := commitAndOpen(t, dir, w)
-	return r, s, newQueryBitSetParents("docType", "parent")
+	f.indexReader = mustOpenDirectoryReaderFromWriter(t, indexWriter)
+	mustClose(t, indexWriter)
+	f.indexSearcher = search.NewIndexSearcher(f.indexReader)
+	f.parentsFilter = NewQueryBitSetProducer(search.NewWildcardQuery(index.NewTerm("parent", "*")))
+	t.Cleanup(func() { f.tearDown(t) })
+	return f
 }
 
-// TestBlockJoinValidation_NextDocValidationForToParentBjq corresponds to
-// TestBlockJoinValidation.testNextDocValidationForToParentBjq. The child query
-// is a SHOULD disjunction of a real child term and a parent id term, so it also
-// matches a parent document; scoring that parent must raise the
-// "Child query must not match same docs with parent filter" invariant. As in
-// Lucene, ScoreMode.None is excluded (the None path does not exercise the
-// scoring-time check), so the four aggregating modes are tested.
-func TestBlockJoinValidation_NextDocValidationForToParentBjq(t *testing.T) {
-	for _, sm := range []ScoreMode{Avg, Max, Total, Min} {
-		r, s, parentsFilter := buildValidationIndex(t)
-
-		// child="0000" matches every c==0 child; id="0000" matches the parent at
-		// seg 0/p 0 — so the disjunction matches a parent doc, violating the
-		// ToParent invariant.
-		childQuery := search.NewBooleanQueryBuilder()
-		childQuery.Add(search.NewTermQuery(index.NewTerm("child", bjvFieldValue(0))), search.SHOULD)
-		childQuery.Add(search.NewTermQuery(index.NewTerm("id", bjvFieldValue(0))), search.SHOULD)
-
-		blockJoinQuery := NewToParentBlockJoinQuery(childQuery.Build(), parentsFilter, sm)
-		_, err := s.Search(blockJoinQuery, 1)
-		if err == nil {
-			t.Fatalf("%v: expected child-matches-parent invariant error, got nil", sm)
-		}
-		if !strings.Contains(err.Error(), "Child query must not match same docs with parent filter") {
-			t.Errorf("%v: error = %q, want it to contain the invariant message", sm, err.Error())
-		}
-		_ = r
-	}
+// tearDown renders tearDown().
+func (f *blockJoinValidationFixture) tearDown(t *testing.T) {
+	mustClose(t, f.indexReader, f.directory)
 }
 
-// TestBlockJoinValidation_NextDocValidationForToChildBjq corresponds to
-// TestBlockJoinValidation.testNextDocValidationForToChildBjq: a parent query
-// that also matches a child doc must make the ToChild scorer report the
-// "parent query must not match child docs" invariant error.
-func TestBlockJoinValidation_NextDocValidationForToChildBjq(t *testing.T) {
-	r, s, parentsFilter := buildValidationIndex(t)
-
-	// Parent query (parent=value 0) OR a child doc id -> the parent query
-	// matches a child, violating the ToChild invariant.
-	parentQuery := search.NewBooleanQueryBuilder()
-	parentQuery.Add(search.NewTermQuery(index.NewTerm("parent", bjvFieldValue(0))), search.SHOULD)
-	parentQuery.Add(search.NewTermQuery(index.NewTerm("id", bjvFieldValue(0, 0))), search.SHOULD)
-
-	blockJoinQuery := NewToChildBlockJoinQuery(parentQuery.Build(), parentsFilter, None)
-	_, err := s.Search(blockJoinQuery, 1)
+func TestBlockJoinValidationNextDocValidationForToParentBjq(t *testing.T) {
+	f := setUpBlockJoinValidation(t)
+	// TODO: This test is broken when score mode is None because BlockJoinScorer#scoreChildDocs does
+	// not advance the child approximation. Adjust this test once that is fixed.
+	validScoreModes := []ScoreMode{Avg, Max, Total, Min}
+	parentQueryWithRandomChild := createChildrenQueryWithOneParent(getRandomChildNumber(0))
+	blockJoinQuery := NewToParentBlockJoinQuery(parentQueryWithRandomChild, f.parentsFilter,
+		validScoreModes[random().Intn(len(validScoreModes))])
+	_, err := f.indexSearcher.Search(blockJoinQuery, 1)
 	if err == nil {
-		t.Fatal("expected an invariant error, got nil")
+		t.Fatal("expected IllegalStateException")
 	}
-	if !strings.Contains(err.Error(), "Parent query must not match") {
-		t.Errorf("error = %q, want it to contain the invalid-query message", err.Error())
+	if !strings.Contains(err.Error(), "Child query must not match same docs with parent filter") {
+		t.Fatalf("unexpected message: %v", err)
 	}
-	_ = r
 }
 
-// TestBlockJoinValidation_AdvanceValidationForToChildBjq corresponds to
-// TestBlockJoinValidation.testAdvanceValidationForToChildBjq: advancing the
-// ToChild scorer onto a target whose next doc is not a parent must raise the
-// invariant error.
-func TestBlockJoinValidation_AdvanceValidationForToChildBjq(t *testing.T) {
-	r, s, parentsFilter := buildValidationIndex(t)
+func TestBlockJoinValidationNextDocValidationForToChildBjq(t *testing.T) {
+	f := setUpBlockJoinValidation(t)
+	parentQueryWithRandomChild := createParentsQueryWithOneChild(getRandomChildNumber(0))
 
-	// MatchAllDocsQuery as the parent query: it matches children too, so once
-	// the scorer is advanced such that the "parent" it lands on is actually a
-	// child, validateParentDoc must fire.
-	blockJoinQuery := NewToChildBlockJoinQuery(search.NewMatchAllDocsQuery(), parentsFilter, None)
+	blockJoinQuery := NewToChildBlockJoinQuery(parentQueryWithRandomChild, f.parentsFilter)
 
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+	_, err := f.indexSearcher.Search(blockJoinQuery, 1)
+	if err == nil {
+		t.Fatal("expected IllegalStateException")
 	}
-	ctx := leaves[0]
-	rewritten, err := blockJoinQuery.Rewrite(search.NewIndexSearcher(r))
-	if err != nil {
-		t.Fatalf("Rewrite: %v", err)
+	if !strings.Contains(err.Error(), invalidQueryMessage) {
+		t.Fatalf("unexpected message: %v", err)
 	}
-	weight, err := rewritten.CreateWeight(s, search.COMPLETE, 1.0)
+}
+
+func TestBlockJoinValidationAdvanceValidationForToChildBjq(t *testing.T) {
+	f := setUpBlockJoinValidation(t)
+	parentQuery := search.Instance
+	blockJoinQuery := NewToChildBlockJoinQuery(parentQuery, f.parentsFilter)
+
+	context := mustLeaves(t, f.indexSearcher.GetIndexReader())[0]
+	weight := mustCreateWeight(t, f.indexSearcher, mustRewrite(t, f.indexSearcher, blockJoinQuery), search.COMPLETE, 1)
+	scorer := mustScorer(t, weight, context)
+	parentDocs, err := f.parentsFilter.GetBitSet(context)
 	if err != nil {
-		t.Fatalf("CreateWeight: %v", err)
-	}
-	scorer, err := weight.Scorer(ctx)
-	if err != nil {
-		t.Fatalf("Scorer: %v", err)
-	}
-	if scorer == nil {
-		t.Fatal("expected non-nil scorer")
+		t.Fatal(err)
 	}
 
-	parentDocs, err := parentsFilter.GetBitSet(ctx)
-	if err != nil {
-		t.Fatalf("GetBitSet: %v", err)
-	}
-
-	// Find a target whose successor (target+1) is NOT a parent, so advancing the
-	// parent iterator to target+1 lands it on a child -> invariant violation.
-	maxDoc := ctx.LeafReader().MaxDoc()
-	target := -1
-	for cand := 0; cand <= maxDoc-2; cand++ {
-		if !parentDocs.Get(cand + 1) {
-			target = cand
+	var target int
+	for {
+		// make the parent scorer advance to a doc ID which is not a parent
+		target = nextInt(0, context.LeafReader().MaxDoc()-2)
+		if !parentDocs.Get(target + 1) {
 			break
 		}
 	}
-	if target < 0 {
-		// The corpus interleaves 5 children before each parent, so a doc whose
-		// successor is a child always exists; reaching here means the fixture
-		// was changed incorrectly.
-		t.Fatal("no suitable non-parent target in this corpus layout")
-	}
 
-	if _, err := scorer.Iterator().Advance(target); err == nil {
-		t.Fatalf("Advance(%d) expected an invariant error, got nil", target)
-	} else if !strings.Contains(err.Error(), "Parent query must not match") {
-		t.Errorf("error = %q, want it to contain the invalid-query message", err.Error())
+	illegalTarget := target
+	_, err = scorer.Iterator().Advance(illegalTarget)
+	if err == nil {
+		t.Fatal("expected IllegalStateException")
+	}
+	if !strings.Contains(err.Error(), invalidQueryMessage) {
+		t.Fatalf("unexpected message: %v", err)
 	}
 }
 
-// TestBlockJoinValidation_QueryDescriptors verifies that ToParentBlockJoinQuery
-// and ToChildBlockJoinQuery can be constructed and their accessors work,
-// mirroring the structural intent of the validation test setup.
-func TestBlockJoinValidation_QueryDescriptors(t *testing.T) {
-	for _, sm := range []ScoreMode{Avg, Max, Total, Min} {
-		tpq := NewToParentBlockJoinQuery(nil, nil, sm)
-		if tpq == nil {
-			t.Fatalf("expected non-nil ToParentBlockJoinQuery(scoreMode=%v)", sm)
-		}
-		if tpq.GetScoreMode() != sm {
-			t.Errorf("GetScoreMode() = %v, want %v", tpq.GetScoreMode(), sm)
-		}
+func createDocsForSegment(t testing.TB, segmentNumber int) []*document.Document {
+	blocks := make([][]*document.Document, 0, amountOfParentDocs)
+	for i := 0; i < amountOfParentDocs; i++ {
+		blocks = append(blocks, createParentDocWithChildren(t, segmentNumber, i))
 	}
+	result := make([]*document.Document, 0, amountOfDocsInSegment)
+	for _, block := range blocks {
+		result = append(result, block...)
+	}
+	return result
+}
 
-	tcq := NewToChildBlockJoinQuery(nil, nil, Avg)
-	if tcq == nil {
-		t.Fatal("expected non-nil ToChildBlockJoinQuery")
+func createParentDocWithChildren(t testing.TB, segmentNumber, parentNumber int) []*document.Document {
+	result := make([]*document.Document, 0, amountOfChildDocs+1)
+	for i := 0; i < amountOfChildDocs; i++ {
+		result = append(result, createChildDoc(t, segmentNumber, parentNumber, i))
 	}
-	if tcq.GetScoreMode() != Avg {
-		t.Errorf("GetScoreMode() = %v, want Avg", tcq.GetScoreMode())
+	result = append(result, createParentDoc(t, segmentNumber, parentNumber))
+	return result
+}
+
+func createParentDoc(t testing.TB, segmentNumber, parentNumber int) *document.Document {
+	return newTestDocument(
+		newStringField(t, "id", createFieldValue(segmentNumber*amountOfParentDocs+parentNumber), true),
+		newStringField(t, "parent", createFieldValue(parentNumber), false),
+		newStringField(t, "common_field", "1", false))
+}
+
+func createChildDoc(t testing.TB, segmentNumber, parentNumber, childNumber int) *document.Document {
+	return newTestDocument(
+		newStringField(t, "id", createFieldValue(segmentNumber*amountOfParentDocs+parentNumber, childNumber), true),
+		newStringField(t, "child", createFieldValue(childNumber), false),
+		newStringField(t, "common_field", "1", false))
+}
+
+func createFieldValue(documentNumbers ...int) string {
+	var sb strings.Builder
+	for _, documentNumber := range documentNumbers {
+		if sb.Len() > 0 {
+			sb.WriteString("_")
+		}
+		sb.WriteString(strconv.Itoa(documentNumber))
 	}
+	return sb.String()
+}
+
+func createChildrenQueryWithOneParent(childNumber int) search.Query {
+	childQuery := search.NewTermQuery(index.NewTerm("child", createFieldValue(childNumber)))
+	randomParentQuery := search.NewTermQuery(index.NewTerm("id", createFieldValue(getRandomParentID())))
+	childrenQueryWithRandomParent := search.NewBooleanQueryBuilder()
+	childrenQueryWithRandomParent.Add(childQuery, search.SHOULD)
+	childrenQueryWithRandomParent.Add(randomParentQuery, search.SHOULD)
+	return childrenQueryWithRandomParent.Build()
+}
+
+func createParentsQueryWithOneChild(randomChildNumber int) search.Query {
+	childQueryWithRandomParent := search.NewBooleanQueryBuilder()
+	parentsQuery := search.NewTermQuery(index.NewTerm("parent", createFieldValue(getRandomParentNumber())))
+	childQueryWithRandomParent.Add(parentsQuery, search.SHOULD)
+	childQueryWithRandomParent.Add(validationRandomChildQuery(randomChildNumber), search.SHOULD)
+	return childQueryWithRandomParent.Build()
+}
+
+func getRandomParentID() int {
+	return random().Intn(amountOfParentDocs * amountOfSegments)
+}
+
+func getRandomParentNumber() int {
+	return random().Intn(amountOfParentDocs)
+}
+
+// validationRandomChildQuery renders TestBlockJoinValidation.randomChildQuery(int).
+func validationRandomChildQuery(randomChildNumber int) search.Query {
+	return search.NewTermQuery(index.NewTerm("id", createFieldValue(getRandomParentID(), randomChildNumber)))
+}
+
+func getRandomChildNumber(notLessThan int) int {
+	return notLessThan + random().Intn(amountOfChildDocs-notLessThan)
 }

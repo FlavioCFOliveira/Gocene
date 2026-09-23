@@ -300,13 +300,67 @@ func (l *scoreCachingLeafCollector) Finish() error {
 	return l.in.Finish()
 }
 
-func CreateCachingCollector(other Collector, cacheScores bool, maxRAMMB float64) CachingCollector {
+// CreateCachingCollector creates a CachingCollector which does not wrap
+// another collector. The cached documents and scores can later be replayed.
+//
+// Mirrors the static CachingCollector.create(boolean cacheScores, double
+// maxRAMMB) of Apache Lucene 10.5.0: the wrapped collector is an anonymous
+// SimpleCollector whose collect(int) does nothing and whose scoreMode() is
+// COMPLETE.
+func CreateCachingCollector(cacheScores bool, maxRAMMB float64) CachingCollector {
+	other := &noOpCompleteCollector{}
+	other.Outer = other
+	return CreateCachingCollectorWithOther(other, cacheScores, maxRAMMB)
+}
+
+// noOpCompleteCollector is the anonymous SimpleCollector of
+// CachingCollector.create(boolean, double).
+type noOpCompleteCollector struct {
+	BaseSimpleCollector
+	BaseLeafCollector
+}
+
+func (c *noOpCompleteCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	return c, nil
+}
+
+// Collect renders collect(int), which does nothing.
+func (c *noOpCompleteCollector) Collect(doc int) error { return nil }
+
+// ScoreMode renders scoreMode(): COMPLETE.
+func (c *noOpCompleteCollector) ScoreMode() ScoreMode { return COMPLETE }
+
+func (c *noOpCompleteCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(c, min, max)
+}
+
+func (c *noOpCompleteCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(c, stream)
+}
+
+// CreateCachingCollectorWithOther creates a CachingCollector that wraps the
+// given collector and caches documents and scores up to the specified RAM
+// threshold.
+//
+// Mirrors the static CachingCollector.create(Collector other, boolean
+// cacheScores, double maxRAMMB) of Apache Lucene 10.5.0.
+func CreateCachingCollectorWithOther(other Collector, cacheScores bool, maxRAMMB float64) CachingCollector {
 	bytesPerDoc := 4
 	if cacheScores {
 		bytesPerDoc += 4
 	}
 	maxDocsToCache := int((maxRAMMB * 1024 * 1024) / float64(bytesPerDoc))
+	return CreateCachingCollectorWithOtherInt(other, cacheScores, maxDocsToCache)
+}
 
+// CreateCachingCollectorWithOtherInt creates a new CachingCollector that
+// wraps the given collector and caches documents and scores up to the
+// specified max docs threshold.
+//
+// Mirrors the static CachingCollector.create(Collector other, boolean
+// cacheScores, int maxDocsToCache) of Apache Lucene 10.5.0; the int overload
+// of create(Collector, boolean, double) carries the type suffix.
+func CreateCachingCollectorWithOtherInt(other Collector, cacheScores bool, maxDocsToCache int) CachingCollector {
 	if cacheScores {
 		return &scoreCachingCollector{
 			noScoreCachingCollector: noScoreCachingCollector{

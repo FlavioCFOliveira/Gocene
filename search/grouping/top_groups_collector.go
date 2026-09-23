@@ -5,43 +5,94 @@
 package grouping
 
 import (
+	"errors"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Ported from Apache Lucene 10.5.0:
-//   lucene/grouping/src/java/org/apache/lucene/search/grouping/TopGroupsCollector.java
+// TopGroupsCollector is a second-pass collector that collects the TopDocs for
+// each group, and returns them as a TopGroups object.
+//
+// Mirrors org.apache.lucene.search.grouping.TopGroupsCollector<T>, which
+// extends SecondPassGroupingCollector<T>.
+type TopGroupsCollector[T any] struct {
+	*SecondPassGroupingCollector[T]
 
-// maxScoreCollector renders the private static nested class
+	groupSort       *search.Sort
+	withinGroupSort *search.Sort
+	maxDocsPerGroup int
+}
+
+// NewTopGroupsCollector creates a new TopGroupsCollector.
+//
+// groupSelector is the group selector used to define groups, groups are the
+// groups to collect TopDocs for, groupSort the order in which groups are
+// returned, withinGroupSort the order in which documents are sorted in each
+// group, maxDocsPerGroup the maximum number of docs to collect for each group
+// and getMaxScores records the maximum score for each group when true.
+//
+// Mirrors TopGroupsCollector(GroupSelector, Collection, Sort, Sort, int, boolean).
+func NewTopGroupsCollector[T any](
+	groupSelector GroupSelector[T],
+	groups []*SearchGroup[T],
+	groupSort *search.Sort,
+	withinGroupSort *search.Sort,
+	maxDocsPerGroup int,
+	getMaxScores bool,
+) (*TopGroupsCollector[T], error) {
+	if groupSort == nil {
+		return nil, errors.New("groupSort must not be null")
+	}
+	if withinGroupSort == nil {
+		return nil, errors.New("withinGroupSort must not be null")
+	}
+	second, err := NewSecondPassGroupingCollector(
+		groupSelector,
+		groups,
+		newTopDocsReducer[T](withinGroupSort, maxDocsPerGroup, getMaxScores))
+	if err != nil {
+		return nil, err
+	}
+	return &TopGroupsCollector[T]{
+		SecondPassGroupingCollector: second,
+		groupSort:                   groupSort,
+		withinGroupSort:             withinGroupSort,
+		maxDocsPerGroup:             maxDocsPerGroup,
+	}, nil
+}
+
+// maxScoreCollector mirrors the private static class
 // TopGroupsCollector.MaxScoreCollector.
 type maxScoreCollector struct {
 	search.BaseSimpleCollector
+	search.BaseLeafCollector
 
 	scorer           search.Scorable
 	maxScore         float32
 	collectedAnyHits bool
 }
 
+// newMaxScoreCollector mirrors MaxScoreCollector().
 func newMaxScoreCollector() *maxScoreCollector {
-	// Java initialises maxScore to Float.MIN_VALUE, the smallest positive
-	// float, not the most negative one.
 	c := &maxScoreCollector{maxScore: math.SmallestNonzeroFloat32}
-	c.BaseSimpleCollector.Outer = c
+	c.Outer = c
 	return c
 }
 
-// GetMaxScore mirrors MaxScoreCollector.getMaxScore().
-func (c *maxScoreCollector) GetMaxScore() float32 {
-	if !c.collectedAnyHits {
-		return float32(math.NaN())
+// getMaxScore mirrors float getMaxScore().
+func (c *maxScoreCollector) getMaxScore() float32 {
+	if c.collectedAnyHits {
+		return c.maxScore
 	}
-	return c.maxScore
+	return float32(math.NaN())
 }
 
 // ScoreMode mirrors MaxScoreCollector.scoreMode().
-func (c *maxScoreCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }
+func (c *maxScoreCollector) ScoreMode() search.ScoreMode {
+	return search.COMPLETE
+}
 
 // SetScorer mirrors MaxScoreCollector.setScorer(Scorable).
 func (c *maxScoreCollector) SetScorer(scorer search.Scorable) error {
@@ -49,8 +100,7 @@ func (c *maxScoreCollector) SetScorer(scorer search.Scorable) error {
 	return nil
 }
 
-// Collect mirrors MaxScoreCollector.collect(int), whose body is
-// maxScore = Math.max(scorer.score(), maxScore).
+// Collect mirrors MaxScoreCollector.collect(int).
 func (c *maxScoreCollector) Collect(doc int) error {
 	c.collectedAnyHits = true
 	score, err := c.scorer.Score()
@@ -63,145 +113,150 @@ func (c *maxScoreCollector) Collect(doc int) error {
 	return nil
 }
 
-// CollectRange mirrors the LeafCollector default collectRange(int, int).
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int).
 func (c *maxScoreCollector) CollectRange(min, max int) error {
 	return search.DefaultCollectRange(c, min, max)
 }
 
-// CollectStream mirrors the LeafCollector default collect(DocIdStream).
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream).
 func (c *maxScoreCollector) CollectStream(stream search.DocIdStream) error {
 	return search.DefaultCollectStream(c, stream)
 }
 
-// CompetitiveIterator mirrors the LeafCollector default, which returns null.
-func (c *maxScoreCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
-	return nil, nil
+// topDocsCollectorRef renders the Java field type TopDocsCollector<?>: the
+// abstract base of TopScoreDocCollector and TopFieldCollector. Gocene's
+// search package does not expose that base as a type, so the two members
+// TopGroupsCollector needs are named here.
+type topDocsCollectorRef interface {
+	search.Collector
+	TopDocs() *search.TopDocs
 }
 
-// Finish mirrors the LeafCollector default, whose body is empty.
-func (c *maxScoreCollector) Finish() error { return nil }
+// rangedTopDocsCollector adds the TopDocsCollector.topDocs(int, int) member,
+// which only the field-sorted branch of TopGroupsCollector calls and which
+// Gocene declares on TopFieldCollector.
+type rangedTopDocsCollector interface {
+	topDocsCollectorRef
+	TopDocsRange(start, howMany int) *search.TopDocs
+}
 
-var _ search.SimpleCollector = (*maxScoreCollector)(nil)
-
-// topDocsAndMaxScoreCollector renders the private static nested class
-// TopGroupsCollector.TopDocsAndMaxScoreCollector, a FilterCollector over
-// MultiCollector.wrap(topDocsCollector, maxScoreCollector).
+// topDocsAndMaxScoreCollector mirrors the private static class
+// TopGroupsCollector.TopDocsAndMaxScoreCollector, which extends
+// FilterCollector.
 type topDocsAndMaxScoreCollector struct {
 	search.FilterCollector
 
-	topDocsCollector  search.Collector
+	topDocsCollector  topDocsCollectorRef
 	maxScoreCollector *maxScoreCollector
 	sortedByScore     bool
 }
 
-func newTopDocsAndMaxScoreCollector(sortedByScore bool, topDocsCollector search.Collector, maxScore *maxScoreCollector) (*topDocsAndMaxScoreCollector, error) {
-	// MultiCollector.wrap drops nulls; a typed nil pointer is not a nil
-	// interface in Go, so the absent collector is passed as an untyped nil.
-	var maxScoreAsCollector search.Collector
-	if maxScore != nil {
-		maxScoreAsCollector = maxScore
+// newTopDocsAndMaxScoreCollector mirrors
+// TopDocsAndMaxScoreCollector(boolean, TopDocsCollector<?>, MaxScoreCollector).
+func newTopDocsAndMaxScoreCollector(
+	sortedByScore bool,
+	topDocs topDocsCollectorRef,
+	maxScore *maxScoreCollector,
+) (*topDocsAndMaxScoreCollector, error) {
+	var wrapped search.Collector
+	var err error
+	if maxScore == nil {
+		// Java passes a null MaxScoreCollector and MultiCollector.wrap drops
+		// it; a typed nil pointer would survive Go's nil check, so the nil
+		// case is spelled out.
+		wrapped, err = search.MultiCollectorWrap(topDocs)
+	} else {
+		wrapped, err = search.MultiCollectorWrap(topDocs, maxScore)
 	}
-	wrapped, err := search.MultiCollectorWrap(topDocsCollector, maxScoreAsCollector)
 	if err != nil {
 		return nil, err
 	}
-	return &topDocsAndMaxScoreCollector{
-		FilterCollector:   search.FilterCollector{In: wrapped},
-		topDocsCollector:  topDocsCollector,
-		maxScoreCollector: maxScore,
+	c := &topDocsAndMaxScoreCollector{
 		sortedByScore:     sortedByScore,
-	}, nil
+		topDocsCollector:  topDocs,
+		maxScoreCollector: maxScore,
+	}
+	c.In = wrapped
+	return c, nil
 }
 
-var _ search.Collector = (*topDocsAndMaxScoreCollector)(nil)
+// topDocsReducer mirrors the private static class
+// TopGroupsCollector.TopDocsReducer<T>, which extends
+// GroupReducer<T, TopDocsAndMaxScoreCollector>.
+type topDocsReducer[T any] struct {
+	BaseGroupReducer[T]
 
-// newTopDocsReducer renders the private static nested class
-// TopGroupsCollector.TopDocsReducer<T>, whose only members are the overrides of
-// needsScores() and newCollector(); in Go those are the two values a
-// [GroupReducer] is constructed with.
-func newTopDocsReducer[T any](withinGroupSort *search.Sort, maxDocsPerGroup int, getMaxScores bool) *GroupReducer[T] {
-	needsScores := getMaxScores || withinGroupSort.NeedsScores()
+	supplier    func() (*topDocsAndMaxScoreCollector, error)
+	needsScores bool
+}
 
-	var supplier func() search.Collector
+// newTopDocsReducer mirrors TopDocsReducer(Sort, int, boolean).
+func newTopDocsReducer[T any](withinGroupSort *search.Sort, maxDocsPerGroup int, getMaxScores bool) *topDocsReducer[T] {
+	r := &topDocsReducer[T]{}
+	r.Outer = r
+	r.needsScores = getMaxScores || withinGroupSort.NeedsScores()
 	if withinGroupSort == search.RELEVANCE {
-		// Java tests identity against Sort.RELEVANCE here, not equality.
-		supplier = func() search.Collector {
-			collector, err := newTopDocsAndMaxScoreCollector(true, search.NewTopScoreDocCollector(maxDocsPerGroup), nil)
+		r.supplier = func() (*topDocsAndMaxScoreCollector, error) {
+			manager, err := search.NewTopScoreDocCollectorManager(maxDocsPerGroup, nil, math.MaxInt32)
 			if err != nil {
-				panic(err)
+				return nil, err
 			}
-			return collector
+			collector, err := manager.NewCollector()
+			if err != nil {
+				return nil, err
+			}
+			return newTopDocsAndMaxScoreCollector(true, collector, nil)
 		}
 	} else {
-		supplier = func() search.Collector {
-			var maxScore *maxScoreCollector
-			if getMaxScores {
-				maxScore = newMaxScoreCollector()
-			}
-			collector, err := newTopDocsAndMaxScoreCollector(false, search.NewTopFieldCollector(maxDocsPerGroup, withinGroupSort), maxScore)
+		r.supplier = func() (*topDocsAndMaxScoreCollector, error) {
+			manager, err := search.NewTopFieldCollectorManager(withinGroupSort, maxDocsPerGroup, nil, math.MaxInt32)
 			if err != nil {
-				panic(err)
+				return nil, err
 			}
-			return collector
+			// TODO: disable exact counts?
+			topDocsCollector, err := manager.NewCollector()
+			if err != nil {
+				return nil, err
+			}
+			var maxScoreCollector *maxScoreCollector
+			if getMaxScores {
+				maxScoreCollector = newMaxScoreCollector()
+			}
+			return newTopDocsAndMaxScoreCollector(false, topDocsCollector, maxScoreCollector)
 		}
 	}
-
-	return NewGroupReducer[T](supplier, needsScores)
+	return r
 }
 
-// TopGroupsCollector is a second-pass collector that collects the TopDocs for
-// each group and returns them as a [TopGroups].
+// NeedsScores mirrors TopDocsReducer.needsScores().
+func (r *topDocsReducer[T]) NeedsScores() bool {
+	return r.needsScores
+}
+
+// NewCollector mirrors TopDocsReducer.newCollector().
+func (r *topDocsReducer[T]) NewCollector() (search.Collector, error) {
+	return r.supplier()
+}
+
+// GetTopGroups gets the TopGroups recorded by this collector.
+// withinGroupOffset is the offset within each group to start collecting
+// documents.
 //
-// Mirrors org.apache.lucene.search.grouping.TopGroupsCollector<T>.
-type TopGroupsCollector[T any] struct {
-	*SecondPassGroupingCollector[T]
-
-	groupSort       *search.Sort
-	withinGroupSort *search.Sort
-	maxDocsPerGroup int
-}
-
-// NewTopGroupsCollector creates a new TopGroupsCollector. groupSelector defines
-// the groups, groups are the groups to collect TopDocs for, groupSort is the
-// order in which groups are returned, withinGroupSort the order in which
-// documents are sorted in each group, maxDocsPerGroup the maximum number of
-// docs to collect for each group, and getMaxScores records the maximum score
-// for each group when true.
-func NewTopGroupsCollector[T any](groupSelector GroupSelector[T], groups []SearchGroup[T], groupSort, withinGroupSort *search.Sort, maxDocsPerGroup int, getMaxScores bool) *TopGroupsCollector[T] {
-	reducer := newTopDocsReducer[T](withinGroupSort, maxDocsPerGroup, getMaxScores)
-	if groupSort == nil {
-		panic("groupSort must not be nil")
-	}
-	if withinGroupSort == nil {
-		panic("withinGroupSort must not be nil")
-	}
-	c := &TopGroupsCollector[T]{
-		SecondPassGroupingCollector: NewSecondPassGroupingCollector(groupSelector, groups, reducer),
-		groupSort:                   groupSort,
-		withinGroupSort:             withinGroupSort,
-		maxDocsPerGroup:             maxDocsPerGroup,
-	}
-	c.SecondPassGroupingCollector.BaseSimpleCollector.Outer = c
-	return c
-}
-
-// GetTopGroups returns the TopGroups recorded by this collector, starting at
-// withinGroupOffset within each group.
-//
-// Mirrors getTopGroups(int).
-func (c *TopGroupsCollector[T]) GetTopGroups(withinGroupOffset int) *TopGroups[T] {
+// Mirrors TopGroups<T> getTopGroups(int withinGroupOffset).
+func (c *TopGroupsCollector[T]) GetTopGroups(withinGroupOffset int) (*TopGroups[T], error) {
 	groupDocsResult := make([]*GroupDocs[T], len(c.groups))
 
+	groupIDX := 0
 	maxScore := float32(math.SmallestNonzeroFloat32)
-	for groupIDX, group := range c.groups {
-		collector := c.groupReducer.GetCollector(group.GroupValue).(*topDocsAndMaxScoreCollector)
-
+	for _, group := range c.groups {
+		collector, ok := c.groupReducer.GetCollector(group.GroupValue).(*topDocsAndMaxScoreCollector)
+		if !ok {
+			return nil, errors.New("group collector is not a TopDocsAndMaxScoreCollector")
+		}
 		var topDocs *search.TopDocs
 		var groupMaxScore float32
-		var fieldDocs []*search.FieldDoc
-
 		if collector.sortedByScore {
-			allTopDocs := collector.topDocsCollector.(*search.TopScoreDocCollector).TopDocs()
+			allTopDocs := collector.topDocsCollector.TopDocs()
 			if len(allTopDocs.ScoreDocs) == 0 {
 				groupMaxScore = float32(math.NaN())
 			} else {
@@ -211,33 +266,34 @@ func (c *TopGroupsCollector[T]) GetTopGroups(withinGroupOffset int) *TopGroups[T
 				topDocs = search.NewTopDocs(allTopDocs.TotalHits, []*search.ScoreDoc{})
 			} else {
 				end := withinGroupOffset + c.maxDocsPerGroup
-				if end > len(allTopDocs.ScoreDocs) {
+				if len(allTopDocs.ScoreDocs) < end {
 					end = len(allTopDocs.ScoreDocs)
 				}
-				sliced := make([]*search.ScoreDoc, end-withinGroupOffset)
-				copy(sliced, allTopDocs.ScoreDocs[withinGroupOffset:end])
-				topDocs = search.NewTopDocs(allTopDocs.TotalHits, sliced)
+				topDocs = search.NewTopDocs(
+					allTopDocs.TotalHits,
+					util.CopyOfSubArrayGeneric(allTopDocs.ScoreDocs, withinGroupOffset, end))
 			}
 		} else {
-			fieldCollector := collector.topDocsCollector.(*search.TopFieldCollector)
-			topDocs = fieldCollector.TopDocsRange(withinGroupOffset, c.maxDocsPerGroup)
-			fieldDocs = topFieldDocsSlice(fieldCollector, withinGroupOffset, len(topDocs.ScoreDocs))
+			ranged, ok := collector.topDocsCollector.(rangedTopDocsCollector)
+			if !ok {
+				return nil, errors.New("top docs collector does not implement TopDocsCollector.topDocs(int, int)")
+			}
+			topDocs = ranged.TopDocsRange(withinGroupOffset, c.maxDocsPerGroup)
 			if collector.maxScoreCollector == nil {
 				groupMaxScore = float32(math.NaN())
 			} else {
-				groupMaxScore = collector.maxScoreCollector.GetMaxScore()
+				groupMaxScore = collector.maxScoreCollector.getMaxScore()
 			}
 		}
 
-		groupDocsResult[groupIDX] = &GroupDocs[T]{
-			Score:           float32(math.NaN()),
-			MaxScore:        groupMaxScore,
-			TotalHits:       topDocs.TotalHits,
-			ScoreDocs:       topDocs.ScoreDocs,
-			FieldDocs:       fieldDocs,
-			GroupValue:      group.GroupValue,
-			GroupSortValues: group.SortValues,
-		}
+		groupDocsResult[groupIDX] = NewGroupDocs(
+			float32(math.NaN()),
+			groupMaxScore,
+			topDocs.TotalHits,
+			topDocs.ScoreDocs,
+			group.GroupValue,
+			group.SortValues)
+		groupIDX++
 		maxScore = nonNANmax(maxScore, groupMaxScore)
 	}
 
@@ -247,31 +303,5 @@ func (c *TopGroupsCollector[T]) GetTopGroups(withinGroupOffset int) *TopGroups[T
 		c.totalHitCount,
 		c.totalGroupedHitCount,
 		groupDocsResult,
-		maxScore,
-	)
-}
-
-// topFieldDocsSlice returns the per-hit FieldDocs matching the same window that
-// TopDocsRange returned.
-//
-// In Lucene the ScoreDoc[] of a field-sorted TopDocs already holds FieldDoc
-// instances; Gocene's invariant []*ScoreDoc cannot, so [search.TopFieldDocs]
-// carries them in a parallel slice and [GroupDocs] does the same.
-func topFieldDocsSlice(collector *search.TopFieldCollector, start, howMany int) []*search.FieldDoc {
-	all := collector.TopFieldDocs()
-	if start < 0 || start >= len(all.FieldDocs) || howMany <= 0 {
-		return []*search.FieldDoc{}
-	}
-	if howMany > len(all.FieldDocs)-start {
-		howMany = len(all.FieldDocs) - start
-	}
-	out := make([]*search.FieldDoc, howMany)
-	copy(out, all.FieldDocs[start:start+howMany])
-	return out
-}
-
-// DoSetNextReader mirrors SecondPassGroupingCollector.doSetNextReader; it is
-// re-declared so the embedded base's Outer wiring reaches this type.
-func (c *TopGroupsCollector[T]) DoSetNextReader(readerContext *index.LeafReaderContext) error {
-	return c.SecondPassGroupingCollector.DoSetNextReader(readerContext)
+		maxScore), nil
 }

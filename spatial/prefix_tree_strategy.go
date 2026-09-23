@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -231,7 +230,7 @@ func (s *PrefixTreeStrategy) makeContainsQuery(shape Shape) (search.Query, error
 // from indexed shapes to the specified point.
 //
 // The distance is calculated from the center of each shape's bounding box.
-func (s *PrefixTreeStrategy) MakeDistanceValueSource(center Point, multiplier float64) (grouping.ValueSource, error) {
+func (s *PrefixTreeStrategy) MakeDistanceValueSource(center Point, multiplier float64) (ValueSource, error) {
 	return NewPrefixTreeDistanceValueSource(
 		s.prefixGridFieldName,
 		center,
@@ -265,7 +264,7 @@ func NewPrefixTreeDistanceValueSource(fieldName string, center Point, multiplier
 }
 
 // GetValues returns the values for the given context.
-func (dvs *PrefixTreeDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+func (dvs *PrefixTreeDistanceValueSource) GetValues(context *index.LeafReaderContext) (ValueSourceValues, error) {
 	var reader index.LeafReaderInterface
 	if context != nil {
 		reader = context.LeafReader()
@@ -289,7 +288,7 @@ func (dvs *PrefixTreeDistanceValueSource) Description() string {
 }
 
 // Ensure PrefixTreeDistanceValueSource implements ValueSource
-var _ grouping.ValueSource = (*PrefixTreeDistanceValueSource)(nil)
+var _ ValueSource = (*PrefixTreeDistanceValueSource)(nil)
 
 // prefixTreeDistanceValueSourceValues provides distance values for documents.
 type prefixTreeDistanceValueSourceValues struct {
@@ -443,7 +442,7 @@ func (dvv *prefixTreeDistanceValueSourceValues) Exists(doc int) bool {
 }
 
 // Ensure prefixTreeDistanceValueSourceValues implements ValueSourceValues
-var _ grouping.ValueSourceValues = (*prefixTreeDistanceValueSourceValues)(nil)
+var _ ValueSourceValues = (*prefixTreeDistanceValueSourceValues)(nil)
 
 // BaseSpatialPrefixTree provides common functionality for prefix tree implementations.
 type BaseSpatialPrefixTree struct {

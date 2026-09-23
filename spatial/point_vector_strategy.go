@@ -9,7 +9,6 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -187,7 +186,7 @@ func (s *PointVectorStrategy) makeContainsQuery(shape Shape) (search.Query, erro
 //
 // The multiplier can be used to convert between distance units.
 // For geographic coordinates, the distance is returned in kilometers.
-func (s *PointVectorStrategy) MakeDistanceValueSource(center Point, multiplier float64) (grouping.ValueSource, error) {
+func (s *PointVectorStrategy) MakeDistanceValueSource(center Point, multiplier float64) (ValueSource, error) {
 	return NewDistanceValueSource(s.xFieldName, s.yFieldName, center, multiplier, s.spatialContext.Calculator), nil
 }
 
@@ -212,7 +211,7 @@ func NewDistanceValueSource(xFieldName, yFieldName string, center Point, multipl
 }
 
 // GetValues returns the values for the given context.
-func (dvs *DistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+func (dvs *DistanceValueSource) GetValues(context *index.LeafReaderContext) (ValueSourceValues, error) {
 	return &distanceValueSourceValues{
 		xFieldName: dvs.xFieldName,
 		yFieldName: dvs.yFieldName,
@@ -231,7 +230,7 @@ func (dvs *DistanceValueSource) Description() string {
 }
 
 // Ensure DistanceValueSource implements ValueSource
-var _ grouping.ValueSource = (*DistanceValueSource)(nil)
+var _ ValueSource = (*DistanceValueSource)(nil)
 
 // distanceValueSourceValues provides distance values for documents.
 type distanceValueSourceValues struct {
@@ -347,4 +346,4 @@ func (dvv *distanceValueSourceValues) Exists(doc int) bool {
 }
 
 // Ensure distanceValueSourceValues implements ValueSourceValues
-var _ grouping.ValueSourceValues = (*distanceValueSourceValues)(nil)
+var _ ValueSourceValues = (*distanceValueSourceValues)(nil)

@@ -1,175 +1,173 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package grouping
 
 import (
+	"errors"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// GroupCount represents the value and set of distinct values for the group.
-type GroupCount[T any, R any] struct {
-	GroupValue   T
-	UniqueValues []R
+// DistinctValuesCollector is a second pass grouping collector that keeps
+// track of distinct values for a specified field for the top N group.
+//
+// Mirrors org.apache.lucene.search.grouping.DistinctValuesCollector<T, R>,
+// which extends SecondPassGroupingCollector<T>.
+//
+// lucene.experimental
+type DistinctValuesCollector[T any, R any] struct {
+	*SecondPassGroupingCollector[T]
 }
 
-type valuesCollector[R any] struct {
+// NewDistinctValuesCollector creates a DistinctValuesCollector.
+//
+// groupSelector is the group selector to determine the top-level groups,
+// groups the top-level groups to collect for, and valueSelector a group
+// selector to determine which values to collect per-group.
+//
+// Mirrors DistinctValuesCollector(GroupSelector, Collection, GroupSelector).
+func NewDistinctValuesCollector[T any, R any](
+	groupSelector GroupSelector[T],
+	groups []*SearchGroup[T],
+	valueSelector GroupSelector[R],
+) (*DistinctValuesCollector[T, R], error) {
+	second, err := NewSecondPassGroupingCollector(
+		groupSelector, groups, newDistinctValuesReducer[T, R](valueSelector))
+	if err != nil {
+		return nil, err
+	}
+	return &DistinctValuesCollector[T, R]{SecondPassGroupingCollector: second}, nil
+}
+
+// distinctValuesValuesCollector mirrors the private static class
+// DistinctValuesCollector.ValuesCollector<R>, which extends SimpleCollector.
+type distinctValuesValuesCollector[R any] struct {
 	search.BaseSimpleCollector
+	search.BaseLeafCollector
+
 	valueSelector GroupSelector[R]
-	values        map[any]R
+	values        *groupSet[R]
 }
 
-func (c *valuesCollector[R]) Collect(doc int) error {
+// newDistinctValuesValuesCollector mirrors ValuesCollector(GroupSelector<R>).
+func newDistinctValuesValuesCollector[R any](valueSelector GroupSelector[R]) *distinctValuesValuesCollector[R] {
+	c := &distinctValuesValuesCollector[R]{
+		valueSelector: valueSelector,
+		values:        newGroupSet[R](),
+	}
+	c.Outer = c
+	return c
+}
+
+// Collect mirrors ValuesCollector.collect(int).
+func (c *distinctValuesValuesCollector[R]) Collect(doc int) error {
 	state, err := c.valueSelector.AdvanceTo(doc)
 	if err != nil {
 		return err
 	}
-	if state == StateAccept {
-		val, err := c.valueSelector.CurrentValue()
+	if state == GroupSelectorStateAccept {
+		value, err := c.valueSelector.CurrentValue()
 		if err != nil {
 			return err
 		}
-		key := any(val)
-		if _, ok := c.values[key]; !ok {
-			copyVal, err := c.valueSelector.CopyValue()
+		if !c.values.contains(value) {
+			copied, err := c.valueSelector.CopyValue()
 			if err != nil {
 				return err
 			}
-			c.values[key] = copyVal
+			c.values.add(copied)
 		}
-	} else {
-		// Handle null value if not already present.
-		// In Go, we can use nil as the key for any.
-		if _, ok := c.values[nil]; !ok {
-			var zero R
-			c.values[nil] = zero
-		}
+		return nil
+	}
+	var null R
+	if !c.values.contains(null) {
+		c.values.add(null)
 	}
 	return nil
 }
 
-func (c *valuesCollector[R]) DoSetNextReader(context *index.LeafReaderContext) error {
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int).
+func (c *distinctValuesValuesCollector[R]) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream).
+func (c *distinctValuesValuesCollector[R]) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// SetScorer mirrors the inherited SimpleCollector.setScorer(Scorable).
+func (c *distinctValuesValuesCollector[R]) SetScorer(scorer search.Scorable) error {
+	return nil
+}
+
+// DoSetNextReader mirrors ValuesCollector.doSetNextReader(LeafReaderContext).
+func (c *distinctValuesValuesCollector[R]) DoSetNextReader(context *index.LeafReaderContext) error {
 	return c.valueSelector.SetNextReader(context)
 }
 
-func (c *valuesCollector[R]) ScoreMode() search.ScoreMode {
-	return search.ScoreModeCompleteNoScores
+// ScoreMode mirrors ValuesCollector.scoreMode().
+func (c *distinctValuesValuesCollector[R]) ScoreMode() search.ScoreMode {
+	return search.COMPLETE_NO_SCORES
 }
 
+// distinctValuesReducer mirrors the private static class
+// DistinctValuesCollector.DistinctValuesReducer<T, R>, which extends
+// GroupReducer<T, ValuesCollector<R>>.
 type distinctValuesReducer[T any, R any] struct {
-	GroupReducer[T]
+	BaseGroupReducer[T]
+
 	valueSelector GroupSelector[R]
 }
 
+// newDistinctValuesReducer mirrors DistinctValuesReducer(GroupSelector<R>).
+func newDistinctValuesReducer[T any, R any](valueSelector GroupSelector[R]) *distinctValuesReducer[T, R] {
+	r := &distinctValuesReducer[T, R]{valueSelector: valueSelector}
+	r.Outer = r
+	return r
+}
+
+// NeedsScores mirrors DistinctValuesReducer.needsScores().
 func (r *distinctValuesReducer[T, R]) NeedsScores() bool {
 	return false
 }
 
-func (r *distinctValuesReducer[T, R]) newCollector() search.Collector {
-	return &valuesCollector[R]{
-		valueSelector: r.valueSelector,
-		values:        make(map[any]R),
-	}
+// NewCollector mirrors DistinctValuesReducer.newCollector().
+func (r *distinctValuesReducer[T, R]) NewCollector() (search.Collector, error) {
+	return newDistinctValuesValuesCollector(r.valueSelector), nil
 }
 
-type DistinctValuesCollector[T any, R any] struct {
-	SecondPassGroupingCollector[T]
-	valueSelector GroupSelector[R]
-}
-
-func NewDistinctValuesCollector[T any, R any](groupSelector GroupSelector[T], groups []SearchGroup[T], valueSelector GroupSelector[R]) *DistinctValuesCollector[T, R] {
-	reducer := &distinctValuesReducer[T, R]{
-		valueSelector: valueSelector,
-	}
-	return &DistinctValuesCollector[T, R]{
-		SecondPassGroupingCollector: *NewSecondPassGroupingCollector(groupSelector, groups, &reducer.GroupReducer),
-		valueSelector:               valueSelector,
-	}
-}
-
-func (c *DistinctValuesCollector[T, R]) GetGroups() []GroupCount[T, R] {
-	counts := make([]GroupCount[T, R], 0, len(c.groups))
+// GetGroups returns all unique values for each top N group.
+//
+// Mirrors List<GroupCount<T, R>> getGroups().
+func (c *DistinctValuesCollector[T, R]) GetGroups() ([]*DistinctValuesGroupCount[T, R], error) {
+	counts := make([]*DistinctValuesGroupCount[T, R], 0)
 	for _, group := range c.groups {
-		collector := c.groupReducer.GetCollector(group.GroupValue)
-		vc := collector.(*valuesCollector[R])
-
-		uniqueValues := make([]R, 0, len(vc.values))
-		for _, v := range vc.values {
-			uniqueValues = append(uniqueValues, v)
-		}
-
-		counts = append(counts, GroupCount[T, R]{
-			GroupValue:   group.GroupValue,
-			UniqueValues: uniqueValues,
-		})
-	}
-	return counts
-}
-
-type DistinctValuesCollectorManager[T any, R any] struct {
-	groupSelectorFactory func() GroupSelector[T]
-	valueSelectorFactory func() GroupSelector[R]
-	searchGroups         []SearchGroup[T]
-}
-
-func NewDistinctValuesCollectorManager[T any, R any](gsf func() GroupSelector[T], vsf func() GroupSelector[R], groups []SearchGroup[T]) *DistinctValuesCollectorManager[T, R] {
-	return &DistinctValuesCollectorManager[T, R]{
-		groupSelectorFactory: gsf,
-		valueSelectorFactory: vsf,
-		searchGroups:         groups,
-	}
-}
-
-func (m *DistinctValuesCollectorManager[T, R]) NewCollector() (search.Collector, error) {
-	return NewDistinctValuesCollector(m.groupSelectorFactory(), m.searchGroups, m.valueSelectorFactory()), nil
-}
-
-func (m *DistinctValuesCollectorManager[T, R]) Reduce(collectors []search.Collector) ([]GroupCount[T, R], error) {
-	if len(collectors) == 0 {
-		return nil, nil
-	}
-
-	// Merge distinct values from all collectors
-	firstCollector := collectors[0].(*DistinctValuesCollector[T, R])
-	groups := firstCollector.groups
-
-	// We use a map of maps to accumulate distinct values per group
-	// Java keys the accumulator by the group value itself; Go needs a
-	// comparable key, so the group value is narrowed the same way the
-	// collectors narrow it.
-	mergedValues := make(map[any]map[any]R)
-
-	for _, c := range collectors {
-		collector, ok := c.(*DistinctValuesCollector[T, R])
+		vc, ok := c.groupReducer.GetCollector(group.GroupValue).(*distinctValuesValuesCollector[R])
 		if !ok {
-			continue
+			return nil, errors.New("group collector is not a ValuesCollector")
 		}
-
-		for _, group := range collector.groups {
-			valColl := collector.groupReducer.GetCollector(group.GroupValue)
-			vc := valColl.(*valuesCollector[R])
-
-			groupKey := getComparableKey(group.GroupValue)
-			if mergedValues[groupKey] == nil {
-				mergedValues[groupKey] = make(map[any]R)
-			}
-			for k, v := range vc.values {
-				mergedValues[groupKey][k] = v
-			}
-		}
+		counts = append(counts, NewDistinctValuesGroupCount(group.GroupValue, vc.values.values()))
 	}
+	return counts, nil
+}
 
-	res := make([]GroupCount[T, R], 0, len(groups))
-	for _, group := range groups {
-		groupKey := getComparableKey(group.GroupValue)
-		uniqueValues := make([]R, 0, len(mergedValues[groupKey]))
-		for _, v := range mergedValues[groupKey] {
-			uniqueValues = append(uniqueValues, v)
-		}
+// DistinctValuesGroupCount is returned by DistinctValuesCollector.GetGroups,
+// representing the value and set of distinct values for the group.
+//
+// Mirrors the public static class DistinctValuesCollector.GroupCount<T, R>.
+type DistinctValuesGroupCount[T any, R any] struct {
+	// GroupValue is the value of the group.
+	GroupValue T
 
-		res = append(res, GroupCount[T, R]{
-			GroupValue:   group.GroupValue,
-			UniqueValues: uniqueValues,
-		})
-	}
+	// UniqueValues holds the distinct values collected for the group.
+	UniqueValues []R
+}
 
-	return res, nil
+// NewDistinctValuesGroupCount mirrors GroupCount(T groupValue, Set<R> values).
+func NewDistinctValuesGroupCount[T any, R any](groupValue T, values []R) *DistinctValuesGroupCount[T, R] {
+	return &DistinctValuesGroupCount[T, R]{GroupValue: groupValue, UniqueValues: values}
 }

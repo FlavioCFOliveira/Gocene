@@ -190,3 +190,26 @@ func (t *TopScoreDocLeafCollector) CollectRange(min, max int) error {
 func (t *TopScoreDocLeafCollector) CollectStream(stream DocIdStream) error {
 	return DefaultCollectStream(t, stream)
 }
+
+// TopDocsRange returns the hits in the range [start, start+howMany) of the
+// collected results, best-first.
+//
+// Mirrors TopDocsCollector.topDocs(int start, int howMany), which
+// TopScoreDocCollector inherits; Go cannot overload, so the two-argument form
+// carries the longer name, as on TopFieldCollector. Like TopDocs() it drains
+// the queue, as Java's pops do. An out-of-range start or a non-positive
+// howMany yields an empty result with the collected total, as
+// TopFieldCollector.TopDocsRange does.
+func (c *TopScoreDocCollector) TopDocsRange(start, howMany int) *TopDocs {
+	all := c.TopDocs()
+	size := len(all.ScoreDocs)
+	if start < 0 || start >= size || howMany <= 0 {
+		return NewTopDocs(all.TotalHits, []*ScoreDoc{})
+	}
+	if howMany > size-start {
+		howMany = size - start
+	}
+	results := make([]*ScoreDoc, howMany)
+	copy(results, all.ScoreDocs[start:start+howMany])
+	return NewTopDocs(all.TotalHits, results)
+}

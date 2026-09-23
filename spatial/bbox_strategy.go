@@ -9,7 +9,6 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/grouping"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -345,7 +344,7 @@ func (s *BBoxStrategy) makeContainsQuery(shape Shape) (search.Query, error) {
 // The distance is calculated from the center of each shape's bounding box
 // to the specified center point. The multiplier can be used to convert
 // between distance units.
-func (s *BBoxStrategy) MakeDistanceValueSource(center Point, multiplier float64) (grouping.ValueSource, error) {
+func (s *BBoxStrategy) MakeDistanceValueSource(center Point, multiplier float64) (ValueSource, error) {
 	return NewBBoxDistanceValueSource(
 		s.minXFieldName,
 		s.maxXFieldName,
@@ -382,7 +381,7 @@ func NewBBoxDistanceValueSource(minXFieldName, maxXFieldName, minYFieldName, max
 }
 
 // GetValues returns the values for the given context.
-func (dvs *BBoxDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+func (dvs *BBoxDistanceValueSource) GetValues(context *index.LeafReaderContext) (ValueSourceValues, error) {
 	var reader index.LeafReaderInterface
 	if context != nil {
 		reader = context.LeafReader()
@@ -410,7 +409,7 @@ func (dvs *BBoxDistanceValueSource) Description() string {
 }
 
 // Ensure BBoxDistanceValueSource implements ValueSource
-var _ grouping.ValueSource = (*BBoxDistanceValueSource)(nil)
+var _ ValueSource = (*BBoxDistanceValueSource)(nil)
 
 // bboxDistanceValueSourceValues provides distance values for documents with bounding box fields.
 type bboxDistanceValueSourceValues struct {
@@ -558,4 +557,4 @@ func (dvv *bboxDistanceValueSourceValues) Exists(doc int) bool {
 }
 
 // Ensure bboxDistanceValueSourceValues implements ValueSourceValues
-var _ grouping.ValueSourceValues = (*bboxDistanceValueSourceValues)(nil)
+var _ ValueSourceValues = (*bboxDistanceValueSourceValues)(nil)

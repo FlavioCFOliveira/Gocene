@@ -7,6 +7,8 @@ package index
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ReaderSlice is declared in reader_slice.go and shared across the package.
@@ -272,4 +274,46 @@ func MultiTermsGetTerms(r IndexReader, field string) (Terms, error) {
 		return nil, nil
 	}
 	return NewMultiTerms(termsPerLeaf, slicePerLeaf)
+}
+
+// MultiTermsGetTermPostingsEnum returns the PostingsEnum for the specified
+// field and term, requesting every postings feature (PostingsEnum.ALL). It
+// returns nil if the field or term does not exist or positions were not
+// indexed.
+//
+// Mirrors the static org.apache.lucene.index.MultiTerms#getTermPostingsEnum(
+// IndexReader, String, BytesRef) of Apache Lucene 10.5.0.
+func MultiTermsGetTermPostingsEnum(r IndexReader, field string, term []byte) (PostingsEnum, error) {
+	return MultiTermsGetTermPostingsEnumWithFlags(r, field, term, spi.PostingsFlagAll)
+}
+
+// MultiTermsGetTermPostingsEnumWithFlags returns the PostingsEnum for the
+// specified field and term, with control over whether freqs, positions,
+// offsets or payloads are required. It returns nil if the field or term does
+// not exist. See TermsEnum.Postings.
+//
+// Mirrors the static org.apache.lucene.index.MultiTerms#getTermPostingsEnum(
+// IndexReader, String, BytesRef, int) of Apache Lucene 10.5.0.
+func MultiTermsGetTermPostingsEnumWithFlags(r IndexReader, field string, term []byte, flags int) (PostingsEnum, error) {
+	if util.AssertsEnabled() && term == nil {
+		return nil, util.NewAssertionError("term must not be nil")
+	}
+	terms, err := MultiTermsGetTerms(r, field)
+	if err != nil {
+		return nil, err
+	}
+	if terms != nil {
+		termsEnum, err := terms.Iterator()
+		if err != nil {
+			return nil, err
+		}
+		found, err := termsEnum.SeekExact(NewTermFromBytes(field, term))
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return termsEnum.Postings(flags)
+		}
+	}
+	return nil, nil
 }

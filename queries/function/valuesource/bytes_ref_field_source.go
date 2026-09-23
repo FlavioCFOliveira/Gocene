@@ -6,6 +6,7 @@ package valuesource
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util/mutable"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -147,3 +148,39 @@ func (f *bytesRefFallback) ToString(doc int) (string, error) {
 	}
 	return fmt.Sprintf("%s=%s", f.VS.Description(), s), nil
 }
+
+// GetValueFiller renders the getValueFiller() override of the anonymous
+// FunctionValues returned for BINARY fields: a MutableValueStr whose exists
+// flag comes from exists(doc) and whose value is cleared and then filled by
+// bytesVal.
+func (f *bytesRefDocValues) GetValueFiller() function.ValueFiller {
+	mval := mutable.NewMutableValueStr()
+	return &valuesourceValueFiller{mval: mval, fill: func(doc int) error {
+		exists, err := f.Exists(doc)
+		if err != nil {
+			return err
+		}
+		mval.SetExists(exists)
+		mval.Value = ""
+		var target []byte
+		if _, err := f.BytesVal(doc, &target); err != nil {
+			return err
+		}
+		mval.Value = string(target)
+		return nil
+	}}
+}
+
+// valuesourceValueFiller renders the anonymous FunctionValues.ValueFiller
+// subclasses declared by this package's getValueFiller() overrides: mval is
+// the reused MutableValue and fill the body of fillValue(int).
+type valuesourceValueFiller struct {
+	mval mutable.MutableValue
+	fill func(doc int) error
+}
+
+// GetValue renders getValue().
+func (f *valuesourceValueFiller) GetValue() mutable.MutableValue { return f.mval }
+
+// FillValue renders fillValue(int).
+func (f *valuesourceValueFiller) FillValue(doc int) error { return f.fill(doc) }

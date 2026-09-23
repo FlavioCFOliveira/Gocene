@@ -1,127 +1,242 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package join
 
 import (
 	"fmt"
-	"github.com/FlavioCFOliveira/Gocene/spi"
+	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// ToChildBlockJoinQuery is a query that matches child documents
-// based on parent document criteria. It treats documents as blocks
-// where the last document in each block is the parent.
+// ToChildBlockJoinQuery is just like ToParentBlockJoinQuery, except this query
+// joins in reverse: you provide a Query matching parent documents and it joins
+// down to child documents.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.join.ToChildBlockJoinQuery.
+// Mirrors org.apache.lucene.search.join.ToChildBlockJoinQuery (Apache Lucene
+// 10.5.0).
+//
+// lucene.experimental
 type ToChildBlockJoinQuery struct {
-	// parentQuery is the query to match parent documents
-	parentQuery search.Query
-
-	// originalParentQuery stores the original parent query before rewrite
-	originalParentQuery search.Query
-
-	// parentsFilter identifies parent documents using a BitSetProducer
 	parentsFilter BitSetProducer
-
-	// scoreMode determines how parent scores are propagated to children
-	scoreMode ScoreMode
+	parentQuery   search.Query
 }
 
-// NewToChildBlockJoinQuery creates a new ToChildBlockJoinQuery.
-// Parameters:
-//   - parentQuery: the query to match parent documents
-//   - parentsFilter: the BitSetProducer identifying parent documents
-//   - scoreMode: how to combine scores from parent documents
-func NewToChildBlockJoinQuery(parentQuery search.Query, parentsFilter BitSetProducer, scoreMode ScoreMode) *ToChildBlockJoinQuery {
-	return &ToChildBlockJoinQuery{
-		parentQuery:         parentQuery,
-		originalParentQuery: parentQuery,
-		parentsFilter:       parentsFilter,
-		scoreMode:           scoreMode,
-	}
+// illegalAdvanceOnParent mirrors ToChildBlockJoinQuery.ILLEGAL_ADVANCE_ON_PARENT.
+const illegalAdvanceOnParent = "Expect to be advanced on child docs only. got docID="
+
+// NewToChildBlockJoinQuery creates a ToChildBlockJoinQuery; parentQuery is the
+// Query that matches parent documents and parentsFilter the filter
+// identifying the parent documents.
+//
+// Mirrors ToChildBlockJoinQuery(Query, BitSetProducer).
+func NewToChildBlockJoinQuery(parentQuery search.Query, parentsFilter BitSetProducer) *ToChildBlockJoinQuery {
+	return &ToChildBlockJoinQuery{parentQuery: parentQuery, parentsFilter: parentsFilter}
 }
 
-// GetParentQuery returns the parent query.
-func (q *ToChildBlockJoinQuery) GetParentQuery() search.Query {
-	return q.parentQuery
-}
-
-// GetOriginalParentQuery returns the original parent query before any rewrites.
-func (q *ToChildBlockJoinQuery) GetOriginalParentQuery() search.Query {
-	return q.originalParentQuery
-}
-
-// GetParentsFilter returns the BitSetProducer that identifies parent documents.
-func (q *ToChildBlockJoinQuery) GetParentsFilter() BitSetProducer {
-	return q.parentsFilter
-}
-
-// GetScoreMode returns the score mode.
-func (q *ToChildBlockJoinQuery) GetScoreMode() ScoreMode {
-	return q.scoreMode
-}
-
-// Rewrite rewrites this query.
-func (q *ToChildBlockJoinQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
-	rewrittenParent, err := q.parentQuery.Rewrite(searcher)
-	if err != nil {
-		return nil, err
-	}
-
-	if rewrittenParent != q.parentQuery {
-		return NewToChildBlockJoinQuery(rewrittenParent, q.parentsFilter, q.scoreMode), nil
-	}
-
-	return q, nil
-}
-
-// Equals checks if this query equals another.
-func (q *ToChildBlockJoinQuery) Equals(other spi.Query) bool {
-	if o, ok := other.(*ToChildBlockJoinQuery); ok {
-		return q.parentQuery.Equals(o.parentQuery) &&
-			q.parentsFilter == o.parentsFilter &&
-			q.scoreMode == o.scoreMode
-	}
-	return false
-}
-
-// HashCode returns a hash code for this query.
-func (q *ToChildBlockJoinQuery) HashCode() int {
-	// Use the parent query hash code and score mode
-	// The parentsFilter is an interface, so we use a constant contribution
-	return 31*(31*q.parentQuery.HashCode()+int(q.scoreMode)) + 17
-}
-
-// Visit mirrors ToChildBlockJoinQuery.visit(QueryVisitor) of Apache Lucene
-// 10.5.0 (ToChildBlockJoinQuery.java:70), whose body is
-// visitor.visitLeaf(this).
+// Visit renders visit(QueryVisitor): visitor.visitLeaf(this).
 func (q *ToChildBlockJoinQuery) Visit(visitor search.QueryVisitor) {
 	visitor.VisitLeaf(q)
 }
 
-// CreateWeight mirrors
-// ToChildBlockJoinQuery.createWeight(IndexSearcher, org.apache.lucene.search.ScoreMode, float):
-// return new ToChildBlockJoinWeight(this, parentQuery.createWeight(searcher,
-// scoreMode, boost), parentsFilter, scoreMode.needsScores()).
+// CreateWeight renders createWeight(IndexSearcher, ScoreMode, float).
 func (q *ToChildBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
-	needsScores := scoreMode.NeedsScores()
-	// Create the parent query weight
 	parentWeight, err := q.parentQuery.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create parent weight: %w", err)
+		return nil, err
+	}
+	return NewToChildBlockJoinWeight(q, parentWeight, q.parentsFilter, scoreMode.NeedsScores()), nil
+}
+
+// GetParentQuery returns our parent query.
+func (q *ToChildBlockJoinQuery) GetParentQuery() search.Query {
+	return q.parentQuery
+}
+
+// Rewrite renders rewrite(IndexSearcher).
+func (q *ToChildBlockJoinQuery) Rewrite(indexSearcher *search.IndexSearcher) (search.Query, error) {
+	parentRewrite, err := q.parentQuery.Rewrite(indexSearcher)
+	if err != nil {
+		return nil, err
+	}
+	if parentRewrite != q.parentQuery {
+		return NewToChildBlockJoinQuery(parentRewrite, q.parentsFilter), nil
+	}
+	// super.rewrite(indexSearcher): Query.rewrite returns this.
+	return q, nil
+}
+
+// ToString renders toString(String): the parent query is rendered with
+// Query.toString(), i.e. toString("").
+func (q *ToChildBlockJoinQuery) ToString(field string) string {
+	return "ToChildBlockJoinQuery (" + joinQueryToString(q.parentQuery, "") + ")"
+}
+
+// String renders Query.toString(): toString("").
+func (q *ToChildBlockJoinQuery) String() string {
+	return q.ToString("")
+}
+
+// Equals renders equals(Object): sameClassAs(other) && parentQuery.equals &&
+// parentsFilter.equals.
+func (q *ToChildBlockJoinQuery) Equals(other spi.Query) bool {
+	o, ok := other.(*ToChildBlockJoinQuery)
+	if !ok {
+		return false
+	}
+	return q.parentQuery.Equals(o.parentQuery) && bitSetProducerEquals(q.parentsFilter, o.parentsFilter)
+}
+
+// HashCode renders hashCode().
+//
+// PORT NOTE: the seed renders Query.classHash(), which Apache Lucene 10.5.0
+// derives from the JVM class identity and which therefore has no reproducible
+// Go counterpart; a per-type constant seed is the idiom this package uses (see
+// ParentChildrenBlockJoinQuery.HashCode).
+func (q *ToChildBlockJoinQuery) HashCode() int {
+	const prime = 31
+	hash := 19
+	hash = prime*hash + q.parentQuery.HashCode()
+	hash = prime*hash + bitSetProducerHashCode(q.parentsFilter)
+	return hash
+}
+
+// bitSetProducerEquals renders parentsFilter.equals(other.parentsFilter):
+// the implementation's equals when it declares one, identity otherwise
+// (Object.equals).
+func bitSetProducerEquals(a, b BitSetProducer) bool {
+	if e, ok := a.(interface{ Equals(interface{}) bool }); ok {
+		return e.Equals(b)
+	}
+	return a == b
+}
+
+// bitSetProducerHashCode renders parentsFilter.hashCode(): the
+// implementation's hashCode when it declares one, a constant otherwise.
+func bitSetProducerHashCode(p BitSetProducer) int {
+	if h, ok := p.(interface{ HashCode() int }); ok {
+		return h.HashCode()
+	}
+	return 0
+}
+
+var _ search.Query = (*ToChildBlockJoinQuery)(nil)
+
+// ToChildBlockJoinWeight renders the private static class
+// ToChildBlockJoinQuery.ToChildBlockJoinWeight, which extends FilterWeight
+// over the parent weight.
+type ToChildBlockJoinWeight struct {
+	joinQuery     search.Query
+	in            search.Weight
+	parentsFilter BitSetProducer
+	doScores      bool
+}
+
+// NewToChildBlockJoinWeight renders ToChildBlockJoinWeight(Query, Weight,
+// BitSetProducer, boolean).
+func NewToChildBlockJoinWeight(joinQuery search.Query, parentWeight search.Weight, parentsFilter BitSetProducer, doScores bool) *ToChildBlockJoinWeight {
+	return &ToChildBlockJoinWeight{joinQuery: joinQuery, in: parentWeight, parentsFilter: parentsFilter, doScores: doScores}
+}
+
+// GetQuery renders the inherited Weight.getQuery(): the join query FilterWeight
+// was constructed with.
+func (w *ToChildBlockJoinWeight) GetQuery() search.Query { return w.joinQuery }
+
+// ScorerSupplier renders scorerSupplier(LeafReaderContext).
+//
+// NOTE: acceptDocs applies (and is checked) only in the child document space.
+func (w *ToChildBlockJoinWeight) ScorerSupplier(readerContext *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	parentScorer, err := w.in.Scorer(readerContext)
+	if err != nil {
+		return nil, err
+	}
+	if parentScorer == nil {
+		// No matches
+		return nil, nil
 	}
 
-	// Create and return the BlockJoinWeight.
-	// For ToChildBlockJoinQuery, we need a special weight that handles the
-	// child-to-parent relationship using the BitSetProducer. doScores is the
-	// search-level needsScores (Lucene's scoreMode.needsScores()), NOT the join's
-	// child-aggregation ScoreMode: a ToChild search that needs scores propagates
-	// the parent score to its children regardless of the join's None/Avg/Max mode
-	// (LUCENE-6588, rmp #4762).
-	return NewToChildBlockJoinWeight(q, parentWeight, q.parentsFilter, q.scoreMode, needsScores, boost), nil
+	// NOTE: this doesn't take acceptDocs into account, the responsibility
+	// to not match deleted docs is on the scorer
+	parents, err := w.parentsFilter.GetBitSet(readerContext)
+	if err != nil {
+		return nil, err
+	}
+	if parents == nil {
+		// No parents
+		return nil, nil
+	}
+
+	scorer := NewToChildBlockJoinScorer(parentScorer, parents, w.doScores)
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
-// String returns a string representation of this query.
-func (q *ToChildBlockJoinQuery) String() string {
-	return fmt.Sprintf("ToChildBlockJoinQuery(parent=%v, scoreMode=%v)",
-		q.parentQuery, q.scoreMode)
+// Scorer renders the inherited Weight.scorer(LeafReaderContext):
+// scorerSupplier(context).get(Long.MAX_VALUE).
+func (w *ToChildBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	ss, err := w.ScorerSupplier(context)
+	if err != nil || ss == nil {
+		return nil, err
+	}
+	return ss.Get(math.MaxInt64)
 }
+
+// BulkScorer renders the inherited Weight.bulkScorer(LeafReaderContext).
+func (w *ToChildBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	ss, err := w.ScorerSupplier(context)
+	if err != nil || ss == nil {
+		return nil, err
+	}
+	return search.DefaultScorerSupplierBulkScorer(ss)
+}
+
+// Explain renders explain(LeafReaderContext, int).
+func (w *ToChildBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	s, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if s != nil {
+		scorer := s.(*ToChildBlockJoinScorer)
+		advanced, err := scorer.Iterator().Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if advanced == doc {
+			parentDoc := scorer.GetParentDoc()
+			score, err := scorer.Score()
+			if err != nil {
+				return nil, err
+			}
+			parentExplanation, err := w.in.Explain(context, parentDoc)
+			if err != nil {
+				return nil, err
+			}
+			return search.MatchExplanationWithDetails(score,
+				fmt.Sprintf("Score based on parent document %d", parentDoc+context.DocBase), parentExplanation), nil
+		}
+	}
+	return search.NoMatchExplanation("Not a match"), nil
+}
+
+// Count renders count(LeafReaderContext): -1.
+func (w *ToChildBlockJoinWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// IsCacheable renders the inherited FilterWeight.isCacheable(LeafReaderContext):
+// in.isCacheable(ctx).
+func (w *ToChildBlockJoinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return w.in.IsCacheable(ctx)
+}
+
+// Matches renders the inherited FilterWeight.matches(LeafReaderContext, int):
+// in.matches(context, doc).
+func (w *ToChildBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
+	return w.in.Matches(context, doc)
+}
+
+var _ search.Weight = (*ToChildBlockJoinWeight)(nil)

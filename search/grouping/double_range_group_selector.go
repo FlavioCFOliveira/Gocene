@@ -1,3 +1,7 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package grouping
 
 import (
@@ -8,13 +12,13 @@ import (
 // DoubleRangeGroupSelector is a GroupSelector implementation that groups
 // documents by double values.
 //
-// Port of org.apache.lucene.search.grouping.DoubleRangeGroupSelector (Apache
-// Lucene 10.5.0).
+// Mirrors org.apache.lucene.search.grouping.DoubleRangeGroupSelector, which
+// extends GroupSelector<DoubleRange>.
 type DoubleRangeGroupSelector struct {
 	source       search.DoubleValuesSource
 	rangeFactory *DoubleRangeFactory
 
-	inSecondPass map[DoubleRange]struct{}
+	inSecondPass *groupSet[*DoubleRange]
 	includeEmpty bool
 	positioned   bool
 	current      *DoubleRange
@@ -25,23 +29,22 @@ type DoubleRangeGroupSelector struct {
 
 // NewDoubleRangeGroupSelector creates a new DoubleRangeGroupSelector.
 //
-//   - source: a DoubleValuesSource to retrieve double values per document
-//   - rangeFactory: a DoubleRangeFactory that defines how to group the double
-//     values into range buckets
+// source is a DoubleValuesSource to retrieve double values per document, and
+// rangeFactory is a DoubleRangeFactory that defines how to group the double
+// values into range buckets.
+//
+// Mirrors DoubleRangeGroupSelector(DoubleValuesSource, DoubleRangeFactory).
 func NewDoubleRangeGroupSelector(source search.DoubleValuesSource, rangeFactory *DoubleRangeFactory) *DoubleRangeGroupSelector {
-	return &DoubleRangeGroupSelector{
-		source:       source,
-		rangeFactory: rangeFactory,
-	}
+	return &DoubleRangeGroupSelector{source: source, rangeFactory: rangeFactory}
 }
 
-// SetNextReader sets the LeafReaderContext.
+// SetNextReader mirrors setNextReader(LeafReaderContext).
 func (s *DoubleRangeGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
 	s.context = readerContext
 	return nil
 }
 
-// SetScorer sets the current Scorer.
+// SetScorer mirrors setScorer(Scorable).
 func (s *DoubleRangeGroupSelector) SetScorer(scorer search.Scorable) error {
 	values, err := s.source.GetValues(s.context, search.DoubleValuesSourceFromScorer(scorer))
 	if err != nil {
@@ -51,35 +54,34 @@ func (s *DoubleRangeGroupSelector) SetScorer(scorer search.Scorable) error {
 	return nil
 }
 
-// AdvanceTo advances this selector's iterator to the given document.
-func (s *DoubleRangeGroupSelector) AdvanceTo(doc int) (State, error) {
+// AdvanceTo mirrors advanceTo(int).
+func (s *DoubleRangeGroupSelector) AdvanceTo(doc int) (GroupSelectorState, error) {
 	positioned, err := s.values.AdvanceExact(doc)
 	if err != nil {
-		return StateSkip, err
+		return GroupSelectorStateSkip, err
 	}
 	s.positioned = positioned
 	if !s.positioned {
 		if s.includeEmpty {
-			return StateAccept, nil
+			return GroupSelectorStateAccept, nil
 		}
-		return StateSkip, nil
+		return GroupSelectorStateSkip, nil
 	}
 	value, err := s.values.DoubleValue()
 	if err != nil {
-		return StateSkip, err
+		return GroupSelectorStateSkip, err
 	}
 	s.current = s.rangeFactory.GetRange(value, s.current)
 	if s.inSecondPass == nil {
-		return StateAccept, nil
+		return GroupSelectorStateAccept, nil
 	}
-	if _, ok := s.inSecondPass[*s.current]; ok {
-		return StateAccept, nil
+	if s.inSecondPass.contains(s.current) {
+		return GroupSelectorStateAccept, nil
 	}
-	return StateSkip, nil
+	return GroupSelectorStateSkip, nil
 }
 
-// CurrentValue returns the group value of the current document, or nil when the
-// selector is not positioned.
+// CurrentValue mirrors currentValue().
 func (s *DoubleRangeGroupSelector) CurrentValue() (*DoubleRange, error) {
 	if s.positioned {
 		return s.current, nil
@@ -87,27 +89,25 @@ func (s *DoubleRangeGroupSelector) CurrentValue() (*DoubleRange, error) {
 	return nil, nil
 }
 
-// CopyValue returns a copy of the group value of the current document, or nil
-// when the selector is not positioned.
+// CopyValue mirrors copyValue().
 func (s *DoubleRangeGroupSelector) CopyValue() (*DoubleRange, error) {
 	if s.positioned {
-		r := NewDoubleRange(s.current.Min, s.current.Max)
-		return &r, nil
+		return NewDoubleRange(s.current.Min, s.current.Max), nil
 	}
 	return nil, nil
 }
 
-// SetGroups sets a restriction on the group values returned by this selector.
-func (s *DoubleRangeGroupSelector) SetGroups(groups []SearchGroup[*DoubleRange]) {
-	s.inSecondPass = make(map[DoubleRange]struct{}, len(groups))
-	s.includeEmpty = false
-	for _, group := range groups {
+// SetGroups mirrors setGroups(Collection<SearchGroup<DoubleRange>>).
+func (s *DoubleRangeGroupSelector) SetGroups(searchGroups []*SearchGroup[*DoubleRange]) {
+	s.inSecondPass = newGroupSet[*DoubleRange]()
+	for _, group := range searchGroups {
 		if group.GroupValue == nil {
 			s.includeEmpty = true
 		} else {
-			s.inSecondPass[*group.GroupValue] = struct{}{}
+			s.inSecondPass.add(group.GroupValue)
 		}
 	}
 }
 
+// Ensure DoubleRangeGroupSelector implements GroupSelector[*DoubleRange].
 var _ GroupSelector[*DoubleRange] = (*DoubleRangeGroupSelector)(nil)

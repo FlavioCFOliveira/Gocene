@@ -4,7 +4,10 @@
 
 package search
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // AnyCollectorManager is the type-erased view of a CollectorManager. The
 // concrete types involved in MultiCollectorManager are heterogeneous, so this
@@ -80,4 +83,45 @@ func (m *MultiCollectorManager) Reduce(collectors []Collector) ([]any, error) {
 		results[i] = r
 	}
 	return results, nil
+}
+
+// AsAnyCollectorManager widens a CollectorManager[C, T] to the type-erased
+// AnyCollectorManager that NewMultiCollectorManager takes.
+//
+// Java's MultiCollectorManager constructor accepts
+// CollectorManager<? extends Collector, ?>... and relies on generic erasure to
+// hold managers of different collector and result types in one array. Go has
+// no wildcard types, so the erasure is made explicit by this adapter; it adds
+// no behaviour: NewCollectorAny and ReduceAny call the wrapped manager's
+// newCollector() and reduce(Collection) unchanged.
+func AsAnyCollectorManager[C Collector, T any](manager CollectorManager[C, T]) AnyCollectorManager {
+	if manager == nil {
+		return nil
+	}
+	return erasedCollectorManager[C, T]{manager: manager}
+}
+
+// erasedCollectorManager is the AnyCollectorManager built by
+// AsAnyCollectorManager.
+type erasedCollectorManager[C Collector, T any] struct {
+	manager CollectorManager[C, T]
+}
+
+// NewCollectorAny calls the wrapped manager's NewCollector.
+func (e erasedCollectorManager[C, T]) NewCollectorAny() (Collector, error) {
+	return e.manager.NewCollector()
+}
+
+// ReduceAny narrows every collector to C (Java's unchecked cast of the
+// erased Collection<Collector>) and calls the wrapped manager's Reduce.
+func (e erasedCollectorManager[C, T]) ReduceAny(collectors []Collector) (any, error) {
+	typed := make([]C, len(collectors))
+	for i, c := range collectors {
+		cc, ok := c.(C)
+		if !ok {
+			return nil, fmt.Errorf("ClassCastException: %T cannot be cast to %T", c, typed[i])
+		}
+		typed[i] = cc
+	}
+	return e.manager.Reduce(typed)
 }

@@ -31,9 +31,6 @@ type ToChildBlockJoinScorer struct {
 	// not override.
 	search.BaseScorer
 
-	// weight is the parent weight
-	weight *ToChildBlockJoinWeight
-
 	// parentScorer is the scorer for parent documents
 	parentScorer search.Scorer
 
@@ -47,10 +44,7 @@ type ToChildBlockJoinScorer struct {
 	// no per-child ScoreMode.
 	doScores bool
 
-	// boost is the query boost
-	boost float32
-
-	// parentScore caches the current parent's score (already includes boost).
+	// parentScore caches the current parent's score.
 	parentScore float32
 
 	// childDoc is the current child document ID (-1 before the first NextDoc).
@@ -71,13 +65,11 @@ type ToChildBlockJoinScorer struct {
 // has none). Tying score propagation to the join's None/Avg/Max mode was the
 // LUCENE-6588 bug (rmp #4762): a ToChild search that needs scores must still
 // score its children even though the join's child-aggregation mode is None.
-func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentBits util.BitSet, doScores bool, boost float32) *ToChildBlockJoinScorer {
+func NewToChildBlockJoinScorer(parentScorer search.Scorer, parentBits util.BitSet, doScores bool) *ToChildBlockJoinScorer {
 	return &ToChildBlockJoinScorer{
-		weight:       weight,
 		parentScorer: parentScorer,
 		parentBits:   parentBits,
 		doScores:     doScores,
-		boost:        boost,
 		childDoc:     -1,
 		parentDoc:    0,
 	}
@@ -149,7 +141,7 @@ func (s *ToChildBlockJoinScorer) NextDoc() (int, error) {
 						if err != nil {
 							return 0, err
 						}
-						s.parentScore = parentScore * s.boost
+						s.parentScore = parentScore
 					}
 					return s.childDoc, nil
 				}
@@ -216,7 +208,7 @@ func (s *ToChildBlockJoinScorer) Advance(childTarget int) (int, error) {
 			if err != nil {
 				return 0, err
 			}
-			s.parentScore = parentScore * s.boost
+			s.parentScore = parentScore
 		}
 	}
 
