@@ -36,7 +36,7 @@ func defaultTamilStopSet() *analysis.CharArraySet {
 		if err != nil {
 			panic("ta: failed to load stopwords.txt: " + err.Error())
 		}
-		tamilDefaultStopSet = set
+		tamilDefaultStopSet = set.CharArraySet
 	})
 	return tamilDefaultStopSet
 }

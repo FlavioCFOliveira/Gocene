@@ -2,1123 +2,722 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Tests that verify MemoryIndex behaviour mirrors a Directory-backed index.
-// Port of org.apache.lucene.index.memory.TestMemoryIndexAgainstDirectory.
-//
-// MemoryIndex.CreateSearcher() and MemoryIndex.Search() are now implemented,
-// so tests use TermQuery, BooleanQuery, PhraseQuery, and RegexpQuery through
-// IndexSearcher to verify the in-memory index behaves correctly.
+package memory
 
-package memory_test
+// Port of lucene/memory/src/test/org/apache/lucene/index/memory/TestMemoryIndexAgainstDirectory.java
+// (Apache Lucene 10.5.0): verifies that Lucene MemoryIndex and a RAM-resident
+// Directory have the same behaviour, returning the same results for queries on
+// some randomish indexes.
+//
+// The Java class lives in package org.apache.lucene.index.memory and uses the
+// package-private constructor MemoryIndex(boolean, boolean, long), so this port
+// is an internal test of package memory. The resources testqueries.txt and
+// testqueries2.txt are copied verbatim to testdata/.
+//
+// Test-framework renderings (see memory_index_test.go for the shared ones):
+//   - LuceneTestCase.newDirectory() is rendered as its ByteBuffersDirectory
+//     choice wrapped in a MockDirectoryWrapper (tests/util.WrapDirectory);
+//   - LuceneTestCase.newIndexWriterConfig(Random, Analyzer) is rendered as
+//     index.NewIndexWriterConfigWithAnalyzer, without the random settings;
+//   - LuceneTestCase.atLeast(int) and TEST_NIGHTLY/RANDOM_MULTIPLIER keep
+//     their defaults (not nightly, multiplier 1).
 
 import (
+	"bufio"
+	"bytes"
+	"io"
+	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Registers the default codec, rendering the Java ServiceLoader lookup
+	// behind Codec.getDefault() that IndexWriterConfig relies on.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/memory"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
+	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
-// testTerms mirrors the TEST_TERMS constant from the Java source.
-var testTerms = []string{
-	"term", "Term", "tErm", "TERM", "telm",
-	"stop", "drop", "roll", "phrase",
-	"a", "c", "bar", "blar", "gack",
-	"weltbank", "worlbank",
-	"hello", "on", "the",
-	"apache", "Apache", "copyright", "Copyright",
+// randomMultiplier renders LuceneTestCase.RANDOM_MULTIPLIER (default 1).
+const randomMultiplier = 1
+
+// testNightly renders LuceneTestCase.TEST_NIGHTLY (default false).
+const testNightly = false
+
+// memoryIndexAgainstDirectoryTest renders the instance state of
+// TestMemoryIndexAgainstDirectory.
+type memoryIndexAgainstDirectoryTest struct {
+	t       *testing.T
+	random  *rand.Rand
+	queries map[string]struct{}
 }
 
-// randomTerm returns either a term from testTerms or a random lowercase ASCII word.
-func randomTerm(rng *rand.Rand) string {
-	if rng.Intn(2) == 0 {
-		return testTerms[rng.Intn(len(testTerms))]
+// setUp renders `public void setUp()`.
+func setUpMemoryIndexAgainstDirectory(t *testing.T) *memoryIndexAgainstDirectoryTest {
+	t.Helper()
+	tc := &memoryIndexAgainstDirectoryTest{t: t, random: newTestRandom(t), queries: map[string]struct{}{}}
+	for _, resource := range []string{"testqueries.txt", "testqueries2.txt"} {
+		for q := range tc.readQueries(resource) {
+			tc.queries[q] = struct{}{}
+		}
 	}
-	// random short word, lowercase ASCII
-	n := 1 + rng.Intn(8)
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = byte('a' + rng.Intn(26))
-	}
-	return string(b)
+	return tc
 }
 
-// buildFooField builds a whitespace-separated field value from up to maxTerms random terms.
-func buildFooField(rng *rand.Rand, maxTerms int) string {
-	n := rng.Intn(maxTerms + 1)
-	terms := make([]string, n)
-	for i := range terms {
-		terms[i] = randomTerm(rng)
+// readQueries reads a set of queries from a resource file.
+func (tc *memoryIndexAgainstDirectoryTest) readQueries(resource string) map[string]struct{} {
+	tc.t.Helper()
+	queries := map[string]struct{}{}
+	stream, err := os.Open(filepath.Join("testdata", resource))
+	must(tc.t, err)
+	defer func() { must(tc.t, stream.Close()) }()
+	reader := bufio.NewScanner(stream)
+	for reader.Scan() {
+		line := strings.TrimFunc(reader.Text(), func(r rune) bool { return r <= ' ' })
+		if len(line) > 0 && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "//") {
+			queries[line] = struct{}{}
+		}
 	}
-	return strings.Join(terms, " ")
+	must(tc.t, reader.Err())
+	return queries
 }
 
-// newMemoryIndex is a local alias to keep tests independent of API churn.
-func newMemoryIndex() *memory.MemoryIndex { return memory.NewMemoryIndex() }
+// atLeast renders LuceneTestCase.atLeast(int).
+func (tc *memoryIndexAgainstDirectoryTest) atLeast(i int) int {
+	minimum := i * randomMultiplier
+	maximum := minimum + (minimum / 2)
+	return minimum + tc.random.Intn(maximum-minimum+1)
+}
 
-// TestMemoryIndexAgainstDirectory_RandomQueries verifies that MemoryIndex
-// with CreateSearcher + TermQuery produces correct results for known terms,
-// mirroring the "assertAgainstDirectory" loop from the Java test.
+// newDirectory renders LuceneTestCase.newDirectory().
+func newDirectory() store.Directory {
+	return testutil.WrapDirectory(store.NewByteBuffersDirectory())
+}
+
+// runs random tests, up to ITERATIONS times.
 func TestMemoryIndexAgainstDirectory_RandomQueries(t *testing.T) {
-	rng := rand.New(rand.NewSource(42))
-	mi := newMemoryIndex()
-
-	fooText := buildFooField(rng, 50)
-	termText := buildFooField(rng, 50)
-
-	if err := mi.AddField("foo", fooText); err != nil {
-		t.Fatalf("AddField foo: %v", err)
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	mi := tc.randomMemoryIndex()
+	iterations := 10 * randomMultiplier
+	if testNightly {
+		iterations = 100 * randomMultiplier
 	}
-	if err := mi.AddField("term", termText); err != nil {
-		t.Fatalf("AddField term: %v", err)
-	}
-
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	// Verify that TermQuery for a token present in "foo" returns 1 hit.
-	fooTerms := mi.GetFieldTerms("foo")
-	for term := range fooTerms {
-		tq := search.NewTermQuery(index.NewTerm("foo", term))
-		top, err := searcher.Search(tq, 10)
-		if err != nil {
-			t.Fatalf("Search for %q: %v", term, err)
-		}
-		if top.TotalHits.Value != 1 {
-			t.Errorf("TermQuery(%q) returned %d hits, want 1", term, top.TotalHits.Value)
-		}
-		if len(top.ScoreDocs) > 0 && top.ScoreDocs[0].Doc != 0 {
-			t.Errorf("TermQuery(%q) doc = %d, want 0", term, top.ScoreDocs[0].Doc)
-		}
-		break // one verification is sufficient
-	}
-
-	// Non-existent term returns 0 hits.
-	tq := search.NewTermQuery(index.NewTerm("foo", "nonExistentTerm937"))
-	top, err := searcher.Search(tq, 10)
-	if err != nil {
-		t.Fatalf("Search for non-existent term: %v", err)
-	}
-	if top.TotalHits.Value != 0 {
-		t.Errorf("non-existent term returned %d hits, want 0", top.TotalHits.Value)
+	for i := 0; i < iterations; i++ {
+		tc.assertAgainstDirectory(mi)
 	}
 }
 
-// TestMemoryIndexAgainstDirectory_DocsEnumStart verifies that a PostingsEnum
-// from the MemoryIndex reader starts with docID == -1 and advances correctly.
-// Java counterpart: testDocsEnumStart.
+// assertAgainstDirectory builds a randomish document for both Directory and
+// MemoryIndex, and runs all the queries against it.
+func (tc *memoryIndexAgainstDirectoryTest) assertAgainstDirectory(memory *MemoryIndex) {
+	t := tc.t
+	t.Helper()
+	memory.Reset()
+	var fooField, termField strings.Builder
+
+	// add up to 250 terms to field "foo"
+	numFooTerms := tc.random.Intn(250 * randomMultiplier)
+	for i := 0; i < numFooTerms; i++ {
+		fooField.WriteString(" ")
+		fooField.WriteString(tc.randomTerm())
+	}
+
+	// add up to 250 terms to field "term"
+	numTermTerms := tc.random.Intn(250 * randomMultiplier)
+	for i := 0; i < numTermTerms; i++ {
+		termField.WriteString(" ")
+		termField.WriteString(tc.randomTerm())
+	}
+
+	// Java next indexes the document into a ByteBuffersDirectory through an
+	// IndexWriterConfig whose codec is
+	// TestUtil.alwaysPostingsFormat(TestUtil.getDefaultPostingsFormat()), with
+	// fields built by LuceneTestCase.newTextField, and then calls
+	// duellReaders and assertAllQueries.
+	blocked(t, "TestUtil.alwaysPostingsFormat, TestUtil.getDefaultPostingsFormat and LuceneTestCase.newTextField (lucene/test-framework)")
+}
+
+// duellReaders renders `private void duellReaders(CompositeReader, LeafReader)`.
+func (tc *memoryIndexAgainstDirectoryTest) duellReaders() {
+	tc.t.Helper()
+	blocked(tc.t, "FieldInfos.getIndexedFields(IndexReader) (org.apache.lucene.index.FieldInfos)")
+}
+
+// assertAllQueries runs all queries against both the Directory and
+// MemoryIndex, ensuring they are the same. LuceneTestCase.newSearcher is
+// rendered as a plain IndexSearcher.
+func (tc *memoryIndexAgainstDirectoryTest) assertAllQueries(memory *MemoryIndex, directory store.Directory, analyzer analysis.Analyzer) {
+	t := tc.t
+	t.Helper()
+	reader, err := index.OpenDirectoryReader(directory)
+	must(t, err)
+	ram := search.NewIndexSearcher(reader)
+	mem := memory.CreateSearcher()
+	qp := queryparser.NewQueryParser("foo", analyzer)
+	for query := range tc.queries {
+		q, err := qp.Parse(query)
+		must(t, err)
+		ramDocs, err := ram.Search(q, 1)
+		must(t, err)
+		q, err = qp.Parse(query)
+		must(t, err)
+		memDocs, err := mem.Search(q, 1)
+		must(t, err)
+		if ramDocs.TotalHits.Value != memDocs.TotalHits.Value {
+			t.Errorf("%s: directory hits %d, memory hits %d", query, ramDocs.TotalHits.Value, memDocs.TotalHits.Value)
+		}
+	}
+	must(t, reader.Close())
+}
+
+// randomAnalyzer returns a random analyzer (Simple, Stop, Standard) to
+// analyze the terms.
+func (tc *memoryIndexAgainstDirectoryTest) randomAnalyzer() analysis.Analyzer {
+	switch tc.random.Intn(4) {
+	case 0:
+		return testanalysis.NewMockAnalyzer(testanalysis.SIMPLE, true, 0, nil, true)
+	case 1:
+		return testanalysis.NewMockAnalyzer(testanalysis.SIMPLE, true, 0, testanalysis.ENGLISH_STOPSET, true)
+	case 2:
+		a := analysis.NewAnalyzer(analysis.GlobalReuseStrategy)
+		a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+			// new MockTokenizer() is MockTokenizer(WHITESPACE, true).
+			tokenizer := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength)
+			return &analysis.TokenStreamComponents{
+				Source: func(r io.Reader) error {
+					tokenizer.SetReader(r)
+					return nil
+				},
+				Sink: newCrazyTokenFilter(tokenizer),
+			}
+		}
+		return a
+	default:
+		return testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 0, nil, true)
+	}
+}
+
+// crazyTokenFilter is a tokenfilter that makes all terms starting with 't'
+// empty strings.
+type crazyTokenFilter struct {
+	*analysis.BaseTokenFilter
+	termAtt analysis.CharTermAttribute
+}
+
+func newCrazyTokenFilter(input analysis.TokenStream) *crazyTokenFilter {
+	f := &crazyTokenFilter{BaseTokenFilter: analysis.NewBaseTokenFilter(input)}
+	f.termAtt = f.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	return f
+}
+
+func (f *crazyTokenFilter) IncrementToken() (bool, error) {
+	more, err := f.GetInput().IncrementToken()
+	if err != nil || !more {
+		return false, err
+	}
+	if f.termAtt.Length() > 0 && f.termAtt.Buffer()[0] == 't' {
+		// termAtt.setLength(0)
+		f.termAtt.SetEmpty()
+	}
+	return true, nil
+}
+
+// testTerms renders TEST_TERMS: some terms to be indexed, in addition to
+// random words. These terms are commonly used in the queries.
+var testTerms = []string{
+	"term",
+	"Term",
+	"tErm",
+	"TERM",
+	"telm",
+	"stop",
+	"drop",
+	"roll",
+	"phrase",
+	"a",
+	"c",
+	"bar",
+	"blar",
+	"gack",
+	"weltbank",
+	"worlbank",
+	"hello",
+	"on",
+	"the",
+	"apache",
+	"Apache",
+	"copyright",
+	"Copyright",
+}
+
+// randomTerm returns, half of the time, a random term from TEST_TERMS and,
+// the other half of the time, a random unicode string.
+func (tc *memoryIndexAgainstDirectoryTest) randomTerm() string {
+	if tc.random.Intn(2) == 0 {
+		// return a random TEST_TERM
+		return testTerms[tc.random.Intn(len(testTerms))]
+	}
+	// return a random unicode term
+	blocked(tc.t, "TestUtil.randomUnicodeString(Random) (lucene/test-framework)")
+	return ""
+}
+
 func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "the quick brown fox"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	analyzer := newMockAnalyzer()
+	memory := newMemoryIndexWithMaxReusedBytes(tc.random.Intn(2) == 0, false, int64(tc.random.Intn(50))*1024*1024)
+	must(t, memory.AddFieldFromString("foo", "bar", analyzer))
+	reader := memory.CreateSearcher().GetIndexReader().(index.LeafReader)
+	blockedCheckReader(t)
+	t.Error("blocked: TestUtil.docs(Random, IndexReader, String, BytesRef, PostingsEnum, int) (lucene/test-framework) is not ported")
 
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
+	// now reuse and check again
+	terms, err := reader.Terms("foo")
+	must(t, err)
+	te, err := terms.Iterator()
+	must(t, err)
+	if ok, err := te.SeekExact(index.NewTerm("foo", "bar")); err != nil || !ok {
+		t.Fatalf("seekExact(bar): got (%v, %v), want true", ok, err)
 	}
-	defer searcher.Close()
-
-	reader := searcher.GetReader()
-	leafReader, ok := reader.(index.LeafReaderInterface)
-	if !ok {
-		t.Fatal("reader is not a LeafReaderInterface")
+	disi, err := te.Postings(spi.PostingsFlagNone)
+	must(t, err)
+	if docid := disi.DocID(); docid != -1 {
+		t.Errorf("docID before nextDoc: got %d, want -1", docid)
 	}
-	terms, err := leafReader.Terms("field")
-	if err != nil {
-		t.Fatalf("Terms: %v", err)
+	if d, err := disi.NextDoc(); err != nil || d == spi.NO_MORE_DOCS {
+		t.Errorf("nextDoc: got (%d, %v), want a document", d, err)
 	}
-	if terms == nil {
-		t.Fatal("Terms returned nil")
-	}
-
-	termsEnum, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-
-	// Seek to "quick" and get postings.
-	seeked, err := termsEnum.SeekExact(spi.NewTerm("field", "quick"))
-	if err != nil {
-		t.Fatalf("SeekExact: %v", err)
-	}
-	if !seeked {
-		t.Fatal("term 'quick' not found")
-	}
-
-	pe, err := termsEnum.Postings(spi.PostingsFlagFreqs)
-	if err != nil {
-		t.Fatalf("Postings: %v", err)
-	}
-
-	// DocID should start at -1.
-	if pe.DocID() != -1 {
-		t.Errorf("initial DocID = %d, want -1", pe.DocID())
-	}
-
-	// NextDoc returns 0.
-	doc, err := pe.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if doc != 0 {
-		t.Errorf("NextDoc = %d, want 0", doc)
-	}
-
-	// NextDoc returns NO_MORE_DOCS (single doc MemoryIndex).
-	doc, err = pe.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc after exhaustion: %v", err)
-	}
-	if doc != spi.NO_MORE_DOCS {
-		t.Errorf("NextDoc after exhaustion = %d, want NO_MORE_DOCS", doc)
-	}
+	must(t, reader.Close())
 }
 
-// TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart verifies that a
-// PostingsEnum with positions from the MemoryIndex reader starts at docID == -1
-// and yields correct positions and offsets.
-// Java counterpart: testDocsAndPositionsEnumStart.
+func (tc *memoryIndexAgainstDirectoryTest) randomMemoryIndex() *MemoryIndex {
+	return newMemoryIndexWithMaxReusedBytes(
+		tc.random.Intn(2) == 0, tc.random.Intn(2) == 0, int64(tc.random.Intn(50))*1024*1024)
+}
+
 func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "the quick brown fox"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	analyzer := newMockAnalyzer()
+	numIters := tc.atLeast(3)
+	memory := newMemoryIndexWithMaxReusedBytes(true, false, int64(tc.random.Intn(50))*1024*1024)
+	for i := 0; i < numIters; i++ { // check reuse
+		must(t, memory.AddFieldFromString("foo", "bar", analyzer))
+		reader := memory.CreateSearcher().GetIndexReader().(index.LeafReader)
+		blockedCheckReader(t)
+		terms, err := reader.Terms("foo")
+		must(t, err)
+		if v, err := terms.GetSumTotalTermFreq(); err != nil || v != 1 {
+			t.Errorf("sumTotalTermFreq: got (%d, %v), want 1", v, err)
+		}
+		disi, err := reader.Postings(*index.NewTerm("foo", "bar"), spi.PostingsFlagAll)
+		must(t, err)
+		if docid := disi.DocID(); docid != -1 {
+			t.Errorf("docID before nextDoc: got %d, want -1", docid)
+		}
+		if d, err := disi.NextDoc(); err != nil || d == spi.NO_MORE_DOCS {
+			t.Errorf("nextDoc: got (%d, %v), want a document", d, err)
+		}
+		if p, err := disi.NextPosition(); err != nil || p != 0 {
+			t.Errorf("nextPosition: got (%d, %v), want 0", p, err)
+		}
+		if s, err := disi.StartOffset(); err != nil || s != 0 {
+			t.Errorf("startOffset: got (%d, %v), want 0", s, err)
+		}
+		if e, err := disi.EndOffset(); err != nil || e != 3 {
+			t.Errorf("endOffset: got (%d, %v), want 3", e, err)
+		}
 
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	reader := searcher.GetReader()
-	leafReader, ok := reader.(index.LeafReaderInterface)
-	if !ok {
-		t.Fatal("reader is not a LeafReaderInterface")
-	}
-	terms, err := leafReader.Terms("field")
-	if err != nil {
-		t.Fatalf("Terms: %v", err)
-	}
-	if terms == nil {
-		t.Fatal("Terms returned nil")
-	}
-
-	termsEnum, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-
-	seeked, err := termsEnum.SeekExact(spi.NewTerm("field", "quick"))
-	if err != nil {
-		t.Fatalf("SeekExact: %v", err)
-	}
-	if !seeked {
-		t.Fatal("term 'quick' not found")
-	}
-
-	pe, err := termsEnum.Postings(spi.PostingsFlagPositions)
-	if err != nil {
-		t.Fatalf("Postings with positions: %v", err)
-	}
-
-	// DocID starts at -1.
-	if pe.DocID() != -1 {
-		t.Errorf("initial DocID = %d, want -1", pe.DocID())
-	}
-
-	doc, err := pe.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if doc != 0 {
-		t.Errorf("NextDoc = %d, want 0", doc)
-	}
-
-	// Verify position.
-	pos, err := pe.NextPosition()
-	if err != nil {
-		t.Fatalf("NextPosition: %v", err)
-	}
-	// "quick" is at position 1 (0-indexed: "the"=0, "quick"=1).
-	if pos != 1 {
-		t.Errorf("position = %d, want 1", pos)
-	}
-
-	// Verify offsets.
-	start, err := pe.StartOffset()
-	if err != nil {
-		t.Fatalf("StartOffset: %v", err)
-	}
-	end, err := pe.EndOffset()
-	if err != nil {
-		t.Fatalf("EndOffset: %v", err)
-	}
-	if start != 4 || end != 9 {
-		t.Errorf("offsets = (%d,%d), want (4,9) for 'quick'", start, end)
+		// now reuse and check again
+		te, err := terms.Iterator()
+		must(t, err)
+		if ok, err := te.SeekExact(index.NewTerm("foo", "bar")); err != nil || !ok {
+			t.Fatalf("seekExact(bar): got (%v, %v), want true", ok, err)
+		}
+		// te.postings(disi) is postings(disi, PostingsEnum.FREQS).
+		disi, err = te.Postings(spi.PostingsFlagFreqs)
+		must(t, err)
+		if docid := disi.DocID(); docid != -1 {
+			t.Errorf("docID before nextDoc: got %d, want -1", docid)
+		}
+		if d, err := disi.NextDoc(); err != nil || d == spi.NO_MORE_DOCS {
+			t.Errorf("nextDoc: got (%d, %v), want a document", d, err)
+		}
+		must(t, reader.Close())
+		memory.Reset()
 	}
 }
 
-// TestMemoryIndexAgainstDirectory_NullPointerException verifies that searching
-// a RegexpQuery via MemoryIndex returns correct results without panic.
-// Java counterpart: testNullPointerException (LUCENE-3831) used
-// SpanMultiTermQueryWrapper; Gocene tests the RegexpQuery search path directly.
+// mockTokenStream renders `new MockAnalyzer(random()).tokenStream(field, text)`.
+func mockTokenStream(t *testing.T, fieldName, text string) analysis.TokenStream {
+	t.Helper()
+	ts, err := newMockAnalyzer().TokenStream(fieldName, strings.NewReader(text))
+	must(t, err)
+	return ts
+}
+
+// LUCENE-3831
 func TestMemoryIndexAgainstDirectory_NullPointerException(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("text", "hello world"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	regex := search.NewRegexpQuery(index.NewTerm("field", "worl."))
+	wrappedquery := spans.NewSpanMultiTermQueryWrapper(&regex.MultiTermQuery)
 
-	// RegexpQuery matching "world" should find the doc.
-	rq, err := search.NewRegexpQuery("text", "world")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	top, err := mi.Search(rq, 10)
-	if err != nil {
-		t.Fatalf("Search with RegexpQuery: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("RegexpQuery 'world' matched %d docs, want 1", top.TotalHits.Value)
-	}
+	mindex := tc.randomMemoryIndex()
+	must(t, mindex.AddField("field", mockTokenStream(t, "field", "hello there")))
 
-	// RegexpQuery matching nothing should return 0 hits.
-	rq, err = search.NewRegexpQuery("text", "zzz")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
+	// This throws an NPE
+	if got := searchScore(t, mindex, wrappedquery); math.Abs(float64(got)) > 0.00001 {
+		t.Errorf("score: got %v, want 0", got)
 	}
-	top, err = mi.Search(rq, 10)
-	if err != nil {
-		t.Fatalf("Search with non-matching RegexpQuery: %v", err)
-	}
-	if top.TotalHits.Value != 0 {
-		t.Errorf("RegexpQuery 'zzz' matched %d docs, want 0", top.TotalHits.Value)
-	}
+	blockedCheckReader(t)
 }
 
-// TestMemoryIndexAgainstDirectory_PassesIfWrapped verifies that wrapping a
-// query in a BooleanQuery also returns correct results without panic.
-// Java counterpart: testPassesIfWrapped (LUCENE-3831) used SpanOrQuery wrapping
-// SpanMultiTermQueryWrapper; Gocene tests BooleanQuery wrapping instead.
+// LUCENE-3831
 func TestMemoryIndexAgainstDirectory_PassesIfWrapped(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("text", "hello world"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	regex := search.NewRegexpQuery(index.NewTerm("field", "worl."))
+	wrappedquery, err := spans.NewSpanOrQuery(spans.NewSpanMultiTermQueryWrapper(&regex.MultiTermQuery))
+	must(t, err)
 
-	// BooleanQuery(MUST(RegexpQuery("world"))) should find the doc.
-	rq, err := search.NewRegexpQuery("text", "world")
-	if err != nil {
-		t.Fatalf("NewRegexpQuery: %v", err)
-	}
-	bq := search.NewBooleanQuery()
-	bq.Add(rq, search.MUST)
+	mindex := tc.randomMemoryIndex()
+	must(t, mindex.AddField("field", mockTokenStream(t, "field", "hello there")))
 
-	top, err := mi.Search(bq, 10)
-	if err != nil {
-		t.Fatalf("Search with wrapped RegexpQuery: %v", err)
+	// This passes though
+	if got := searchScore(t, mindex, wrappedquery); math.Abs(float64(got)) > 0.00001 {
+		t.Errorf("score: got %v, want 0", got)
 	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("wrapped query matched %d docs, want 1", top.TotalHits.Value)
-	}
+	blockedCheckReader(t)
 }
 
-// TestMemoryIndexAgainstDirectory_SameFieldAddedMultipleTimes verifies that
-// adding the same field twice replaces the content (Gocene behaviour) and that
-// TermQuery via Search finds the correct terms.
 func TestMemoryIndexAgainstDirectory_SameFieldAddedMultipleTimes(t *testing.T) {
-	mi := newMemoryIndex()
-
-	// Gocene's MemoryIndex replaces the field on second AddField, but
-	// Search still works correctly with the last added field's content.
-	if err := mi.AddField("field", "hello world"); err != nil {
-		t.Fatalf("First AddField: %v", err)
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	mindex := tc.randomMemoryIndex()
+	mockAnalyzer := newMockAnalyzer()
+	must(t, mindex.AddFieldFromString("field", "the quick brown fox", mockAnalyzer))
+	must(t, mindex.AddFieldFromString("field", "jumps over the", mockAnalyzer))
+	reader := mindex.CreateSearcher().GetIndexReader().(index.LeafReader)
+	blockedCheckReader(t)
+	terms, err := reader.Terms("field")
+	must(t, err)
+	if v, err := terms.GetSumTotalTermFreq(); err != nil || v != 7 {
+		t.Errorf("sumTotalTermFreq: got (%d, %v), want 7", v, err)
 	}
-	if err := mi.AddField("field", "hello again"); err != nil {
-		t.Fatalf("Second AddField: %v", err)
+	var query search.Query = search.NewPhraseQuery(0, "field", "fox", "jumps")
+	if got := searchScore(t, mindex, query); got <= 0.1 {
+		t.Errorf("phrase fox jumps: got %v, want > 0.1", got)
 	}
-
-	// "again" should be present (from the second AddField).
-	if freq := mi.GetTermFrequency("field", "again"); freq != 1 {
-		t.Errorf("term 'again' freq = %d, want 1", freq)
+	mindex.Reset()
+	mockAnalyzer.SetPositionIncrementGap(1 + tc.random.Intn(10))
+	must(t, mindex.AddFieldFromString("field", "the quick brown fox", mockAnalyzer))
+	must(t, mindex.AddFieldFromString("field", "jumps over the", mockAnalyzer))
+	if got := searchScore(t, mindex, query); math.Abs(float64(got)) > 0.00001 {
+		t.Errorf("phrase fox jumps with a position gap: got %v, want 0", got)
 	}
-	// "world" should NOT be present (replaced by second AddField).
-	if freq := mi.GetTermFrequency("field", "world"); freq != 0 {
-		t.Errorf("term 'world' freq = %d, want 0 (field was replaced)", freq)
+	query = search.NewPhraseQuery(10, "field", "fox", "jumps")
+	if got := searchScore(t, mindex, query); got <= 0.0001 {
+		t.Errorf("posGap%d: sloppy phrase: got %v, want > 0.0001", mockAnalyzer.GetPositionIncrementGap("field"), got)
 	}
-
-	// Verify via Search that "again" is matched and "world" is not.
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	tqAgain := search.NewTermQuery(index.NewTerm("field", "again"))
-	top, err := searcher.Search(tqAgain, 10)
-	if err != nil {
-		t.Fatalf("Search for 'again': %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("TermQuery 'again' matched %d docs, want 1", top.TotalHits.Value)
-	}
-
-	tqWorld := search.NewTermQuery(index.NewTerm("field", "world"))
-	top, err = searcher.Search(tqWorld, 10)
-	if err != nil {
-		t.Fatalf("Search for 'world': %v", err)
-	}
-	if top.TotalHits.Value != 0 {
-		t.Errorf("TermQuery 'world' matched %d docs, want 0 (field was replaced)", top.TotalHits.Value)
-	}
+	blockedCheckReader(t)
 }
 
-// TestMemoryIndexAgainstDirectory_NonExistentField verifies that querying a
-// field that was never added returns nil/nil without error.
 func TestMemoryIndexAgainstDirectory_NonExistentField(t *testing.T) {
-	mi := newMemoryIndex()
-	mi.AddField("field", "the quick brown fox")
-
-	// Non-existent field queries should return nil/zero without panic.
-	freq := mi.GetTermFrequency("not-in-index", "foo")
-	if freq != 0 {
-		t.Errorf("expected 0 term frequency for non-existent field, got %d", freq)
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	mindex := tc.randomMemoryIndex()
+	mockAnalyzer := newMockAnalyzer()
+	must(t, mindex.AddFieldFromString("field", "the quick brown fox", mockAnalyzer))
+	reader := mindex.CreateSearcher().GetIndexReader().(index.LeafReader)
+	blockedCheckReader(t)
+	if v, err := reader.GetNumericDocValues("not-in-index"); err != nil || v != nil {
+		t.Errorf("numeric doc values: got (%v, %v), want nil", v, err)
 	}
-	terms := mi.GetFieldTerms("not-in-index")
-	if terms != nil {
-		t.Errorf("expected nil terms for non-existent field, got %v", terms)
+	if v, err := reader.GetNormValues("not-in-index"); err != nil || v != nil {
+		t.Errorf("norms: got (%v, %v), want nil", v, err)
 	}
-	positions := mi.GetTermPositions("not-in-index", "foo")
-	if positions != nil {
-		t.Errorf("expected nil positions for non-existent field, got %v", positions)
+	// reader.postings(Term) is postings(term, PostingsEnum.FREQS).
+	if v, err := reader.Postings(*index.NewTerm("not-in-index", "foo"), spi.PostingsFlagFreqs); err != nil || v != nil {
+		t.Errorf("postings(term): got (%v, %v), want nil", v, err)
 	}
-}
-
-// TestMemoryIndexAgainstDirectory_SearchWithBooleanQuery verifies that
-// BooleanQuery (MUST + SHOULD) via MemoryIndex.Search returns correct hits.
-func TestMemoryIndexAgainstDirectory_SearchWithBooleanQuery(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "hello world foo"); err != nil {
-		t.Fatalf("AddField: %v", err)
+	if v, err := reader.Postings(*index.NewTerm("not-in-index", "foo"), spi.PostingsFlagAll); err != nil || v != nil {
+		t.Errorf("postings(term, ALL): got (%v, %v), want nil", v, err)
 	}
-
-	// BooleanQuery: MUST("hello") AND should match.
-	bq := search.NewBooleanQuery()
-	bq.Add(search.NewTermQuery(index.NewTerm("field", "hello")), search.MUST)
-
-	top, err := mi.Search(bq, 10)
-	if err != nil {
-		t.Fatalf("Search with BooleanQuery: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("BooleanQuery MUST matched %d docs, want 1", top.TotalHits.Value)
-	}
-
-	// MUST("nonexistent") should return 0 hits.
-	bq2 := search.NewBooleanQuery()
-	bq2.Add(search.NewTermQuery(index.NewTerm("field", "nonexistent")), search.MUST)
-	top, err = mi.Search(bq2, 10)
-	if err != nil {
-		t.Fatalf("Search with non-matching BooleanQuery: %v", err)
-	}
-	if top.TotalHits.Value != 0 {
-		t.Errorf("BooleanQuery MUST(nonexistent) matched %d docs, want 0", top.TotalHits.Value)
+	if v, err := reader.Terms("not-in-index"); err != nil || v != nil {
+		t.Errorf("terms: got (%v, %v), want nil", v, err)
 	}
 }
 
-// TestMemoryIndexAgainstDirectory_SearchAfterReset verifies that after Reset,
-// Search returns 0 hits.
-func TestMemoryIndexAgainstDirectory_SearchAfterReset(t *testing.T) {
-	mi := newMemoryIndex()
-	mi.AddField("field", "hello world")
-
-	// Before reset, search finds the doc.
-	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")), 10)
-	if err != nil {
-		t.Fatalf("Search before reset: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("before reset matched %d docs, want 1", top.TotalHits.Value)
-	}
-
-	mi.Reset()
-
-	// After reset, search should find nothing.
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher after reset: %v", err)
-	}
-	defer searcher.Close()
-
-	top, err = searcher.Search(search.NewTermQuery(index.NewTerm("field", "hello")), 10)
-	if err != nil {
-		t.Fatalf("Search after reset: %v", err)
-	}
-	if top.TotalHits.Value != 0 {
-		t.Errorf("after reset matched %d docs, want 0", top.TotalHits.Value)
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_SearchWithMatchAll verifies that
-// MatchAllDocsQuery via Search returns 1 hit (single-doc MemoryIndex).
-func TestMemoryIndexAgainstDirectory_SearchWithMatchAll(t *testing.T) {
-	mi := newMemoryIndex()
-	mi.AddField("field", "hello world")
-
-	top, err := mi.Search(search.NewMatchAllDocsQuery(), 10)
-	if err != nil {
-		t.Fatalf("Search with MatchAllDocsQuery: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("MatchAllDocsQuery matched %d docs, want 1", top.TotalHits.Value)
-	}
-	if len(top.ScoreDocs) != 1 || top.ScoreDocs[0].Doc != 0 {
-		t.Errorf("ScoreDoc = %+v, want {Doc:0}", top.ScoreDocs[0])
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_EmptyString verifies that an empty-string
-// token can be added and that the MemoryIndex handles it gracefully.
-// Java counterpart: testEmptyString (LUCENE-4880).
-// Gocene's MemoryIndex.AddField silently ignores empty strings (returns nil),
-// so the index remains empty and Search returns 0 hits.
-func TestMemoryIndexAgainstDirectory_EmptyString(t *testing.T) {
-	mi := newMemoryIndex()
-
-	// Adding an empty string returns nil (no error) but adds no terms.
-	if err := mi.AddField("field", ""); err != nil {
-		t.Fatalf("AddField with empty string: %v", err)
-	}
-
-	// The field should have no terms.
-	if mi.Size() != 0 {
-		t.Errorf("Size() = %d, want 0 (empty string added no field)", mi.Size())
-	}
-
-	// Add a non-empty field after the empty one.
-	if err := mi.AddField("field", "hello"); err != nil {
-		t.Fatalf("AddField after empty: %v", err)
-	}
-	if mi.Size() != 1 {
-		t.Errorf("Size() = %d, want 1", mi.Size())
-	}
-
-	// Search should find the non-empty field.
-	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")), 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("after empty-string AddField, matched %d docs, want 1", top.TotalHits.Value)
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_CreateSearcherReturnsSearcher verifies that
-// CreateSearcher returns a working IndexSearcher that can execute queries.
-func TestMemoryIndexAgainstDirectory_CreateSearcherReturnsSearcher(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "hello world"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
-
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	// Verify reader is accessible and has expected properties.
-	reader := searcher.GetReader()
-	if reader.MaxDoc() != 1 {
-		t.Errorf("MaxDoc = %d, want 1", reader.MaxDoc())
-	}
-	if reader.NumDocs() != 1 {
-		t.Errorf("NumDocs = %d, want 1", reader.NumDocs())
-	}
-	if reader.HasDeletions() {
-		t.Errorf("HasDeletions = true, want false")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Smoke tests for the current MemoryIndex stub that verify the behavioral
-// contract exercised by the above integration tests.
-// ---------------------------------------------------------------------------
-
-// TestMemoryIndexAgainstDirectory_FieldAccumulation verifies that fields and
-// terms added to a MemoryIndex are tracked correctly.
-func TestMemoryIndexAgainstDirectory_FieldAccumulation(t *testing.T) {
-	rng := rand.New(rand.NewSource(42))
-	mi := newMemoryIndex()
-
-	fooText := buildFooField(rng, 50)
-	termText := buildFooField(rng, 50)
-
-	if err := mi.AddField("foo", fooText); err != nil {
-		t.Fatalf("AddField foo: %v", err)
-	}
-	if err := mi.AddField("term", termText); err != nil {
-		t.Fatalf("AddField term: %v", err)
-	}
-
-	// Both fields must be present.
-	fields := mi.GetFields()
-	fieldSet := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		fieldSet[f] = true
-	}
-	if !fieldSet["foo"] {
-		t.Error("field 'foo' missing after AddField")
-	}
-	if !fieldSet["term"] {
-		t.Error("field 'term' missing after AddField")
-	}
-
-	// After reset the index must be empty -- mirrors memory.reset() in Java.
-	mi.Reset()
-	if mi.Size() != 0 {
-		t.Errorf("expected empty index after Reset, got %d fields", mi.Size())
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_TermFrequency verifies that term frequency is
-// accumulated correctly.
-func TestMemoryIndexAgainstDirectory_TermFrequency(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "the quick brown fox the"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
-	// "the" appears twice.
-	if got := mi.GetTermFrequency("field", "the"); got != 2 {
-		t.Errorf("expected freq 2 for 'the', got %d", got)
-	}
-	// "quick" appears once.
-	if got := mi.GetTermFrequency("field", "quick"); got != 1 {
-		t.Errorf("expected freq 1 for 'quick', got %d", got)
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_TermPositions verifies that positions are
-// recorded.
-func TestMemoryIndexAgainstDirectory_TermPositions(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "a b a c a"); err != nil {
-		t.Fatalf("AddField: %v", err)
-	}
-	positions := mi.GetTermPositions("field", "a")
-	if len(positions) != 3 {
-		t.Fatalf("expected 3 positions for 'a', got %d", len(positions))
-	}
-	// Positions must be monotonically increasing.
-	for i := 1; i < len(positions); i++ {
-		if positions[i] <= positions[i-1] {
-			t.Errorf("positions not monotonic: %v", positions)
+func TestMemoryIndexAgainstDirectory_DocValuesMemoryIndexVsNormalIndex(t *testing.T) {
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	doc := document.NewDocument()
+	randomLong := tc.random.Int63()
+	doc.Add(field[*document.NumericDocValuesField](t)(document.NewNumericDocValuesField("numeric", randomLong)))
+	numValues := tc.atLeast(5)
+	for i := 0; i < numValues; i++ {
+		randomLong = tc.random.Int63()
+		doc.Add(sortedNumericField(t, "sorted_numeric", randomLong))
+		if tc.random.Intn(2) == 0 {
+			// randomly duplicate field/value
+			doc.Add(sortedNumericField(t, "sorted_numeric", randomLong))
 		}
 	}
+	tc.randomTerm()
+	blocked(t, "TestUtil.randomUnicodeString(Random) (lucene/test-framework)")
 }
 
-// TestMemoryIndexAgainstDirectory_FrozenRejectsWrites verifies that a frozen
-// index refuses further writes.
-func TestMemoryIndexAgainstDirectory_FrozenRejectsWrites(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("field", "hello"); err != nil {
-		t.Fatalf("AddField before freeze: %v", err)
-	}
-	mi.Freeze()
-	if !mi.IsFrozen() {
-		t.Error("IsFrozen should be true after Freeze")
-	}
-	if err := mi.AddField("field", "world"); err == nil {
-		t.Error("expected error when adding field to frozen index")
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_ResetUnfreezes verifies that Reset clears the
-// frozen state so new fields can be added.
-func TestMemoryIndexAgainstDirectory_ResetUnfreezes(t *testing.T) {
-	mi := newMemoryIndex()
-	mi.Freeze()
-	mi.Reset()
-	if mi.IsFrozen() {
-		t.Error("IsFrozen should be false after Reset")
-	}
-	if err := mi.AddField("field", "hello"); err != nil {
-		t.Errorf("AddField after Reset: %v", err)
-	}
-}
-
-// testLeafReader is a local interface to access DocValues/Norms/Points methods
-// on the unexported memoryIndexReader via type assertion through leaves.
-type testLeafReader interface {
-	index.LeafReaderInterface
-	GetNumericDocValues(field string) (index.NumericDocValues, error)
-	GetBinaryDocValues(field string) (index.BinaryDocValues, error)
-	GetSortedDocValues(field string) (index.SortedDocValues, error)
-	GetSortedNumericDocValues(field string) (index.SortedNumericDocValues, error)
-	GetSortedSetDocValues(field string) (index.SortedSetDocValues, error)
-	GetNormValues(field string) (index.NumericDocValues, error)
-	GetPointValues(field string) (index.PointValues, error)
-}
-
-// getLeafReader extracts a testLeafReader from the searcher.
-func getLeafReader(searcher *search.IndexSearcher) testLeafReader {
-	leaves, err := searcher.GetReader().Leaves()
-	if err != nil {
-		return nil
-	}
-	if len(leaves) == 0 {
-		return nil
-	}
-	lr, _ := leaves[0].Reader().(testLeafReader)
-	return lr
-}
-
-// --- New tests ported from Java counterparts ---
-
-// TestMemoryIndexAgainstDirectory_DocValuesVsNormalIndex verifies that
-// MemoryIndex correctly stores and retrieves doc values.
-func TestMemoryIndexAgainstDirectory_DocValuesVsNormalIndex(t *testing.T) {
-	mi := newMemoryIndex()
-
-	if err := mi.AddNumericDocValues("numeric", 42); err != nil {
-		t.Fatalf("AddNumericDocValues: %v", err)
-	}
-	if err := mi.AddBinaryDocValues("binary", []byte("hello")); err != nil {
-		t.Fatalf("AddBinaryDocValues: %v", err)
-	}
-	if err := mi.AddSortedDocValues("sorted", []byte("alpha")); err != nil {
-		t.Fatalf("AddSortedDocValues: %v", err)
-	}
-	if err := mi.AddSortedNumericDocValues("sorted_numeric", []int64{10, 20, 30}); err != nil {
-		t.Fatalf("AddSortedNumericDocValues: %v", err)
-	}
-	if err := mi.AddSortedSetDocValues("sorted_set", [][]byte{[]byte("x"), []byte("y"), []byte("z")}); err != nil {
-		t.Fatalf("AddSortedSetDocValues: %v", err)
-	}
-
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	lr := getLeafReader(searcher)
-	if lr == nil {
-		t.Fatal("could not get leaf reader with DocValues methods")
-	}
-
-	// NumericDocValues
-	ndv, err := lr.GetNumericDocValues("numeric")
-	if err != nil {
-		t.Fatalf("GetNumericDocValues: %v", err)
-	}
-	if ndv == nil {
-		t.Fatal("NumericDocValues is nil")
-	}
-	doc, err := ndv.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if doc != 0 {
-		t.Fatalf("NextDoc = %d, want 0", doc)
-	}
-	val, err := ndv.LongValue()
-	if err != nil {
-		t.Fatalf("LongValue: %v", err)
-	}
-	if val != 42 {
-		t.Errorf("NumericDocValues = %d, want 42", val)
-	}
-
-	// BinaryDocValues
-	bdv, err := lr.GetBinaryDocValues("binary")
-	if err != nil {
-		t.Fatalf("GetBinaryDocValues: %v", err)
-	}
-	if bdv == nil {
-		t.Fatal("BinaryDocValues is nil")
-	}
-	if _, err := bdv.NextDoc(); err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	bval, err := bdv.BinaryValue()
-	if err != nil {
-		t.Fatalf("BinaryValue: %v", err)
-	}
-	if string(bval) != "hello" {
-		t.Errorf("BinaryDocValues = %q, want 'hello'", string(bval))
-	}
-
-	// SortedDocValues
-	sdv, err := lr.GetSortedDocValues("sorted")
-	if err != nil {
-		t.Fatalf("GetSortedDocValues: %v", err)
-	}
-	if sdv == nil {
-		t.Fatal("SortedDocValues is nil")
-	}
-	if _, err := sdv.NextDoc(); err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	ord, err := sdv.OrdValue()
-	if err != nil {
-		t.Fatalf("OrdValue: %v", err)
-	}
-	if ord != 0 {
-		t.Errorf("OrdValue = %d, want 0", ord)
-	}
-	termVal, err := sdv.LookupOrd(0)
-	if err != nil {
-		t.Fatalf("LookupOrd: %v", err)
-	}
-	if string(termVal) != "alpha" {
-		t.Errorf("SortedDocValues term = %q, want 'alpha'", string(termVal))
-	}
-	if sdv.GetValueCount() != 1 {
-		t.Errorf("GetValueCount = %d, want 1", sdv.GetValueCount())
-	}
-
-	// SortedNumericDocValues
-	sndv, err := lr.GetSortedNumericDocValues("sorted_numeric")
-	if err != nil {
-		t.Fatalf("GetSortedNumericDocValues: %v", err)
-	}
-	if sndv == nil {
-		t.Fatal("SortedNumericDocValues is nil")
-	}
-	if _, err := sndv.NextDoc(); err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	count, err := sndv.DocValueCount()
-	if err != nil {
-		t.Fatalf("DocValueCount: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("DocValueCount = %d, want 3", count)
-	}
-	for _, exp := range []int64{10, 20, 30} {
-		v, err := sndv.NextValue()
-		if err != nil {
-			t.Fatalf("NextValue: %v", err)
-		}
-		if v != exp {
-			t.Errorf("SortedNumeric value = %d, want %d", v, exp)
-		}
-	}
-
-	// SortedSetDocValues
-	ssdv, err := lr.GetSortedSetDocValues("sorted_set")
-	if err != nil {
-		t.Fatalf("GetSortedSetDocValues: %v", err)
-	}
-	if ssdv == nil {
-		t.Fatal("SortedSetDocValues is nil")
-	}
-	if _, err := ssdv.NextDoc(); err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if ssdv.GetValueCount() != 3 {
-		t.Errorf("GetValueCount = %d, want 3", ssdv.GetValueCount())
-	}
-	for ord, exp := range []string{"x", "y", "z"} {
-		o, err := ssdv.NextOrd()
-		if err != nil {
-			t.Fatalf("NextOrd: %v", err)
-		}
-		if o != ord {
-			t.Errorf("NextOrd = %d, want %d", o, ord)
-		}
-		lt, err := ssdv.LookupOrd(o)
-		if err != nil {
-			t.Fatalf("LookupOrd: %v", err)
-		}
-		if string(lt) != exp {
-			t.Errorf("LookupOrd(%d) = %q, want %q", o, string(lt), exp)
-		}
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_NormsWithDocValues verifies that norms
-// are correctly computed for fields added to MemoryIndex.
 func TestMemoryIndexAgainstDirectory_NormsWithDocValues(t *testing.T) {
-	mi := newMemoryIndex()
-	if err := mi.AddField("text", "quick brown fox"); err != nil {
-		t.Fatalf("AddField: %v", err)
+	setUpMemoryIndexAgainstDirectory(t)
+	mi := NewMemoryIndexWithOffsetsAndPayloads(true, true)
+	mockAnalyzer := newMockAnalyzer()
+
+	must(t, mi.AddFieldFromIndexableField(field[*document.BinaryDocValuesField](t)(document.NewBinaryDocValuesField("text", []byte("quick brown fox"))), mockAnalyzer))
+	must(t, mi.AddFieldFromIndexableField(field[*document.TextField](t)(document.NewTextField("text", "quick brown fox", false)), mockAnalyzer))
+	leafReader := leafReaderOf(t, mi.CreateSearcher())
+
+	doc := document.NewDocument()
+	doc.Add(field[*document.BinaryDocValuesField](t)(document.NewBinaryDocValuesField("text", []byte("quick brown fox"))))
+	doc.Add(field[*document.TextField](t)(document.NewTextField("text", "quick brown fox", false)))
+	dir := newDirectory()
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(mockAnalyzer))
+	must(t, err)
+	_, err = writer.AddDocument(doc)
+	must(t, err)
+	must(t, writer.Close())
+
+	controlIndexReader, err := index.OpenDirectoryReader(dir)
+	must(t, err)
+	controlLeaves, err := controlIndexReader.Leaves()
+	must(t, err)
+	controlLeafReader := controlLeaves[0].LeafReader()
+
+	norms, err := controlLeafReader.GetNormValues("text")
+	must(t, err)
+	assertNextDoc(t, norms, 0)
+	norms2, err := leafReader.GetNormValues("text")
+	must(t, err)
+	assertNextDoc(t, norms2, 0)
+	n1, err := norms.LongValue()
+	must(t, err)
+	n2, err := norms2.LongValue()
+	must(t, err)
+	if n1 != n2 {
+		t.Errorf("norms: directory %d, memory %d", n1, n2)
 	}
 
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	lr := getLeafReader(searcher)
-	if lr == nil {
-		t.Fatal("could not get leaf reader with NormValues methods")
-	}
-
-	nv, err := lr.GetNormValues("text")
-	if err != nil {
-		t.Fatalf("GetNormValues: %v", err)
-	}
-	if nv == nil {
-		t.Fatal("GetNormValues returned nil -- no norms stored for text field")
-	}
-
-	doc, err := nv.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if doc != 0 {
-		t.Errorf("NextDoc = %d, want 0", doc)
-	}
-	normVal, err := nv.LongValue()
-	if err != nil {
-		t.Fatalf("LongValue: %v", err)
-	}
-	// "quick brown fox" has 3 tokens => norm = IntToByte4(3)
-	expectedByte, err := util.IntToByte4(3)
-	if err != nil {
-		t.Fatalf("IntToByte4: %v", err)
-	}
-	if normVal != int64(expectedByte) {
-		t.Errorf("Norm = %d, want %d", normVal, expectedByte)
-	}
+	must(t, controlIndexReader.Close())
+	must(t, dir.Close())
 }
 
-// TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex verifies that
-// PointValues can be stored and retrieved from MemoryIndex.
-func TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex(t *testing.T) {
-	mi := newMemoryIndex()
+func TestMemoryIndexAgainstDirectory_PointValuesMemoryIndexVsNormalIndex(t *testing.T) {
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	size := tc.atLeast(12)
 
-	// IntPoint uses 4-byte sortable encoding
-	intPacked := make([]byte, 4)
-	intPacked[0] = 0x80 ^ byte(42>>24)
-	intPacked[1] = byte(42 >> 16)
-	intPacked[2] = byte(42 >> 8)
-	intPacked[3] = byte(42)
-	if err := mi.AddPointField("int", intPacked, 1, 4); err != nil {
-		t.Fatalf("AddPointField: %v", err)
-	}
+	var randomValues []int32
 
-	// LongPoint uses 8-byte encoding
-	longPacked := make([]byte, 8)
-	lv := int64(100)
-	longPacked[0] = 0x80 ^ byte(lv>>56)
-	longPacked[1] = byte(lv >> 48)
-	longPacked[2] = byte(lv >> 40)
-	longPacked[3] = byte(lv >> 32)
-	longPacked[4] = byte(lv >> 24)
-	longPacked[5] = byte(lv >> 16)
-	longPacked[6] = byte(lv >> 8)
-	longPacked[7] = byte(lv)
-	if err := mi.AddPointField("long", longPacked, 1, 8); err != nil {
-		t.Fatalf("AddPointField: %v", err)
+	doc := document.NewDocument()
+	for i := 0; i < size; i++ {
+		randomInteger := int32(tc.random.Uint32())
+		doc.Add(document.NewIntPoint("int", randomInteger))
+		randomValues = append(randomValues, randomInteger)
+		doc.Add(document.NewLongPoint("long", int64(randomInteger)))
+		doc.Add(document.NewFloatPoint("float", float32(randomInteger)))
+		doc.Add(document.NewDoublePoint("double", float64(randomInteger)))
 	}
 
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
+	mockAnalyzer := newMockAnalyzer()
+	memoryIndex, err := FromDocument(doc.Fields(), mockAnalyzer)
+	must(t, err)
+	memoryIndex.CreateSearcher()
 
-	lr := getLeafReader(searcher)
-	if lr == nil {
-		t.Fatal("could not get leaf reader with PointValues methods")
-	}
-
-	intPV, err := lr.GetPointValues("int")
-	if err != nil {
-		t.Fatalf("GetPointValues(int): %v", err)
-	}
-	if intPV == nil {
-		t.Fatal("PointValues for 'int' is nil")
-	}
-	if intPV.GetDocCount() != 1 {
-		t.Errorf("GetDocCount = %d, want 1", intPV.GetDocCount())
-	}
-	if intPV.GetValueCount() != 1 {
-		t.Errorf("GetValueCount = %d, want 1", intPV.GetValueCount())
-	}
-	if intPV.GetNumDimensions() != 1 {
-		t.Errorf("GetNumDimensions = %d, want 1", intPV.GetNumDimensions())
-	}
-	if intPV.GetBytesPerDimension() != 4 {
-		t.Errorf("GetBytesPerDimension = %d, want 4", intPV.GetBytesPerDimension())
-	}
-
-	longPV, err := lr.GetPointValues("long")
-	if err != nil {
-		t.Fatalf("GetPointValues(long): %v", err)
-	}
-	if longPV == nil {
-		t.Fatal("PointValues for 'long' is nil")
-	}
-	if longPV.GetDocCount() != 1 {
-		t.Errorf("GetDocCount = %d, want 1", longPV.GetDocCount())
-	}
-	if longPV.GetValueCount() != 1 {
-		t.Errorf("GetValueCount = %d, want 1", longPV.GetValueCount())
-	}
-	if longPV.GetNumDimensions() != 1 {
-		t.Errorf("GetNumDimensions = %d, want 1", longPV.GetNumDimensions())
-	}
-	if longPV.GetBytesPerDimension() != 8 {
-		t.Errorf("GetBytesPerDimension = %d, want 8", longPV.GetBytesPerDimension())
-	}
+	dir := newDirectory()
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(mockAnalyzer))
+	must(t, err)
+	_, err = writer.AddDocument(doc)
+	must(t, err)
+	must(t, writer.Close())
+	controlIndexReader, err := index.OpenDirectoryReader(dir)
+	must(t, err)
+	search.NewIndexSearcher(controlIndexReader)
+	must(t, controlIndexReader.Close())
+	must(t, dir.Close())
+	blocked(t, "IntPoint/LongPoint/FloatPoint/DoublePoint.newExactQuery, newSetQuery and newRangeQuery (org.apache.lucene.document)")
 }
 
-// TestMemoryIndexAgainstDirectory_DuellMemIndex verifies that a MemoryIndex
-// with known content produces correct term enumeration and search results.
 func TestMemoryIndexAgainstDirectory_DuellMemIndex(t *testing.T) {
-	mi := newMemoryIndex()
+	setUpMemoryIndexAgainstDirectory(t)
+	blocked(t, "LineFileDocs (lucene/test-framework/src/java/org/apache/lucene/tests/util/LineFileDocs.java)")
+}
 
-	if err := mi.AddField("title", "the quick brown fox"); err != nil {
-		t.Fatalf("AddField title: %v", err)
+// LUCENE-4880
+func TestMemoryIndexAgainstDirectory_EmptyString(t *testing.T) {
+	setUpMemoryIndexAgainstDirectory(t)
+	memory := NewMemoryIndex()
+	must(t, memory.AddField("foo", testanalysis.NewCannedTokenStream(testanalysis.NewToken("", 0, 5))))
+	searcher := memory.CreateSearcher()
+	docs, err := searcher.Search(termQuery("foo", ""), 10)
+	must(t, err)
+	if docs.TotalHits.Value != 1 {
+		t.Errorf("total hits: got %d, want 1", docs.TotalHits.Value)
 	}
-	if err := mi.AddField("body", "jumps over the lazy dog"); err != nil {
-		t.Fatalf("AddField body: %v", err)
-	}
+	blockedCheckReader(t)
+}
 
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
+func TestMemoryIndexAgainstDirectory_DuelMemoryIndexCoreDirectoryWithArrayField(t *testing.T) {
+	tc := setUpMemoryIndexAgainstDirectory(t)
+	const fieldName = "text"
+	mockAnalyzer := newMockAnalyzer()
+	if tc.random.Intn(2) == 0 {
+		mockAnalyzer.SetOffsetGap(tc.random.Intn(100))
 	}
-	defer searcher.Close()
+	// index into a random directory
+	ft := document.NewFieldTypeFrom(document.TextFieldTYPESTORED)
+	ft.SetStoreTermVectorOffsets(true)
+	ft.SetStoreTermVectorPayloads(false)
+	ft.SetStoreTermVectorPositions(true)
+	ft.SetStoreTermVectors(true)
+	ft.Freeze()
 
-	// Verify term vectors
-	tv, err := searcher.GetReader().TermVectors()
-	if err != nil {
-		t.Fatalf("TermVectors: %v", err)
-	}
-	fields, err := tv.Get(0)
-	if err != nil {
-		t.Fatalf("TermVectors.Get: %v", err)
-	}
+	doc := document.NewDocument()
+	f1, err := document.NewField(fieldName, "la la", ft)
+	must(t, err)
+	doc.Add(f1)
+	f2, err := document.NewField(fieldName, "foo bar foo bar foo", ft)
+	must(t, err)
+	doc.Add(f2)
 
-	foundTitle := false
-	foundBody := false
-	iter, err := fields.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
+	dir := newDirectory()
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(mockAnalyzer))
+	must(t, err)
+	_, err = writer.UpdateDocument(index.NewTerm("id", "1"), doc)
+	must(t, err)
+	_, err = writer.Commit()
+	must(t, err)
+	must(t, writer.Close())
+	reader, err := index.OpenDirectoryReader(dir)
+	must(t, err)
+
+	// Index document in Memory index
+	memIndex := NewMemoryIndexWithOffsets(true)
+	must(t, memIndex.AddFieldFromString(fieldName, "la la", mockAnalyzer))
+	must(t, memIndex.AddFieldFromString(fieldName, "foo bar foo bar foo", mockAnalyzer))
+
+	// compare term vectors
+	ramTermVectors, err := reader.TermVectors()
+	must(t, err)
+	ramTv, err := ramTermVectors.GetField(0, fieldName)
+	must(t, err)
+	memIndexReader := memIndex.CreateSearcher().GetIndexReader()
+	blockedCheckReader(t)
+	memTermVectors, err := memIndexReader.TermVectors()
+	must(t, err)
+	memTv, err := memTermVectors.GetField(0, fieldName)
+	must(t, err)
+
+	compareTermVectors(t, ramTv, memTv, fieldName)
+	must(t, memIndexReader.Close())
+	must(t, reader.Close())
+	must(t, dir.Close())
+}
+
+// payloadEquals renders assertEquals(BytesRef, BytesRef): null only equals
+// null.
+func payloadEquals(a, b []byte) bool {
+	return (a == nil) == (b == nil) && bytes.Equal(a, b)
+}
+
+func compareTermVectors(t *testing.T, terms, memTerms index.Terms, fieldName string) {
+	t.Helper()
+	if terms == nil || memTerms == nil {
+		t.Fatalf("term vectors: directory %v, memory %v; want both non-nil", terms, memTerms)
 	}
-	for iter.HasNext() {
-		name, err := iter.Next()
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-		if name == "" {
+	termEnum, err := terms.Iterator()
+	must(t, err)
+	memTermEnum, err := memTerms.Iterator()
+	must(t, err)
+
+	for {
+		next, err := termEnum.Next()
+		must(t, err)
+		if next == nil {
 			break
 		}
-		if name == "title" {
-			foundTitle = true
+		memNext, err := memTermEnum.Next()
+		must(t, err)
+		if memNext == nil {
+			t.Fatal("memory term vector ended early")
 		}
-		if name == "body" {
-			foundBody = true
+		memTotal, err := memTermEnum.TotalTermFreq()
+		must(t, err)
+		total, err := termEnum.TotalTermFreq()
+		must(t, err)
+		if memTotal != total {
+			t.Errorf("totalTermFreq: memory %d, directory %d", memTotal, total)
+		}
+
+		docsPosEnum, err := termEnum.Postings(spi.PostingsFlagPositions)
+		must(t, err)
+		memDocsPosEnum, err := memTermEnum.Postings(spi.PostingsFlagPositions)
+		must(t, err)
+		currentTerm := termEnum.Term().Text()
+
+		if got := memTermEnum.Term().Text(); got != currentTerm {
+			t.Errorf("Token mismatch for field: %s: memory %q, directory %q", fieldName, got, currentTerm)
+		}
+
+		_, err = docsPosEnum.NextDoc()
+		must(t, err)
+		_, err = memDocsPosEnum.NextDoc()
+		must(t, err)
+
+		freq, err := docsPosEnum.Freq()
+		must(t, err)
+		memFreq, err := memDocsPosEnum.Freq()
+		must(t, err)
+		if memFreq != freq {
+			t.Errorf("freq: memory %d, directory %d", memFreq, freq)
+		}
+		for i := 0; i < freq; i++ {
+			failDesc := " (field:" + fieldName + " term:" + currentTerm + ")"
+			memPos, err := memDocsPosEnum.NextPosition()
+			must(t, err)
+			pos, err := docsPosEnum.NextPosition()
+			must(t, err)
+			if pos != memPos {
+				t.Errorf("Position test failed%s: directory %d, memory %d", failDesc, pos, memPos)
+			}
+			start, err := docsPosEnum.StartOffset()
+			must(t, err)
+			memStart, err := memDocsPosEnum.StartOffset()
+			must(t, err)
+			if start != memStart {
+				t.Errorf("Start offset test failed%s: directory %d, memory %d", failDesc, start, memStart)
+			}
+			end, err := docsPosEnum.EndOffset()
+			must(t, err)
+			memEnd, err := memDocsPosEnum.EndOffset()
+			must(t, err)
+			if end != memEnd {
+				t.Errorf("End offset test failed%s: directory %d, memory %d", failDesc, end, memEnd)
+			}
+			payload, err := docsPosEnum.GetPayload()
+			must(t, err)
+			memPayload, err := memDocsPosEnum.GetPayload()
+			must(t, err)
+			if !payloadEquals(payload, memPayload) {
+				t.Errorf("Missing payload test failed%s: directory %v, memory %v", failDesc, payload, memPayload)
+			}
 		}
 	}
-	if !foundTitle {
-		t.Error("field 'title' missing from term vectors")
-	}
-	if !foundBody {
-		t.Error("field 'body' missing from term vectors")
-	}
-
-	leafReader, ok := searcher.GetReader().(index.LeafReaderInterface)
-	if !ok {
-		t.Fatal("reader does not implement LeafReaderInterface")
-	}
-	for _, fieldName := range []string{"title", "body"} {
-		terms, err := leafReader.Terms(fieldName)
-		if err != nil {
-			t.Fatalf("Terms(%q): %v", fieldName, err)
-		}
-		if terms == nil {
-			t.Fatalf("Terms(%q) is nil", fieldName)
-		}
-		if terms.Size() <= 0 {
-			t.Errorf("Terms(%q).Size() = %d, want > 0", fieldName, terms.Size())
-		}
-	}
-
-	tq := search.NewTermQuery(index.NewTerm("title", "fox"))
-	top, err := searcher.Search(tq, 10)
-	if err != nil {
-		t.Fatalf("Search title:fox: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("TermQuery(title:fox) matched %d docs, want 1", top.TotalHits.Value)
-	}
-
-	tq2 := search.NewTermQuery(index.NewTerm("body", "jumps"))
-	top2, err := searcher.Search(tq2, 10)
-	if err != nil {
-		t.Fatalf("Search body:jumps: %v", err)
-	}
-	if top2.TotalHits.Value != 1 {
-		t.Errorf("TermQuery(body:jumps) matched %d docs, want 1", top2.TotalHits.Value)
-	}
-}
-
-// TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField verifies
-// that MemoryIndex handles multi-field documents correctly.
-func TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField(t *testing.T) {
-	mi := newMemoryIndex()
-
-	if err := mi.AddField("text", "la la"); err != nil {
-		t.Fatalf("First AddField text: %v", err)
-	}
-	if err := mi.AddField("text", "foo bar foo bar foo"); err != nil {
-		t.Fatalf("Second AddField text: %v", err)
-	}
-
-	searcher, err := mi.CreateSearcher()
-	if err != nil {
-		t.Fatalf("CreateSearcher: %v", err)
-	}
-	defer searcher.Close()
-
-	tq := search.NewTermQuery(index.NewTerm("text", "bar"))
-	top, err := searcher.Search(tq, 10)
-	if err != nil {
-		t.Fatalf("Search text:bar: %v", err)
-	}
-	if top.TotalHits.Value != 1 {
-		t.Errorf("TermQuery(text:bar) matched %d docs, want 1", top.TotalHits.Value)
-	}
-
-	tq2 := search.NewTermQuery(index.NewTerm("text", "la"))
-	top2, err := searcher.Search(tq2, 10)
-	if err != nil {
-		t.Fatalf("Search text:la: %v", err)
-	}
-	if top2.TotalHits.Value != 0 {
-		t.Errorf("TermQuery(text:la) matched %d docs, want 0 (field was replaced)", top2.TotalHits.Value)
-	}
-
-	tv, err := searcher.GetReader().TermVectors()
-	if err != nil {
-		t.Fatalf("TermVectors: %v", err)
-	}
-	fields, err := tv.Get(0)
-	if err != nil {
-		t.Fatalf("TermVectors.Get: %v", err)
-	}
-	textTerms, err := fields.Terms("text")
-	if err != nil {
-		t.Fatalf("Terms(text): %v", err)
-	}
-	if textTerms == nil {
-		t.Fatal("Terms(text) is nil")
-	}
-	if textTerms.Size() <= 0 {
-		t.Errorf("Terms(text) size = %d, want > 0", textTerms.Size())
+	memNext, err := memTermEnum.Next()
+	must(t, err)
+	if memNext != nil {
+		t.Errorf("Still some tokens not processed: %v", memNext)
 	}
 }

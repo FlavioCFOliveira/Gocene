@@ -57,30 +57,29 @@ func NewEmptyStopwordAnalyzerBase() *StopwordAnalyzerBase {
 
 // LoadStopwordSetFromPath creates a CharArraySet from a path
 // (loadStopwordSet(Path)): the file is read as UTF-8 and parsed with
-// WordlistLoader.getWordSet(Reader).
-func LoadStopwordSetFromPath(stopwords string) (set *CharArraySet, err error) {
+// WordlistLoader.getWordSet(Reader), which closes the file (Java's
+// try-with-resources close of the same reader is then a no-op).
+func LoadStopwordSetFromPath(stopwords string) (*CharArraySet, error) {
 	reader, err := os.Open(stopwords)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if cerr := reader.Close(); cerr != nil && err == nil {
-			set, err = nil, cerr
-		}
-	}()
-	return GetWordSet(reader)
+	set, err := GetWordSet(reader)
+	if err != nil {
+		return nil, err
+	}
+	return set.CharArraySet, nil
 }
 
 // LoadStopwordSet creates a CharArraySet from a reader
-// (loadStopwordSet(Reader)). The reader is closed afterwards when it
-// implements io.Closer, as IOUtils.close does.
-func LoadStopwordSet(stopwords io.Reader) (set *CharArraySet, err error) {
-	defer func() {
-		if c, ok := stopwords.(io.Closer); ok {
-			if cerr := c.Close(); cerr != nil && err == nil {
-				set, err = nil, cerr
-			}
-		}
-	}()
-	return GetWordSet(stopwords)
+// (loadStopwordSet(Reader)). WordlistLoader.getWordSet(Reader) closes the
+// reader when it implements io.Closer, so Java's IOUtils.close(stopwords) in
+// the finally block is a no-op and is not repeated (a Go Close is not
+// idempotent).
+func LoadStopwordSet(stopwords io.Reader) (*CharArraySet, error) {
+	set, err := GetWordSet(stopwords)
+	if err != nil {
+		return nil, err
+	}
+	return set.CharArraySet, nil
 }

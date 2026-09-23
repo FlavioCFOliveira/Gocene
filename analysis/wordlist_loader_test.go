@@ -5,21 +5,21 @@
 package analysis
 
 // Port of lucene/core/src/test/org/apache/lucene/analysis/TestWordlistLoader.java
-// (Apache Lucene 10.5.0).
+// (Apache Lucene 10.5.0): testWordlistLoading, testComments,
+// testSnowballListLoading and testGetLines.
 //
-// Ported methods: testWordlistLoading, testComments, testSnowballListLoading.
-// testGetLines calls WordlistLoader.getLines(InputStream, Charset), which is
-// not ported (no Gocene rendering of java.nio.charset.Charset exists yet), so
-// it is not reproduced here.
-//
-// Java overload → Go name: getWordSet(Reader) → GetWordSet,
-// getWordSet(Reader, String) → GetWordSetWithComment,
-// getSnowballWordSet(Reader) → GetSnowballWordSetFromReader.
+// Java overload -> Go name: getWordSet(Reader) -> GetWordSet,
+// getWordSet(Reader, String) -> GetWordSetWithComment,
+// getSnowballWordSet(Reader) -> GetSnowballWordSet,
+// getLines(InputStream, Charset) -> GetLines.
 
 import (
 	"bufio"
+	"bytes"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/encoding/unicode"
 )
 
 func TestWordlistLoader_WordlistLoading(t *testing.T) {
@@ -51,7 +51,7 @@ func TestWordlistLoader_Comments(t *testing.T) {
 	}
 }
 
-func checkWordlistSet(t *testing.T, wordset *CharArraySet) {
+func checkWordlistSet(t *testing.T, wordset *UnmodifiableCharArraySet) {
 	t.Helper()
 	if wordset.Size() != 3 {
 		t.Errorf("size: got %d, want 3", wordset.Size())
@@ -81,7 +81,7 @@ func TestWordlistLoader_SnowballListLoading(t *testing.T) {
 		"   two   \n" + // stopword with leading/trailing space
 		" three   four five \n" + // multiple stopwords
 		"six seven | comment\n" // multiple stopwords + comment
-	wordset, err := GetSnowballWordSetFromReader(strings.NewReader(s))
+	wordset, err := GetSnowballWordSet(strings.NewReader(s))
 	if err != nil {
 		t.Fatalf("getSnowballWordSet: %v", err)
 	}
@@ -92,5 +92,31 @@ func TestWordlistLoader_SnowballListLoading(t *testing.T) {
 		if !wordset.ContainsString(w) {
 			t.Errorf("set must contain %s", w)
 		}
+	}
+}
+
+func TestWordlistLoader_GetLines(t *testing.T) {
+	s := "One \n#Comment \n \n Two \n  Three  \n"
+	charset := unicode.UTF8
+	sByteArr, err := charset.NewEncoder().Bytes([]byte(s))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	sInputStream := bytes.NewReader(sByteArr)
+	lines, err := GetLines(sInputStream, charset)
+	if err != nil {
+		t.Fatalf("getLines: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("size: got %d, want 3", len(lines))
+	}
+	if lines[0] != "One" {
+		t.Errorf("lines[0]: got %q, want %q", lines[0], "One")
+	}
+	if lines[1] != "Two" {
+		t.Errorf("lines[1]: got %q, want %q", lines[1], "Two")
+	}
+	if lines[2] != "Three" {
+		t.Errorf("lines[2]: got %q, want %q", lines[2], "Three")
 	}
 }

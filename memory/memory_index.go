@@ -147,7 +147,7 @@ func (mi *MemoryIndex) sortedFieldNames() []string {
 	return names
 }
 
-// AddFieldText tokenizes the given field text and adds the resulting terms to
+// AddFieldFromString tokenizes the given field text and adds the resulting terms to
 // the index; equivalent to adding an indexed non-keyword Lucene Field that is
 // tokenized, not stored, termVectorStored with positions (or termVectorStored
 // with positions and offsets).
@@ -155,7 +155,7 @@ func (mi *MemoryIndex) sortedFieldNames() []string {
 // Renders `public void addField(String fieldName, String text, Analyzer analyzer)`
 // (MemoryIndex.java:479). Java's IllegalArgumentException and IOException are
 // both reported through the error result.
-func (mi *MemoryIndex) AddFieldText(fieldName, text string, analyzer analysis.Analyzer) error {
+func (mi *MemoryIndex) AddFieldFromString(fieldName, text string, analyzer analysis.Analyzer) error {
 	if fieldName == "" {
 		return fmt.Errorf("fieldName must not be null")
 	}
@@ -184,12 +184,12 @@ func FromDocument(doc []index.IndexableField, analyzer analysis.Analyzer) (*Memo
 	return FromDocumentWithMaxReusedBytes(doc, analyzer, false, false, 0)
 }
 
-// FromDocumentWithOptions builds a MemoryIndex from a Lucene document using an
+// FromDocumentWithOffsetsAndPayloads builds a MemoryIndex from a Lucene document using an
 // analyzer, with the option of storing offsets and payloads.
 //
 // Renders `public static MemoryIndex fromDocument(Iterable<? extends IndexableField>, Analyzer, boolean, boolean)`
 // (MemoryIndex.java:513).
-func FromDocumentWithOptions(doc []index.IndexableField, analyzer analysis.Analyzer, storeOffsets, storePayloads bool) (*MemoryIndex, error) {
+func FromDocumentWithOffsetsAndPayloads(doc []index.IndexableField, analyzer analysis.Analyzer, storeOffsets, storePayloads bool) (*MemoryIndex, error) {
 	return FromDocumentWithMaxReusedBytes(doc, analyzer, storeOffsets, storePayloads, 0)
 }
 
@@ -203,7 +203,7 @@ func FromDocumentWithOptions(doc []index.IndexableField, analyzer analysis.Analy
 func FromDocumentWithMaxReusedBytes(doc []index.IndexableField, analyzer analysis.Analyzer, storeOffsets, storePayloads bool, maxReusedBytes int64) (*MemoryIndex, error) {
 	mi := newMemoryIndexWithMaxReusedBytes(storeOffsets, storePayloads, maxReusedBytes)
 	for _, field := range doc {
-		if err := mi.AddFieldWithAnalyzer(field, analyzer); err != nil {
+		if err := mi.AddFieldFromIndexableField(field, analyzer); err != nil {
 			return nil, err
 		}
 	}
@@ -265,13 +265,13 @@ func (mi *MemoryIndex) KeywordTokenStream(keywords []any) (analysis.TokenStream,
 	return ts, nil
 }
 
-// AddFieldWithAnalyzer adds a Lucene IndexableField to the MemoryIndex using
+// AddFieldFromIndexableField adds a Lucene IndexableField to the MemoryIndex using
 // the provided analyzer. Also stores doc values based on
 // IndexableFieldType.DocValuesType if set.
 //
 // Renders `public void addField(IndexableField field, Analyzer analyzer)`
 // (MemoryIndex.java:588).
-func (mi *MemoryIndex) AddFieldWithAnalyzer(field index.IndexableField, analyzer analysis.Analyzer) error {
+func (mi *MemoryIndex) AddFieldFromIndexableField(field index.IndexableField, analyzer analysis.Analyzer) error {
 	inf, err := mi.getInfo(field.Name(), field.FieldType())
 	if err != nil {
 		return err
@@ -1014,7 +1014,9 @@ func (mi *MemoryIndex) ToStringDebug() string {
 			ord := inf.sortedTerms[j]
 			inf.terms.Get(ord, spare)
 			freq := sliceArray.freq[ord]
-			result.WriteString(fmt.Sprintf("\t'%s':%d:", spare.String(), freq))
+			// Java concatenates the BytesRef, whose toString() is the hex form
+			// rendered by util.BytesRef.ToHexString.
+			result.WriteString(fmt.Sprintf("\t'%s':%d:", spare.ToHexString(), freq))
 			postingsReader.Reset(sliceArray.start[ord], sliceArray.end[ord])
 			result.WriteString(" [")
 			iters := 1
@@ -1035,7 +1037,7 @@ func (mi *MemoryIndex) ToStringDebug() string {
 					if payloadIndex != -1 {
 						mi.payloadsBytesRefs.Get(payloadIndex, payloadBuilder)
 						result.WriteString(", ")
-						result.WriteString(payloadBuilder.String())
+						result.WriteString(payloadBuilder.ToHexString())
 					}
 				}
 				result.WriteString(")")

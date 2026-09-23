@@ -27,13 +27,13 @@ var polishDefaultTable egothorTrie
 
 func loadPolishDefaults() {
 	polishDefaultsOnce.Do(func() {
-		var err error
-		polishDefaultStopSet, err = analysis.GetWordSetWithComment(
+		stopSet, err := analysis.GetWordSetWithComment(
 			bytes.NewReader(polishStopwordsData), "#",
 		)
 		if err != nil {
 			panic("unable to load Polish stop words: " + err.Error())
 		}
+		polishDefaultStopSet = stopSet.CharArraySet
 		polishDefaultTable, err = Load(bytes.NewReader(polishStemmerData))
 		if err != nil {
 			panic("unable to load Polish stemmer table: " + err.Error())

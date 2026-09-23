@@ -376,7 +376,9 @@ func (t *memoryFieldTerms) GetMax() (*spi.Term, error) {
 		return nil, nil
 	}
 	e := newMemoryTermsEnum(t.mi, t.field, t.info)
-	e.SeekExactOrd(size - 1)
+	if err := e.SeekExactOrd(size - 1); err != nil {
+		return nil, err
+	}
 	return e.Term(), nil
 }
 
@@ -489,12 +491,16 @@ func (e *memoryTermsEnum) SeekCeil(text *spi.Term) (*spi.Term, error) {
 }
 
 // SeekExactOrd renders `public void seekExact(long ord)`
-// (MemoryIndex.java:1880). Go has no overloading, hence the Ord suffix;
-// Gocene's spi.TermsEnum does not declare this member, so it is reachable only
-// through the concrete type, exactly as it is in the Java sources that use it.
-func (e *memoryTermsEnum) SeekExactOrd(ord int64) {
+// (MemoryIndex.java:1880). Go has no overloading, hence the Ord suffix.
+// Gocene's spi.TermsEnum does not declare this member; callers reach it
+// through the optional interface `interface{ SeekExactOrd(int64) error }`
+// used across the repository (index.FilterTermsEnum, search.FuzzyTermsEnum),
+// whose error result renders the IOException that TermsEnum.seekExact(long)
+// declares. This implementation never fails.
+func (e *memoryTermsEnum) SeekExactOrd(ord int64) error {
 	e.termUpto = int(ord)
 	e.info.terms.Get(e.info.sortedTerms[e.termUpto], e.br)
+	return nil
 }
 
 // Next renders `public BytesRef next()` (MemoryIndex.java:1887).
@@ -559,8 +565,7 @@ func (e *memoryTermsEnum) SeekExactWithState(term *spi.Term, state index.TermSta
 	if !ok {
 		return fmt.Errorf("memory: expected an *index.OrdTermState, got %T", state)
 	}
-	e.SeekExactOrd(ordState.Ord)
-	return nil
+	return e.SeekExactOrd(ordState.Ord)
 }
 
 // TermState renders `public TermState termState()` (MemoryIndex.java:1939).

@@ -157,16 +157,19 @@ func (a *MockAnalyzer) GetOffsetGap(fieldName string) int {
 }
 
 // TokenStream builds a fresh analysis chain for the requested field.
+//
+// MockAnalyzer does not override Analyzer.tokenStream(String, Reader)
+// (lucene/test-framework/src/java/org/apache/lucene/tests/analysis/MockAnalyzer.java),
+// and Analyzer.tokenStream (lucene/core/src/java/org/apache/lucene/analysis/Analyzer.java)
+// only sets the reader and returns components.getTokenStream(): it does not
+// reset the stream. Resetting is the consumer's job, as the TokenStream
+// workflow requires.
 func (a *MockAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	components := a.CreateComponents(fieldName)
 	if err := components.SetReader(reader); err != nil {
 		return nil, err
 	}
-	stream := components.GetTokenStream()
-	if err := stream.Reset(); err != nil {
-		return nil, err
-	}
-	return stream, nil
+	return components.GetTokenStream(), nil
 }
 
 // Normalize returns a normalized version of the analysis chain for the given

@@ -51,7 +51,7 @@ func init() {
 	// Parse the embedded stopwords.txt file. Format: one word per line.
 	// Lines starting with '#' or empty after trimming are skipped
 	// (Snowball format).
-	set, err := analysis.GetSnowballWordSetFromReader(strings.NewReader(ukStopwordsData))
+	set, err := analysis.GetSnowballWordSet(strings.NewReader(ukStopwordsData))
 	if err != nil {
 		// This is an invariant from the embedded resource; panic is appropriate.
 		panic("uk: failed to parse embedded stopwords.txt: " + err.Error())

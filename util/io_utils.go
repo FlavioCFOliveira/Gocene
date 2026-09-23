@@ -5,10 +5,17 @@
 package util
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 // IOUtils provides utility methods for I/O operations.
@@ -306,4 +313,106 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// GetDecodingReader wraps the given stream in a reader that decodes it with
+// charSet and fails, instead of substituting, when the bytes do not match the
+// expected charset.
+//
+// This is the Go port of Lucene's IOUtils.getDecodingReader(InputStream,
+// Charset) (lucene/core/src/java/org/apache/lucene/util/IOUtils.java). Java
+// characters are rendered as UTF-8 bytes: the returned reader yields the
+// decoded text as UTF-8. java.nio.charset.Charset is rendered as
+// golang.org/x/text/encoding.Encoding.
+//
+// Java's decoder is configured with CodingErrorAction.REPORT for malformed
+// input and unmappable characters, so reading throws a
+// CharacterCodingException. Gocene reproduces that as follows:
+//   - for unicode.UTF8 the stream is checked with encoding.UTF8Validator,
+//     which fails on exactly the byte sequences Java's UTF-8 decoder rejects;
+//   - for every other encoding, x/text decoders substitute U+FFFD for
+//     malformed or unmappable input, so the decoded text is rejected at the
+//     first U+FFFD. Residual difference: a U+FFFD that is legitimately encoded
+//     in a non-UTF-8 stream (for example in UTF-16) is also rejected, whereas
+//     Java decodes it.
+//
+// The error returned on a decoding failure wraps the underlying cause and
+// renders Java's MalformedInputException/UnmappableCharacterException.
+//
+// The returned reader is buffered (Java returns a BufferedReader). Closing it
+// closes stream when stream implements io.Closer, as closing Java's
+// BufferedReader closes the wrapped InputStream.
+func GetDecodingReader(stream io.Reader, charSet encoding.Encoding) io.ReadCloser {
+	var t transform.Transformer
+	if charSet == unicode.UTF8 {
+		t = encoding.UTF8Validator
+	} else {
+		t = transform.Chain(charSet.NewDecoder(), reportReplacement{})
+	}
+	return &decodingReader{
+		Reader: bufio.NewReader(&decodingErrorReader{r: transform.NewReader(stream, t)}),
+		stream: stream,
+	}
+}
+
+// decodingReader is the buffered reader returned by GetDecodingReader.
+type decodingReader struct {
+	*bufio.Reader
+	stream io.Reader
+}
+
+// Close closes the wrapped stream when it implements io.Closer.
+func (d *decodingReader) Close() error {
+	if c, ok := d.stream.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// decodingErrorReader labels decoding failures as Java's
+// CharacterCodingException while keeping the cause reachable via errors.Is.
+type decodingErrorReader struct {
+	r io.Reader
+}
+
+func (d *decodingErrorReader) Read(p []byte) (int, error) {
+	n, err := d.r.Read(p)
+	if err != nil && isDecodingError(err) {
+		err = fmt.Errorf("MalformedInputException: %w", err)
+	}
+	return n, err
+}
+
+func isDecodingError(err error) bool {
+	return errors.Is(err, encoding.ErrInvalidUTF8) || errors.Is(err, errUnmappableOrMalformed)
+}
+
+// errUnmappableOrMalformed is reported when a non-UTF-8 decoder substituted
+// U+FFFD for input it could not decode.
+var errUnmappableOrMalformed = errors.New("encoding: malformed input or unmappable character")
+
+// reportReplacement copies UTF-8 text and fails at the first U+FFFD, which
+// x/text decoders emit in place of malformed or unmappable input.
+type reportReplacement struct{ transform.NopResetter }
+
+func (reportReplacement) Transform(dst, src []byte, atEOF bool) (nDst, nSrc int, err error) {
+	for nSrc < len(src) {
+		r, size := rune(src[nSrc]), 1
+		if r >= utf8.RuneSelf {
+			if !atEOF && !utf8.FullRune(src[nSrc:]) {
+				return nDst, nSrc, transform.ErrShortSrc
+			}
+			r, size = utf8.DecodeRune(src[nSrc:])
+			if r == utf8.RuneError {
+				return nDst, nSrc, errUnmappableOrMalformed
+			}
+		}
+		if nDst+size > len(dst) {
+			return nDst, nSrc, transform.ErrShortDst
+		}
+		copy(dst[nDst:], src[nSrc:nSrc+size])
+		nDst += size
+		nSrc += size
+	}
+	return nDst, nSrc, nil
 }
