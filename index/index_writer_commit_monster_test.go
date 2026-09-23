@@ -168,16 +168,15 @@ func TestIndexWriterCommitCommitThreadSafety(t *testing.T) {
 						fail(err)
 						return
 					}
-					nr, err := index.OpenIfChanged(r)
+					r2, err := index.OpenIfChanged(r)
 					if err != nil {
 						fail(err)
 						return
 					}
-					if nr == nil {
+					if r2 == nil {
 						fail(fmt.Errorf("assertNotNull(r2)"))
 						return
 					}
-					r2 := nr.(*index.DirectoryReader)
 					if r2 == r {
 						fail(fmt.Errorf("assertTrue(r2 != r)"))
 						return

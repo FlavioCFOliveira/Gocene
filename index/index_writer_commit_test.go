@@ -120,14 +120,7 @@ func openIfChanged(t testing.TB, r *index.DirectoryReader) *index.DirectoryReade
 	if err != nil {
 		t.Fatalf("openIfChanged: %v", err)
 	}
-	if nr == nil {
-		return nil
-	}
-	dr, ok := nr.(*index.DirectoryReader)
-	if !ok {
-		t.Fatalf("openIfChanged returned %T, want *DirectoryReader", nr)
-	}
-	return dr
+	return nr
 }
 
 func openCommitWriter(t testing.TB, dir store.Directory) *index.IndexWriter {

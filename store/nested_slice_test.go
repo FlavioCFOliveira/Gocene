@@ -49,7 +49,7 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 		dir := NewByteBuffersDirectory()
 		defer dir.Close()
 		out, _ := dir.CreateOutput("d", IOContext{})
-		_ = out.WriteBytes(data)
+		_ = out.WriteBytes(data, 0, len(data))
 		_ = out.Close()
 		in, err := dir.OpenInput("d", IOContext{})
 		if err != nil {
@@ -66,7 +66,7 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 		}
 		defer dir.Close()
 		out, _ := dir.CreateOutput("d", IOContext{})
-		_ = out.WriteBytes(data)
+		_ = out.WriteBytes(data, 0, len(data))
 		_ = out.Close()
 		in, err := dir.OpenInput("d", IOContext{})
 		if err != nil {
@@ -83,7 +83,7 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 		}
 		defer dir.Close()
 		out, _ := dir.CreateOutput("d", IOContext{})
-		_ = out.WriteBytes(data)
+		_ = out.WriteBytes(data, 0, len(data))
 		_ = out.Close()
 		in, err := dir.OpenInput("d", IOContext{})
 		if err != nil {
@@ -111,7 +111,7 @@ func TestMMapSliceCloseDoesNotCorruptParent(t *testing.T) {
 		data[i] = byte(i)
 	}
 	out, _ := dir.CreateOutput("d", IOContext{})
-	_ = out.WriteBytes(data)
+	_ = out.WriteBytes(data, 0, len(data))
 	_ = out.Close()
 
 	in, err := dir.OpenInput("d", IOContext{})

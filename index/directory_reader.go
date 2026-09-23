@@ -1183,7 +1183,9 @@ var _ IndexReaderInterface = (*SegmentReader)(nil)
 
 // doOpenIfChanged implements the logic to reopen the index if it has changed.
 func (r *DirectoryReader) doOpenIfChanged(commit *IndexCommit, executor interface{}) (*DirectoryReader, error) {
-	r.EnsureOpen()
+	if err := r.EnsureOpen(); err != nil {
+		return nil, err
+	}
 	if r.writer != nil {
 		return r.doOpenFromWriter(commit, executor)
 	}

@@ -73,10 +73,7 @@ func FuzzStandardTokenizer(f *testing.F) {
 		}
 
 		tok := NewStandardTokenizer()
-		if err := tok.SetReader(strings.NewReader(input)); err != nil {
-			// A reader-setup failure is not the property under test.
-			return
-		}
+		tok.SetReader(strings.NewReader(input))
 		if err := tok.Reset(); err != nil {
 			return
 		}

@@ -4,12 +4,11 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 func TestEdgeNGramTokenizer_Basic(t *testing.T) {
@@ -99,10 +98,7 @@ func TestEdgeNGramTokenizer_Basic(t *testing.T) {
 				t.Fatalf("NewEdgeNGramTokenizer failed: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -188,10 +184,7 @@ func TestEdgeNGramTokenizer_Unicode(t *testing.T) {
 				t.Fatalf("NewEdgeNGramTokenizer failed: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -271,10 +264,7 @@ func TestEdgeNGramTokenizer_Offsets(t *testing.T) {
 				t.Fatalf("NewEdgeNGramTokenizer failed: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			i := 0
 			for {
@@ -326,10 +316,7 @@ func TestEdgeNGramTokenizer_PositionIncrement(t *testing.T) {
 		t.Fatalf("NewEdgeNGramTokenizer failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("hello"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("hello"))
 
 	expectedIncrements := []int{1, 0, 0} // First token at position 1, others at same position
 	i := 0
@@ -369,10 +356,7 @@ func TestEdgeNGramTokenizer_Reset(t *testing.T) {
 	}
 
 	// First run
-	err = tokenizer.SetReader(strings.NewReader("hello"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("hello"))
 
 	tokens1 := []string{}
 	for {
@@ -396,10 +380,7 @@ func TestEdgeNGramTokenizer_Reset(t *testing.T) {
 		t.Fatalf("Reset failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("world"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("world"))
 
 	tokens2 := []string{}
 	for {
@@ -452,10 +433,7 @@ func TestEdgeNGramTokenizer_End(t *testing.T) {
 	}
 
 	input := "hello"
-	err = tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -535,7 +513,7 @@ func TestEdgeNGramTokenizerFactory(t *testing.T) {
 		t.Fatalf("NewEdgeNGramTokenizerFactory failed: %v", err)
 	}
 
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
 	}
@@ -577,10 +555,7 @@ func TestEdgeNGramTokenizer_LargeInput(t *testing.T) {
 		t.Fatalf("NewEdgeNGramTokenizer failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader(large))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(large))
 
 	// Should produce 4 tokens: "aa", "aaa", "aaaa", "aaaaa"
 	expectedCount := 4

@@ -12,6 +12,8 @@ package analysis
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // FakeTokenFilterFactoryName is the SPI name for fakeTokenFilterFactory.
@@ -61,6 +63,11 @@ func (f *fakeTokenFilterFactory) Create(input TokenStream) TokenFilter {
 	return newPassthroughTokenFilter(input)
 }
 
+// Normalize is abstract in Lucene's TokenFilterFactory; this double does not support it.
+func (f *fakeTokenFilterFactory) Normalize(input api.TokenStream) api.TokenStream {
+	panic("fakeTokenFilterFactory.Normalize: unsupported operation")
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 // TestFakeTokenFilterFactory_Name verifies the SPI name constant.
@@ -77,12 +84,11 @@ func TestFakeTokenFilterFactory_Create(t *testing.T) {
 	if err != nil {
 		t.Fatalf("constructor error: %v", err)
 	}
-	base := &BaseTokenStream{attributes: nil}
+	base := &BaseTokenStream{}
 	_ = base
 	// Use a no-op token stream as the input.
 	type noopStream struct{ BaseTokenStream }
-	src := &noopStream{}
-	src.attributes = src.GetAttributeSource()
+	src := &noopStream{BaseTokenStream: *NewBaseTokenStream()}
 
 	tf := f.Create(src)
 	if tf == nil {

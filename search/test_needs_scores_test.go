@@ -2,211 +2,230 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/search/TestNeedsScores.java
-//
-// This suite verifies that the ScoreMode chosen by the collector is propagated
-// through the query tree to each sub-query's weight creation, exactly as Lucene
-// does. The AssertNeedsScores wrapper records the ScoreMode handed to its inner
-// query's createWeight (via IndexSearcher.CreateWeight dispatch) and asserts it
-// equals the expected value when a Scorer is actually pulled.
-//
-// Deviation from the upstream test: Gocene's stock top-N collectors do not yet
-// implement Lucene's dynamic-pruning ScoreModes. IndexSearcher.Search uses a
-// COMPLETE TopDocsCollector (not TOP_SCORES) and the sort-by-field collector
-// uses COMPLETE_NO_SCORES (not TOP_DOCS). The expected ScoreModes asserted here
-// are therefore the modes Gocene's collectors actually report; the propagation
-// logic under test — scoring vs. non-scoring clause routing in BooleanQuery and
-// the exhaustive/non-exhaustive forwarding in ConstantScoreQuery — is the same
-// as Lucene's and is exercised faithfully.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestNeedsScores.java
+// (Apache Lucene 10.5.0).
+
 package search_test
 
 import (
-	"fmt"
+	"math"
+	"strconv"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// needsScoresIndex builds the five-document index shared by the TestNeedsScores
-// cases: each document carries a tokenized "field" with value
-// "this is document <i>". The whitespace analyzer used by the integration
-// harness yields the tokens this/is/document/<i>, so the term "this" matches all
-// five documents and the term "3" matches exactly the i==3 document.
-func needsScoresIndex(t *testing.T) (*search.IndexSearcher, func()) {
+// needsScoresSetUp renders setUp(); the returned function renders tearDown().
+func needsScoresSetUp(t *testing.T) (*search.IndexSearcher, func()) {
 	t.Helper()
-	ix := newIntegrationIndex(t)
+	dir := newDirectory()
+	iw := newRandomIndexWriter(t, dir)
 	for i := 0; i < 5; i++ {
-		ix.addText("field", fmt.Sprintf("this is document %d", i))
+		doc := document.NewDocument()
+		f, err := document.NewTextField("field", "this is document "+strconv.Itoa(i), false)
+		if err != nil {
+			t.Fatalf("new TextField: %v", err)
+		}
+		doc.Add(f)
+		mustAddDocument(t, iw, doc)
 	}
-	return ix.searcher()
+	reader := mustGetReader(t, iw)
+	tearDown := func() {
+		if err := util.CloseAll(reader, dir); err != nil {
+			t.Errorf("IOUtils.close: %v", err)
+		}
+	}
+	searcher := newSearcher(t, reader)
+	// Needed so that the cache doesn't consume weights with ScoreMode.COMPLETE_NO_SCORES for the
+	// purpose of populating the cache.
+	searcher.SetQueryCache(nil)
+	mustClose(t, iw)
+	return searcher, tearDown
 }
 
-// TestNeedsScores ports org.apache.lucene.search.TestNeedsScores. Each subtest
-// wraps a query in AssertNeedsScores and confirms both the hit count and the
-// ScoreMode observed by the wrapped query.
-func TestNeedsScores(t *testing.T) {
-	t.Run("ProhibitedClause", func(t *testing.T) {
-		// Prohibited clauses in a BooleanQuery don't need scoring: a MUST clause
-		// is scoring and observes the collector mode (COMPLETE for Gocene's
-		// TopDocsCollector), while a MUST_NOT clause is non-scoring and must
-		// observe COMPLETE_NO_SCORES.
-		searcher, cleanup := needsScoresIndex(t)
-		defer cleanup()
-
-		required := search.NewTermQuery(index.NewTerm("field", "this"))
-		prohibited := search.NewTermQuery(index.NewTerm("field", "3"))
-
-		requiredAssert := newAssertNeedsScores(t, required, search.COMPLETE)
-		prohibitedAssert := newAssertNeedsScores(t, prohibited, search.COMPLETE_NO_SCORES)
-
-		bq := search.NewBooleanQueryBuilder()
-		bq.Add(requiredAssert, search.MUST)
-		bq.Add(prohibitedAssert, search.MUST_NOT)
-
-		top, err := searcher.Search(bq.Build(), 5)
-		if err != nil {
-			t.Fatalf("Search: %v", err)
-		}
-		if got := top.TotalHits.Value; got != 4 { // we exclude document 3
-			t.Errorf("totalHits = %d, want 4", got)
-		}
-		requiredAssert.requireObserved(t)
-		prohibitedAssert.requireObserved(t)
-	})
-
-	t.Run("ConstantScoreQuery", func(t *testing.T) {
-		// Nested inside a ConstantScoreQuery: with Gocene's exhaustive collectors
-		// the wrapped query observes COMPLETE_NO_SCORES, whether reached via a
-		// counting collector or a top-N (COMPLETE) search.
-		searcher, cleanup := needsScoresIndex(t)
-		defer cleanup()
-
-		// Counting collector path (COMPLETE_NO_SCORES, exhaustive).
-		term := search.NewTermQuery(index.NewTerm("field", "this"))
-		countAssert := newAssertNeedsScores(t, term, search.COMPLETE_NO_SCORES)
-		countCSQ := search.NewConstantScoreQuery(countAssert)
-
-		counter := search.NewTotalHitCountCollector()
-		if err := searcher.SearchWithCollector(countCSQ, counter); err != nil {
-			t.Fatalf("SearchWithCollector(count): %v", err)
-		}
-		if got := counter.GetTotalHits(); got != 5 {
-			t.Errorf("count = %d, want 5", got)
-		}
-		countAssert.requireObserved(t)
-
-		// Top-N search path (COMPLETE collector, exhaustive -> inner
-		// COMPLETE_NO_SCORES).
-		term2 := search.NewTermQuery(index.NewTerm("field", "this"))
-		topAssert := newAssertNeedsScores(t, term2, search.COMPLETE_NO_SCORES)
-		topCSQ := search.NewConstantScoreQuery(topAssert)
-
-		top, err := searcher.Search(topCSQ, 5)
-		if err != nil {
-			t.Fatalf("Search(constantScore): %v", err)
-		}
-		if got := top.TotalHits.Value; got != 5 {
-			t.Errorf("totalHits = %d, want 5", got)
-		}
-		topAssert.requireObserved(t)
-
-		// Sort-by-field path: the field-sort collector is COMPLETE_NO_SCORES
-		// (exhaustive), so the inner query still observes COMPLETE_NO_SCORES.
-		term3 := search.NewTermQuery(index.NewTerm("field", "this"))
-		sortAssert := newAssertNeedsScores(t, term3, search.COMPLETE_NO_SCORES)
-		sortCSQ := search.NewConstantScoreQuery(sortAssert)
-
-		sortTop, err := searcher.SearchWithSort(sortCSQ, 5, search.NewSortByDoc(), false)
-		if err != nil {
-			t.Fatalf("SearchWithSort(constantScore): %v", err)
-		}
-		if got := sortTop.TotalHits.Value; got != 5 {
-			t.Errorf("sorted totalHits = %d, want 5", got)
-		}
-		sortAssert.requireObserved(t)
-	})
-
-	t.Run("SortByField", func(t *testing.T) {
-		// When not sorting by score, the field-sort collector is
-		// COMPLETE_NO_SCORES and the (unwrapped) query observes it directly.
-		searcher, cleanup := needsScoresIndex(t)
-		defer cleanup()
-
-		assertQ := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.COMPLETE_NO_SCORES)
-		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByDoc(), false)
-		if err != nil {
-			t.Fatalf("SearchWithSort: %v", err)
-		}
-		if got := top.TotalHits.Value; got != 5 {
-			t.Errorf("totalHits = %d, want 5", got)
-		}
-		assertQ.requireObserved(t)
-	})
-
-	t.Run("SortByScore", func(t *testing.T) {
-		// When sorting by score, the field-sort collector is COMPLETE and the
-		// query observes a score-bearing mode.
-		searcher, cleanup := needsScoresIndex(t)
-		defer cleanup()
-
-		assertQ := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.COMPLETE)
-		top, err := searcher.SearchWithSort(assertQ, 5, search.NewSortByScore(), false)
-		if err != nil {
-			t.Fatalf("SearchWithSort: %v", err)
-		}
-		if got := top.TotalHits.Value; got != 5 {
-			t.Errorf("totalHits = %d, want 5", got)
-		}
-		assertQ.requireObserved(t)
-	})
+// prohibited clauses in booleanquery don't need scoring
+func TestNeedsScoresProhibitedClause(t *testing.T) {
+	searcher, tearDown := needsScoresSetUp(t)
+	defer tearDown()
+	required := search.NewTermQuery(index.NewTerm("field", "this"))
+	prohibited := search.NewTermQuery(index.NewTerm("field", "3"))
+	bq := search.NewBooleanQueryBuilder()
+	bq.Add(newAssertNeedsScores(t, required, search.TOP_SCORES), search.MUST)
+	bq.Add(newAssertNeedsScores(t, prohibited, search.COMPLETE_NO_SCORES), search.MUST_NOT)
+	if got := mustSearch(t, searcher, bq.Build(), 5).TotalHits.Value; got != 4 { // we exclude 3
+		t.Fatalf("totalHits = %d, want 4", got)
+	}
 }
 
-// assertNeedsScores wraps a query and asserts that the ScoreMode passed to its
-// inner query's weight creation equals value, mirroring the upstream
-// AssertNeedsScores test helper. It implements search.Query, whose
-// CreateWeight receives the full ScoreMode.
+// nested inside constant score query
+func TestNeedsScoresConstantScoreQuery(t *testing.T) {
+	searcher, tearDown := needsScoresSetUp(t)
+	defer tearDown()
+	term := search.NewTermQuery(index.NewTerm("field", "this"))
+
+	// Counting queries and top-score queries that compute the hit count should use
+	// COMPLETE_NO_SCORES
+	var constantScore search.Query = search.NewConstantScoreQuery(newAssertNeedsScores(t, term, search.COMPLETE_NO_SCORES))
+	assertIntEquals(t, 5, mustCount(t, searcher, constantScore))
+	manager, err := search.NewTopScoreDocCollectorManager(5, nil, math.MaxInt32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := search.SearchWithCollectorManager[*search.TopScoreDocCollector, *search.TopDocs](searcher, constantScore, manager)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if hits.TotalHits.Value != 5 {
+		t.Fatalf("totalHits = %d, want 5", hits.TotalHits.Value)
+	}
+
+	// Queries that support dynamic pruning like top-score or top-doc queries that do not compute
+	// the hit count should use TOP_DOCS
+	constantScore = search.NewConstantScoreQuery(newAssertNeedsScores(t, term, search.TOP_DOCS))
+	if got := mustSearch(t, searcher, constantScore, 5).TotalHits.Value; got != 5 {
+		t.Fatalf("totalHits = %d, want 5", got)
+	}
+	if got := needsScoresSearchSorted(t, searcher, constantScore, 5, search.NewSort(search.FIELD_DOC)).TotalHits.Value; got != 5 {
+		t.Fatalf("totalHits = %d, want 5", got)
+	}
+	if got := needsScoresSearchSorted(t, searcher, constantScore, 5, search.NewSort(search.FIELD_DOC, search.FieldScore)).TotalHits.Value; got != 5 {
+		t.Fatalf("totalHits = %d, want 5", got)
+	}
+}
+
+// when not sorting by score
+func TestNeedsScoresSortByField(t *testing.T) {
+	searcher, tearDown := needsScoresSetUp(t)
+	defer tearDown()
+	query := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.TOP_DOCS)
+	if got := needsScoresSearchSorted(t, searcher, query, 5, search.INDEXORDER).TotalHits.Value; got != 5 {
+		t.Fatalf("totalHits = %d, want 5", got)
+	}
+}
+
+// when sorting by score
+func TestNeedsScoresSortByScore(t *testing.T) {
+	searcher, tearDown := needsScoresSetUp(t)
+	defer tearDown()
+	query := newAssertNeedsScores(t, search.NewMatchAllDocsQuery(), search.TOP_SCORES)
+	if got := needsScoresSearchSorted(t, searcher, query, 5, search.RELEVANCE).TotalHits.Value; got != 5 {
+		t.Fatalf("totalHits = %d, want 5", got)
+	}
+}
+
+// needsScoresSearchSorted renders IndexSearcher.search(Query, int, Sort).
+func needsScoresSearchSorted(t *testing.T, searcher *search.IndexSearcher, q search.Query, n int, sort *search.Sort) *search.TopFieldDocs {
+	t.Helper()
+	td, err := searcher.SearchWithSort(q, n, sort, false)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	return td
+}
+
+// assertNeedsScores renders the static class AssertNeedsScores: wraps a query,
+// checking that the needsScores param passed to Weight.scorer is the expected
+// value.
 type assertNeedsScores struct {
-	t        *testing.T
-	in       search.Query
-	value    search.ScoreMode
-	observed bool
+	search.BaseQuery
+	t     *testing.T
+	in    search.Query
+	value search.ScoreMode
 }
 
 func newAssertNeedsScores(t *testing.T, in search.Query, value search.ScoreMode) *assertNeedsScores {
 	if in == nil {
-		t.Fatal("assertNeedsScores: inner query must not be nil")
+		panic("Objects.requireNonNull(in)")
 	}
 	return &assertNeedsScores{t: t, in: in, value: value}
 }
 
-// requireObserved fails the test if no Scorer was ever pulled, guaranteeing the
-// assertion in the wrapped supplier actually ran (a silent no-op must fail, not
-// pass).
-func (q *assertNeedsScores) requireObserved(t *testing.T) {
-	t.Helper()
-	if !q.observed {
-		t.Errorf("query=%v: no scorer was pulled, ScoreMode assertion never ran", q.in)
-	}
-}
-
-// CreateWeight builds the inner weight under scoreMode (via the
-// searcher's dispatch, so composite inner queries also see it) and wraps it so
-// that pulling a Scorer asserts scoreMode == q.value.
+// CreateWeight renders createWeight(IndexSearcher, ScoreMode, float).
 func (q *assertNeedsScores) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
-	inner, err := searcher.CreateWeight(q.in, scoreMode, boost)
+	w, err := q.in.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
-	if inner == nil {
-		return nil, nil
-	}
-	return &assertNeedsScoresWeight{Weight: inner, parent: q, scoreMode: scoreMode}, nil
+	return &assertNeedsScoresWeight{FilterWeight: search.NewFilterWeight(w), w: w, q: q, scoreMode: scoreMode}, nil
 }
 
+// assertNeedsScoresWeight renders the anonymous FilterWeight of createWeight.
+type assertNeedsScoresWeight struct {
+	*search.FilterWeight
+	w         search.Weight
+	q         *assertNeedsScores
+	scoreMode search.ScoreMode
+}
+
+// ScorerSupplier renders the scorerSupplier(LeafReaderContext) override.
+func (w *assertNeedsScoresWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	scorerSupplier, err := w.w.ScorerSupplier(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorerSupplier == nil {
+		return nil, nil
+	}
+	scorer, err := scorerSupplier.Get(math.MaxInt64)
+	if err != nil {
+		return nil, err
+	}
+	return &assertNeedsScoresSupplier{w: w, scorer: scorer}, nil
+}
+
+// Scorer renders the inherited Weight.scorer(LeafReaderContext), which
+// dispatches to the scorerSupplier override.
+func (w *assertNeedsScoresWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	return scorerSupplier.Get(math.MaxInt64)
+}
+
+// BulkScorer renders the inherited Weight.bulkScorer(LeafReaderContext),
+// which dispatches to the scorerSupplier override.
+func (w *assertNeedsScoresWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+		return nil, err
+	}
+	return scorerSupplier.BulkScorer()
+}
+
+// assertNeedsScoresSupplier renders the anonymous ScorerSupplier of
+// scorerSupplier(LeafReaderContext).
+type assertNeedsScoresSupplier struct {
+	search.BaseScorerSupplier
+	w      *assertNeedsScoresWeight
+	scorer search.Scorer
+}
+
+func (s *assertNeedsScoresSupplier) Get(leadCost int64) (search.Scorer, error) {
+	q := s.w.q
+	if q.value != s.w.scoreMode {
+		q.t.Errorf("query=%v: expected %v, got %v", q.in, q.value, s.w.scoreMode)
+	}
+	return s.scorer, nil
+}
+
+func (s *assertNeedsScoresSupplier) Cost() int64 {
+	return s.scorer.Iterator().Cost()
+}
+
+func (s *assertNeedsScoresSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
+}
+
+// Rewrite renders rewrite(IndexSearcher).
 func (q *assertNeedsScores) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	in2, err := q.in.Rewrite(searcher)
 	if err != nil {
@@ -215,93 +234,34 @@ func (q *assertNeedsScores) Rewrite(searcher *search.IndexSearcher) (search.Quer
 	if in2 == q.in {
 		return q, nil
 	}
-	return &assertNeedsScores{t: q.t, in: in2, value: q.value}, nil
+	return newAssertNeedsScores(q.t, in2, q.value), nil
 }
 
-func (q *assertNeedsScores) Equals(other spi.Query) bool {
-	o, ok := other.(*assertNeedsScores)
-	if !ok {
-		return false
-	}
-	return q.value == o.value && q.in.Equals(o.in)
-}
-
-// Visit mirrors AssertNeedsScores.visit: the wrapped query is visited.
+// Visit renders visit(QueryVisitor).
 func (q *assertNeedsScores) Visit(visitor search.QueryVisitor) {
 	q.in.Visit(visitor)
 }
 
+// HashCode renders hashCode(). classHash() is the hash of the class name;
+// Java's ScoreMode.hashCode() is the enum's identity hash, rendered by its
+// ordinal.
 func (q *assertNeedsScores) HashCode() int {
 	const prime = 31
-	result := 1
+	result := int(javaStringHashCode("org.apache.lucene.search.TestNeedsScores$AssertNeedsScores"))
 	result = prime*result + q.in.HashCode()
 	result = prime*result + int(q.value)
 	return result
 }
 
-var _ search.Query = (*assertNeedsScores)(nil)
-
-// assertNeedsScoresWeight embeds the inner Weight (so every Weight method
-// delegates by default) and overrides ScorerSupplier so that pulling a Scorer
-// asserts the recorded ScoreMode.
-type assertNeedsScoresWeight struct {
-	search.Weight
-	parent    *assertNeedsScores
-	scoreMode search.ScoreMode
+// Equals renders equals(Object): sameClassAs(other) && equalsTo(other).
+func (q *assertNeedsScores) Equals(other spi.Query) bool {
+	o, ok := other.(*assertNeedsScores)
+	return ok && q.in.Equals(o.in) && q.value == o.value
 }
 
-func (w *assertNeedsScoresWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.ScorerSupplier, error) {
-	inner, err := w.Weight.ScorerSupplier(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if inner == nil {
-		return nil, nil
-	}
-	return &assertNeedsScoresSupplier{ScorerSupplier: inner, weight: w}, nil
+// ToString renders toString(String field).
+func (q *assertNeedsScores) ToString(field string) string {
+	return "asserting(" + testsearch.QueryString(q.in, field) + ")"
 }
 
-// Scorer mirrors BaseWeight.Scorer so the assertion also fires when callers pull
-// a Scorer directly rather than through the supplier.
-func (w *assertNeedsScoresWeight) Scorer(ctx *index.LeafReaderContext) (search.Scorer, error) {
-	supplier, err := w.ScorerSupplier(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if supplier == nil {
-		return nil, nil
-	}
-	return supplier.Get(0)
-}
-
-// BulkScorer mirrors BaseWeight.BulkScorer over the asserting Scorer so the
-// assertion fires on the bulk-scoring path used by the search loop.
-func (w *assertNeedsScoresWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
-	scorer, err := w.Scorer(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if scorer == nil {
-		return nil, nil
-	}
-	return search.NewDefaultBulkScorer(scorer), nil
-}
-
-var _ search.Weight = (*assertNeedsScoresWeight)(nil)
-
-// assertNeedsScoresSupplier asserts the recorded ScoreMode each time a Scorer is
-// pulled, matching the upstream AssertNeedsScores supplier whose get() asserts
-// the expected scoreMode.
-type assertNeedsScoresSupplier struct {
-	search.ScorerSupplier
-	weight *assertNeedsScoresWeight
-}
-
-func (s *assertNeedsScoresSupplier) Get(leadCost int64) (search.Scorer, error) {
-	p := s.weight.parent
-	p.observed = true
-	if s.weight.scoreMode != p.value {
-		p.t.Errorf("query=%v: ScoreMode = %v, want %v", p.in, s.weight.scoreMode, p.value)
-	}
-	return s.ScorerSupplier.Get(leadCost)
-}
+func (q *assertNeedsScores) String() string { return q.ToString("") }

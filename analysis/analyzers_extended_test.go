@@ -257,7 +257,7 @@ func TestAnalyzers_WhitespaceTokenizer(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -504,7 +504,7 @@ func collectTokensFromAnalyzer(analyzer Analyzer, input string) ([]string, error
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
+			GetAttribute(reflect.Type) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {

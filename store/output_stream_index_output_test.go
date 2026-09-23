@@ -135,7 +135,7 @@ func TestOutputStreamIndexOutput_WriteBytes(t *testing.T) {
 
 	// Write bytes in batch
 	testBytes := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	if err := out.WriteBytes(testBytes); err != nil {
+	if err := out.WriteBytes(testBytes, 0, len(testBytes)); err != nil {
 		t.Fatalf("failed to write bytes: %v", err)
 	}
 

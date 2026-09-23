@@ -2,157 +2,144 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestMaxClauseLimit.java
-//
-// Simplified tests that verify basic MaxClauseCount API and BooleanQuery
-// construction. The full clause-limit enforcement during rewrite is deferred
-// until IndexSearcher.rewrite's clause-count QueryVisitor walk is ported.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestMaxClauseLimit.java
+// (Apache Lucene 10.5.0).
 
 package search_test
 
 import (
-	"fmt"
+	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// TestMaxClauseLimit_IllegalArgumentExceptionOnZero verifies that setting the
-// maximum clause count to 0 panics (mirroring Lucene's IllegalArgumentException)
-// and leaves the current value unchanged.
-func TestMaxClauseLimit_IllegalArgumentExceptionOnZero(t *testing.T) {
-	current := search.GetMaxClauseCount()
-	defer search.SetMaxClauseCount(current)
-
-	func() {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("SetMaxClauseCount(0) should have failed")
-			}
-		}()
-		search.SetMaxClauseCount(0)
-	}()
-
-	if got := search.GetMaxClauseCount(); got != current {
-		t.Errorf("attempt to change to 0 should not have modified the value: got %d, want %d", got, current)
-	}
-}
-
-// TestMaxClauseLimit_FlattenInnerDisjunctions verifies that a BooleanQuery
-// with many SHOULD clauses can be constructed and rewritten without error.
-func TestMaxClauseLimit_FlattenInnerDisjunctions(t *testing.T) {
-	reader := newEmptyReader(t)
-	defer func() { _ = reader.Close() }()
-
-	inner := search.NewBooleanQueryBuilder()
-	for i := 0; i < 1024; i++ {
-		inner.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
-	}
-	query := search.NewBooleanQueryBuilder()
-	query.Add(inner.Build(), search.SHOULD)
-	query.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
-
-	rewritten := rewriteToConvergence(t, query.Build(), reader)
-	if rewritten == nil {
-		t.Fatal("rewrite returned nil")
-	}
-}
-
-// TestMaxClauseLimit_LargeTermsNestedFirst verifies a nested BooleanQuery
-// with many clauses can be constructed and rewritten.
-func TestMaxClauseLimit_LargeTermsNestedFirst(t *testing.T) {
-	reader := newEmptyReader(t)
-	defer func() { _ = reader.Close() }()
-
-	nested := search.NewBooleanQueryBuilder()
-	nested.SetMinimumNumberShouldMatch(5)
-	for i := 0; i < 600; i++ {
-		nested.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
-	}
-	mixed := search.NewBooleanQueryBuilder()
-	mixed.Add(nested.Build(), search.SHOULD)
-	mixed.SetMinimumNumberShouldMatch(5)
-	for i := 0; i < 600; i++ {
-		mixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
-	}
-
-	rewritten := rewriteToConvergence(t, mixed.Build(), reader)
-	if rewritten == nil {
-		t.Fatal("rewrite returned nil")
-	}
-}
-
-// TestMaxClauseLimit_LargeTermsNestedLast verifies a nested BooleanQuery
-// can be constructed and rewritten.
-func TestMaxClauseLimit_LargeTermsNestedLast(t *testing.T) {
-	reader := newEmptyReader(t)
-	defer func() { _ = reader.Close() }()
-
-	nested := search.NewBooleanQueryBuilder()
-	nested.SetMinimumNumberShouldMatch(5)
-	for i := 0; i < 600; i++ {
-		nested.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("bar-%d", i))), search.SHOULD)
-	}
-	mixed := search.NewBooleanQueryBuilder()
-	mixed.SetMinimumNumberShouldMatch(5)
-	for i := 0; i < 600; i++ {
-		mixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
-	}
-	mixed.Add(nested.Build(), search.SHOULD)
-
-	rewritten := rewriteToConvergence(t, mixed.Build(), reader)
-	if rewritten == nil {
-		t.Fatal("rewrite returned nil")
-	}
-}
-
-// TestMaxClauseLimit_LargeDisjunctionMaxQuery verifies a DisjunctionMaxQuery
-// with many clauses can be constructed and rewritten.
-func TestMaxClauseLimit_LargeDisjunctionMaxQuery(t *testing.T) {
-	reader := newEmptyReader(t)
-	defer func() { _ = reader.Close() }()
-
-	clauses := make([]search.Query, 0, 1050)
-	for i := 0; i < 1049; i++ {
-		clauses = append(clauses, search.NewTermQuery(index.NewTerm("field", "a")))
-	}
-	pq := search.NewPhraseQuery(0, "field")
-	clauses = append(clauses, pq)
-	dmq := search.NewDisjunctionMaxQuery(clauses, 0.5)
-
-	rewritten := rewriteToConvergence(t, dmq, reader)
-	if rewritten == nil {
-		t.Fatal("rewrite returned nil")
-	}
-}
-
-// TestMaxClauseLimit_MultiExactWithRepeats verifies a MultiPhraseQuery with
-// many clauses can be constructed and rewritten.
-func TestMaxClauseLimit_MultiExactWithRepeats(t *testing.T) {
-	reader := newEmptyReader(t)
-	defer func() { _ = reader.Close() }()
-
-	qb := search.NewMultiPhraseQueryBuilder()
-	for i := 0; i < 1050; i++ {
-		qb.AddTermsAtPosition([]*index.Term{
-			index.NewTerm("foo", fmt.Sprintf("bar-%d", i)),
-			index.NewTerm("foo", fmt.Sprintf("bar+%d", i)),
-		}, 0)
-	}
-
-	rewritten := rewriteToConvergence(t, qb.Build(), reader)
-	if rewritten == nil {
-		t.Fatal("rewrite returned nil")
-	}
-}
-
-// newEmptyReader creates an empty reader for clause-limit tests.
-func newEmptyReader(t *testing.T) index.IndexReaderInterface {
+// mclExpectTooManyClauses renders expectThrows(IndexSearcher.TooManyClauses.class, ...):
+// TooManyNestedClauses extends TooManyClauses, so both satisfy it.
+func mclExpectTooManyClauses(t *testing.T, err error) error {
 	t.Helper()
-	ix := newIntegrationIndex(t)
-	s, cleanup := ix.searcher()
-	t.Cleanup(cleanup)
-	return s.GetIndexReader()
+	var tmc *search.TooManyClauses
+	var tmnc *search.TooManyNestedClauses
+	if !errors.As(err, &tmc) && !errors.As(err, &tmnc) {
+		t.Fatalf("expected IndexSearcher.TooManyClauses, got %v", err)
+	}
+	return err
+}
+
+// mclExpectTooManyNestedClauses renders
+// expectThrows(IndexSearcher.TooManyNestedClauses.class, ...).
+func mclExpectTooManyNestedClauses(t *testing.T, err error) {
+	t.Helper()
+	var tmnc *search.TooManyNestedClauses
+	if !errors.As(err, &tmnc) {
+		t.Fatalf("expected IndexSearcher.TooManyNestedClauses, got %v", err)
+	}
+}
+
+func TestMaxClauseLimitIllegalArgumentExceptionOnZero(t *testing.T) {
+	current := search.GetMaxClauseCount()
+	expectThrowsPanic(t, func() {
+		search.SetMaxClauseCount(0)
+	})
+	if got := search.GetMaxClauseCount(); got != current {
+		t.Fatalf("attempt to change to 0 should have failed w/o modifying: expected %d, got %d", current, got)
+	}
+}
+
+func TestMaxClauseLimitFlattenInnerDisjunctionsWithMoreThan1024Terms(t *testing.T) {
+	searcher := newSearcher(t, newMultiReader(t))
+
+	builder1024 := search.NewBooleanQueryBuilder()
+	for i := 0; i < 1024; i++ {
+		builder1024.Add(search.NewTermQuery(index.NewTerm("foo", "bar-"+strconv.Itoa(i))), search.SHOULD)
+	}
+	inner := builder1024.Build()
+	query := search.NewBooleanQueryBuilder().
+		Add(inner, search.SHOULD).
+		Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD).
+		Build()
+
+	_, err := searcher.Rewrite(query)
+	e := mclExpectTooManyClauses(t, err)
+	var tmnc *search.TooManyNestedClauses
+	if errors.As(e, &tmnc) {
+		t.Fatal("Should have been caught during flattening and not required full nested walk")
+	}
+}
+
+func TestMaxClauseLimitLargeTermsNestedFirst(t *testing.T) {
+	searcher := newSearcher(t, newMultiReader(t))
+	nestedBuilder := search.NewBooleanQueryBuilder()
+
+	nestedBuilder.SetMinimumNumberShouldMatch(5)
+	for i := 0; i < 600; i++ {
+		nestedBuilder.Add(search.NewTermQuery(index.NewTerm("foo", "bar-"+strconv.Itoa(i))), search.SHOULD)
+	}
+	inner := nestedBuilder.Build()
+	builderMixed := search.NewBooleanQueryBuilder().Add(inner, search.SHOULD)
+	builderMixed.SetMinimumNumberShouldMatch(5)
+	for i := 0; i < 600; i++ {
+		builderMixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
+	}
+	query := builderMixed.Build()
+
+	// Can't be flattened, but high clause count should still be cause during nested walk...
+	_, err := searcher.Rewrite(query)
+	mclExpectTooManyNestedClauses(t, err)
+}
+
+func TestMaxClauseLimitLargeTermsNestedLast(t *testing.T) {
+	searcher := newSearcher(t, newMultiReader(t))
+	nestedBuilder := search.NewBooleanQueryBuilder()
+
+	nestedBuilder.SetMinimumNumberShouldMatch(5)
+	for i := 0; i < 600; i++ {
+		nestedBuilder.Add(search.NewTermQuery(index.NewTerm("foo", "bar-"+strconv.Itoa(i))), search.SHOULD)
+	}
+	inner := nestedBuilder.Build()
+	builderMixed := search.NewBooleanQueryBuilder()
+	builderMixed.SetMinimumNumberShouldMatch(5)
+	for i := 0; i < 600; i++ {
+		builderMixed.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
+	}
+	builderMixed.Add(inner, search.SHOULD)
+	query := builderMixed.Build()
+
+	// Can't be flattened, but high clause count should still be cause during nested walk...
+	_, err := searcher.Rewrite(query)
+	mclExpectTooManyNestedClauses(t, err)
+}
+
+func TestMaxClauseLimitLargeDisjunctionMaxQuery(t *testing.T) {
+	searcher := newSearcher(t, newMultiReader(t))
+	clausesQueryArray := make([]search.Query, 1050)
+
+	for i := 0; i < 1049; i++ {
+		clausesQueryArray[i] = search.NewTermQuery(index.NewTerm("field", "a"))
+	}
+
+	pq := search.NewPhraseQuery(0, "field")
+
+	clausesQueryArray[1049] = pq
+
+	dmq := search.NewDisjunctionMaxQuery(clausesQueryArray, 0.5)
+
+	// Can't be flattened, but high clause count should still be cause during nested walk...
+	_, err := searcher.Rewrite(dmq)
+	mclExpectTooManyNestedClauses(t, err)
+}
+
+func TestMaxClauseLimitMultiExactWithRepeats(t *testing.T) {
+	searcher := newSearcher(t, newMultiReader(t))
+	qb := search.NewMultiPhraseQueryBuilder()
+
+	for i := 0; i < 1050; i++ {
+		qb.AddTermsAtPosition([]*index.Term{index.NewTerm("foo", "bar-"+strconv.Itoa(i)), index.NewTerm("foo", "bar+"+strconv.Itoa(i))}, 0)
+	}
+
+	// Can't be flattened, but high clause count should still be cause during nested walk...
+	_, err := searcher.Rewrite(qb.Build())
+	mclExpectTooManyNestedClauses(t, err)
 }

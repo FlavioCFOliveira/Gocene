@@ -4,14 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -19,9 +17,7 @@ import (
 // only tokens for which AcceptFn returns true are emitted.
 func TestFilteringTokenFilter_KeepsAccepted(t *testing.T) {
 	tok := NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("alpha beta gamma delta")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("alpha beta gamma delta"))
 
 	// Accept only tokens whose CharTermAttribute starts with 'a' or 'g'.
 	termAttr := lookupCharTermAttribute(t, tok)
@@ -42,9 +38,7 @@ func TestFilteringTokenFilter_KeepsAccepted(t *testing.T) {
 // tokens, matching Lucene's contract for stop-word style filtering.
 func TestFilteringTokenFilter_PositionIncrementGap(t *testing.T) {
 	tok := NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("a b c d")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("a b c d"))
 
 	termAttr := lookupCharTermAttribute(t, tok)
 	posAttr := lookupPositionIncrementAttribute(t, tok)
@@ -85,12 +79,12 @@ func lookupCharTermAttribute(t *testing.T, stream TokenStream) CharTermAttribute
 	t.Helper()
 	src, ok := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
 	}
-	attr := src.GetAttribute("CharTermAttribute")
+	attr := src.GetAttribute(CharTermAttributeType)
 	if attr == nil {
 		t.Fatal("CharTermAttribute not found")
 	}
@@ -107,12 +101,12 @@ func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) tokenatt
 	t.Helper()
 	src, ok := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
 	}
-	attr := src.GetAttribute("tokenattributes.PositionIncrementAttribute")
+	attr := src.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 	if attr == nil {
 		t.Fatal("tokenattributes.PositionIncrementAttribute not found")
 	}

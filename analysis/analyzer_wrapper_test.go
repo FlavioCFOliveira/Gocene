@@ -166,12 +166,12 @@ func collectTerms(t *testing.T, stream TokenStream) []string {
 		}
 		src, ok := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
+			GetAttribute(reflect.Type) util.AttributeImpl
 		})
 		if !ok {
 			continue
 		}
-		attr := src.GetAttribute("CharTermAttribute")
+		attr := src.GetAttribute(CharTermAttributeType)
 		if attr == nil {
 			continue
 		}

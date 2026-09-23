@@ -24,7 +24,7 @@ func drainNGramTokenizerTerms(t *testing.T, tok *NGramTokenizer) []string {
 		if !ok {
 			break
 		}
-		if a := tok.GetAttribute("CharTermAttribute"); a != nil {
+		if a := tok.GetAttribute(CharTermAttributeType); a != nil {
 			got = append(got, a.(CharTermAttribute).String())
 		}
 	}
@@ -43,7 +43,7 @@ func drainEdgeNGramTokenizerTerms(t *testing.T, tok *EdgeNGramTokenizer) []strin
 		if !ok {
 			break
 		}
-		if a := tok.GetAttribute("CharTermAttribute"); a != nil {
+		if a := tok.GetAttribute(CharTermAttributeType); a != nil {
 			got = append(got, a.(CharTermAttribute).String())
 		}
 	}
@@ -62,7 +62,7 @@ func drainNGramTokenFilterTerms(t *testing.T, f *NGramTokenFilter) []string {
 		if !ok {
 			break
 		}
-		if a := f.GetAttribute("CharTermAttribute"); a != nil {
+		if a := f.GetAttribute(CharTermAttributeType); a != nil {
 			got = append(got, a.(CharTermAttribute).String())
 		}
 	}
@@ -81,7 +81,7 @@ func drainEdgeNGramTokenFilterTerms(t *testing.T, f *EdgeNGramTokenFilter) []str
 		if !ok {
 			break
 		}
-		if a := f.GetAttribute("CharTermAttribute"); a != nil {
+		if a := f.GetAttribute(CharTermAttributeType); a != nil {
 			got = append(got, a.(CharTermAttribute).String())
 		}
 	}

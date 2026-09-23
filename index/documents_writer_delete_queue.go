@@ -239,7 +239,7 @@ func (d *DocumentsWriterDeleteQueue) Add(newNode Node) (int64, error) {
 	// The implementation Nodes will embed NodeBase.
 
 	currentTail := d.loadTail()
-	currentTail.base().next = newNode
+	currentTail.base().storeNext(newNode)
 	d.storeTail(newNode)
 
 	return d.getNextSequenceNumber(), nil
@@ -266,7 +266,7 @@ func (d *DocumentsWriterDeleteQueue) anyChangesLocked() bool {
 	return d.globalBufferedUpdates.Any() ||
 		!d.globalSlice.IsEmpty() ||
 		d.globalSlice.sliceTail != d.loadTail() ||
-		d.loadTail().base().next != nil
+		d.loadTail().base().loadNext() != nil
 }
 
 func (d *DocumentsWriterDeleteQueue) tryApplyGlobalSlice() error {
@@ -509,8 +509,23 @@ type Node interface {
 // Java uses `new Node<>(null)`; its apply therefore reproduces the base
 // class behaviour of refusing to be applied.
 type NodeBase struct {
-	next Node
+	// next renders `volatile Node<?> next`; the box lets an interface value
+	// be published atomically.
+	next atomic.Pointer[nodeRef]
 	item any
+}
+
+// loadNext reads the volatile next field.
+func (n *NodeBase) loadNext() Node {
+	if r := n.next.Load(); r != nil {
+		return r.node
+	}
+	return nil
+}
+
+// storeNext writes the volatile next field.
+func (n *NodeBase) storeNext(next Node) {
+	n.next.Store(&nodeRef{node: next})
 }
 
 func (n *NodeBase) base() *NodeBase { return n }
@@ -542,7 +557,7 @@ func (s *DeleteSlice) apply(del *BufferedUpdates, docIDUpto int) {
 	}
 	current := s.sliceHead
 	for {
-		current = current.base().next
+		current = current.base().loadNext()
 		if current == nil {
 			panic("slice property violated between the head on the tail must not be a null Node")
 		}

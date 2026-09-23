@@ -35,16 +35,16 @@ func TestBinaryDocValuesFieldType(t *testing.T) {
 
 	ft := field.FieldType()
 
-	if ft.Indexed {
+	if ft.IndexOptions() != spi.IndexOptionsNone {
 		t.Error("Expected field to not be indexed")
 	}
 
-	if ft.Stored {
+	if ft.Stored() {
 		t.Error("Expected field to not be stored")
 	}
 
-	if ft.DocValuesType != spi.DocValuesTypeBinary {
-		t.Errorf("Expected DocValuesTypeBinary, got: %v", ft.DocValuesType)
+	if ft.DocValuesType() != spi.DocValuesTypeBinary {
+		t.Errorf("Expected DocValuesTypeBinary, got: %v", ft.DocValuesType())
 	}
 }
 

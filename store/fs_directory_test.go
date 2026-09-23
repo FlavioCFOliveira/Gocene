@@ -415,7 +415,7 @@ func TestSimpleFSDirectory_CreateOutput(t *testing.T) {
 		defer out.Close()
 
 		// Write some data
-		if err := out.WriteBytes([]byte("Hello, World!")); err != nil {
+		if err := out.WriteBytes([]byte("Hello, World!"), 0, len([]byte("Hello, World!"))); err != nil {
 			t.Errorf("WriteBytes() error = %v", err)
 			return
 		}
@@ -479,7 +479,7 @@ func TestSimpleFSDirectory_OpenInput(t *testing.T) {
 
 		// Read all content
 		buf := make([]byte, len(content))
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			t.Errorf("ReadBytes() error = %v", err)
 			return
 		}
@@ -557,7 +557,7 @@ func TestSimpleFSDirectory_OpenInput(t *testing.T) {
 		}
 
 		buf := make([]byte, 5)
-		if err := slice.ReadBytes(buf); err != nil {
+		if err := slice.ReadBytes(buf, 0, len(buf)); err != nil {
 			t.Errorf("ReadBytes() error = %v", err)
 			return
 		}

@@ -19,8 +19,8 @@ func TestFeatureField_Basic(t *testing.T) {
 	if f.GetFeatureName() != "pagerank" || f.GetFeatureValue() != 0.5 {
 		t.Fatalf("attrs wrong")
 	}
-	if f.FieldType().GetIndexOptions() != spi.IndexOptionsDocsAndFreqs {
-		t.Fatalf("indexOptions wrong: %v", f.FieldType().GetIndexOptions())
+	if f.FieldType().IndexOptions() != spi.IndexOptionsDocsAndFreqs {
+		t.Fatalf("indexOptions wrong: %v", f.FieldType().IndexOptions())
 	}
 }
 

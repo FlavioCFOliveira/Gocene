@@ -2,110 +2,121 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestRegexpRandom.java
+// Port of lucene/core/src/test/org/apache/lucene/search/TestRegexpRandom.java
+// (Apache Lucene 10.5.0).
 //
-// An index with the 1000 terms "000".."999" is built; random regular expressions
-// are generated from fixed templates (where 'N' is replaced by a random digit)
-// and run as RegexpQuery, asserting the exact number of matching documents that
-// Lucene asserts for each template — e.g. "NNN" matches exactly 1 term, ".NN"
-// matches 10, "[1-5][2-6][3-7]" matches 125, ".*" matches all 1000.
-//
-// Deviation: the MockAnalyzer is replaced by the WhitespaceAnalyzer (the
-// deterministic stand-in used by the shared harness); each document carries a
-// single three-digit token, so tokenization is identical for these terms.
+// Create an index with terms from 000-999. Generates random regexps according
+// to simple patterns, and validates the correct number of hits are returned.
 
 package search_test
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// newRegexpRandomSearcher indexes the 1000 zero-padded terms 000..999.
-func newRegexpRandomSearcher(t *testing.T) (*search.IndexSearcher, func()) {
+// rrSetUp renders setUp(); the returned function renders tearDown().
+func rrSetUp(t *testing.T) (*search.IndexSearcher, func()) {
 	t.Helper()
-	ix := newIntegrationIndex(t)
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzerRandom(random()))
+	iwc.SetMaxBufferedDocs(nextInt(50, 1000))
+	writer := newRandomIndexWriterWithConfig(t, dir, iwc)
+
+	doc := document.NewDocument()
+	customType := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+	customType.SetOmitNorms(true)
+	field := newField(t, "field", "", customType)
+	doc.Add(field)
+
+	// NumberFormat df = new DecimalFormat("000", new DecimalFormatSymbols(Locale.ROOT));
 	for i := 0; i < 1000; i++ {
-		ix.addText("field", fmt.Sprintf("%03d", i))
+		field.SetStringValue(fmt.Sprintf("%03d", i))
+		mustAddDocument(t, writer, doc)
 	}
-	return ix.searcher()
+
+	reader := mustGetReader(t, writer)
+	mustClose(t, writer)
+	tearDown := func() {
+		mustClose(t, reader, dir)
+	}
+	searcher := newSearcher(t, reader)
+	return searcher, tearDown
 }
 
-// regexpFillPattern replaces each 'N' in the template with a random digit,
-// mirroring TestRegexpRandom.fillPattern / N().
-func regexpFillPattern(rng *rand.Rand, template string) string {
+// rrN renders the private N(): a random digit.
+func rrN() byte {
+	return byte(0x30 + random().Intn(10))
+}
+
+// rrFillPattern renders the private fillPattern(String).
+func rrFillPattern(wildcardPattern string) string {
 	var sb strings.Builder
-	for _, c := range template {
-		if c == 'N' {
-			sb.WriteByte(byte('0' + rng.Intn(10)))
-		} else {
-			sb.WriteRune(c)
+	for i := 0; i < len(wildcardPattern); i++ {
+		switch wildcardPattern[i] {
+		case 'N':
+			sb.WriteByte(rrN())
+		default:
+			sb.WriteByte(wildcardPattern[i])
 		}
 	}
 	return sb.String()
 }
 
-// TestRegexpRandom_Regexps ports testRegexps.
-func TestRegexpRandom_Regexps(t *testing.T) {
-	s, cleanup := newRegexpRandomSearcher(t)
-	defer cleanup()
-
-	rng := rand.New(rand.NewSource(7919)) //nolint:gosec // deterministic test seed
-
-	assertPatternHits := func(template string, numHits int64) {
-		t.Helper()
-		pattern := regexpFillPattern(rng, template)
-		wq := search.NewRegexpQuery(index.NewTerm("field", pattern))
-		top, err := s.Search(wq, 25)
-		if err != nil {
-			t.Fatalf("Search(%q): %v", pattern, err)
-		}
-		if top.TotalHits.Value != numHits {
-			t.Errorf("pattern %q (template %q): hits = %d, want %d", pattern, template, top.TotalHits.Value, numHits)
-		}
+// rrAssertPatternHits renders the private assertPatternHits(String, int).
+func rrAssertPatternHits(t *testing.T, searcher *search.IndexSearcher, pattern string, numHits int) {
+	t.Helper()
+	wq := search.NewRegexpQuery(index.NewTerm("field", rrFillPattern(pattern)))
+	docs := mustSearch(t, searcher, wq, 25)
+	if docs.TotalHits.Value != int64(numHits) {
+		t.Fatalf("Incorrect hits for pattern: %s: expected %d, got %d", pattern, numHits, docs.TotalHits.Value)
 	}
+}
 
-	num := 1
+func TestRegexpRandomRegexps(t *testing.T) {
+	searcher, tearDown := rrSetUp(t)
+	defer tearDown()
+	num := atLeast(1)
 	for i := 0; i < num; i++ {
-		assertPatternHits("NNN", 1)
-		assertPatternHits(".NN", 10)
-		assertPatternHits("N.N", 10)
-		assertPatternHits("NN.", 10)
+		rrAssertPatternHits(t, searcher, "NNN", 1)
+		rrAssertPatternHits(t, searcher, ".NN", 10)
+		rrAssertPatternHits(t, searcher, "N.N", 10)
+		rrAssertPatternHits(t, searcher, "NN.", 10)
 	}
 
 	for i := 0; i < num; i++ {
-		assertPatternHits(".{1,2}N", 100)
-		assertPatternHits("N.{1,2}", 100)
-		assertPatternHits(".{1,3}", 1000)
+		rrAssertPatternHits(t, searcher, ".{1,2}N", 100)
+		rrAssertPatternHits(t, searcher, "N.{1,2}", 100)
+		rrAssertPatternHits(t, searcher, ".{1,3}", 1000)
 
-		assertPatternHits("NN[3-7]", 5)
-		assertPatternHits("N[2-6][3-7]", 25)
-		assertPatternHits("[1-5][2-6][3-7]", 125)
-		assertPatternHits("[0-4][3-7][4-8]", 125)
-		assertPatternHits("[2-6][0-4]N", 25)
-		assertPatternHits("[2-6]NN", 5)
+		rrAssertPatternHits(t, searcher, "NN[3-7]", 5)
+		rrAssertPatternHits(t, searcher, "N[2-6][3-7]", 25)
+		rrAssertPatternHits(t, searcher, "[1-5][2-6][3-7]", 125)
+		rrAssertPatternHits(t, searcher, "[0-4][3-7][4-8]", 125)
+		rrAssertPatternHits(t, searcher, "[2-6][0-4]N", 25)
+		rrAssertPatternHits(t, searcher, "[2-6]NN", 5)
 
-		assertPatternHits("NN.*", 10)
-		assertPatternHits("N.*", 100)
-		assertPatternHits(".*", 1000)
+		rrAssertPatternHits(t, searcher, "NN.*", 10)
+		rrAssertPatternHits(t, searcher, "N.*", 100)
+		rrAssertPatternHits(t, searcher, ".*", 1000)
 
-		assertPatternHits(".*NN", 10)
-		assertPatternHits(".*N", 100)
+		rrAssertPatternHits(t, searcher, ".*NN", 10)
+		rrAssertPatternHits(t, searcher, ".*N", 100)
 
-		assertPatternHits("N.*N", 10)
+		rrAssertPatternHits(t, searcher, "N.*N", 10)
 
 		// combo of ? and * operators
-		assertPatternHits(".N.*", 100)
-		assertPatternHits("N..*", 100)
+		rrAssertPatternHits(t, searcher, ".N.*", 100)
+		rrAssertPatternHits(t, searcher, "N..*", 100)
 
-		assertPatternHits(".*N.", 100)
-		assertPatternHits(".*..", 1000)
-		assertPatternHits(".*.N", 100)
+		rrAssertPatternHits(t, searcher, ".*N.", 100)
+		rrAssertPatternHits(t, searcher, ".*..", 1000)
+		rrAssertPatternHits(t, searcher, ".*.N", 100)
 	}
 }

@@ -46,8 +46,22 @@ func (t *TwoPhaseIterator) MatchCost() float32 {
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs that match this TwoPhaseIterator
 // and that contains the current doc ID of the approximation.
+// DocIDRunEnd renders TwoPhaseIterator.docIDRunEnd(). The Java default body
+// returns the current doc ID of the approximation; a subclass that overrides
+// the method is rendered by a verifier implementing
+// [TwoPhaseDocIDRunEndOverride], whose DocIDRunEnd is then dispatched to.
 func (t *TwoPhaseIterator) DocIDRunEnd() (int, error) {
+	if o, ok := t.verifier.(TwoPhaseDocIDRunEndOverride); ok {
+		return o.DocIDRunEnd()
+	}
 	return t.approximation.DocID(), nil
+}
+
+// TwoPhaseDocIDRunEndOverride is implemented by a [TwoPhaseVerifier] whose Java
+// TwoPhaseIterator subclass overrides docIDRunEnd(). An override that falls
+// back to super.docIDRunEnd() returns the approximation's current doc ID.
+type TwoPhaseDocIDRunEndOverride interface {
+	DocIDRunEnd() (int, error)
 }
 
 // IntoBitSet loads the doc IDs that both belong to the Approximation() and Matches() match,
@@ -107,8 +121,12 @@ func (i *twoPhaseIteratorAsDocIdSetIterator) Advance(target int) (int, error) {
 	return i.doNext(doc)
 }
 
+// DocIDRunEnd renders the docIDRunEnd() TwoPhaseIteratorAsDocIdSetIterator
+// inherits from DocIdSetIterator through FilterDocIdSetIterator (which does not
+// override it): docID() + 1. Delegating to the approximation would report a run
+// of unverified candidates as matches.
 func (i *twoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() (int, error) {
-	return i.t.approximation.DocIDRunEnd()
+	return util.DefaultDocIDRunEnd(i)
 }
 
 func (i *twoPhaseIteratorAsDocIdSetIterator) Cost() int64 {

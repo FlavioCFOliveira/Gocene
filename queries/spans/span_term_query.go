@@ -76,6 +76,12 @@ func (q *SpanTermQuery) GetField() string { return q.term.Field }
 // GetTerm returns the term this query matches.
 func (q *SpanTermQuery) GetTerm() *index.Term { return q.term }
 
+// Rewrite renders the Query.rewrite(IndexSearcher) SpanTermQuery inherits
+// without overriding it: the query is already primitive and returns itself.
+func (q *SpanTermQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	return q, nil
+}
+
 // Visit walks the query tree.
 func (q *SpanTermQuery) Visit(visitor search.QueryVisitor) {
 	if visitor.AcceptField(q.term.Field) {

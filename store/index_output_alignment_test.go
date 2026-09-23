@@ -5,9 +5,13 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TestAlignOffset tests the AlignOffset function for correct alignment calculations.
@@ -123,7 +127,7 @@ func testAlignFilePointerWithAlignment(t *testing.T, alignment int) {
 	// We wrap it to provide IndexOutput interface
 	out := &testIndexOutputForAlignment{
 		name:        "test_output",
-		dataOutput:  NewByteArrayDataOutput(8192),
+		dataOutput:  NewByteArrayDataOutput(make([]byte, 8192)),
 		filePointer: 0,
 	}
 
@@ -137,7 +141,7 @@ func testAlignFilePointerWithAlignment(t *testing.T, alignment int) {
 			for j := range data {
 				data[j] = byte(j % 256)
 			}
-			if err := out.WriteBytes(data); err != nil {
+			if err := out.WriteBytes(data, 0, len(data)); err != nil {
 				t.Fatalf("WriteBytes failed: %v", err)
 			}
 		}
@@ -198,8 +202,8 @@ func (o *testIndexOutputForAlignment) WriteByte(b byte) error {
 	return nil
 }
 
-func (o *testIndexOutputForAlignment) WriteBytes(b []byte) error {
-	if err := o.dataOutput.WriteBytes(b); err != nil {
+func (o *testIndexOutputForAlignment) WriteBytes(b []byte, _ int, _ int) error {
+	if err := o.dataOutput.WriteBytes(b, 0, len(b)); err != nil {
 		return err
 	}
 	o.filePointer += int64(len(b))
@@ -285,6 +289,98 @@ func (o *testIndexOutputForAlignment) WriteString(s string) error {
 	return nil
 }
 
+// CopyBytes carries the default body Lucene gives IndexOutput.CopyBytes.
+func (o *testIndexOutputForAlignment) CopyBytes(input spi.DataInput, numBytes int64) error {
+	buf := make([]byte, 16384)
+	for left := numBytes; left > 0; {
+		n := len(buf)
+		if left < int64(n) {
+			n = int(left)
+		}
+		if err := input.ReadBytes(buf, 0, n); err != nil {
+			return err
+		}
+		if err := o.WriteBytes(buf, 0, n); err != nil {
+			return err
+		}
+		left -= int64(n)
+	}
+	return nil
+}
+
+// WriteGroupVInts is abstract in Lucene's IndexOutput; this double does not support it.
+func (o *testIndexOutputForAlignment) WriteGroupVInts(values []int32, limit int) error {
+	return errors.New("testIndexOutputForAlignment.WriteGroupVInts: unsupported operation")
+}
+
+// WriteMapOfStrings carries the default body Lucene gives IndexOutput.WriteMapOfStrings.
+func (o *testIndexOutputForAlignment) WriteMapOfStrings(m map[string]string) error {
+	if err := o.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := o.WriteString(k); err != nil {
+			return err
+		}
+		if err := o.WriteString(m[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings carries the default body Lucene gives IndexOutput.WriteSetOfStrings.
+func (o *testIndexOutputForAlignment) WriteSetOfStrings(s []string) error {
+	if err := o.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := o.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteVInt carries the default body Lucene gives IndexOutput.WriteVInt.
+func (o *testIndexOutputForAlignment) WriteVInt(i int32) error {
+	v := uint32(i)
+	for v >= 0x80 {
+		if err := o.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return o.WriteByte(byte(v))
+}
+
+// WriteVLong carries the default body Lucene gives IndexOutput.WriteVLong.
+func (o *testIndexOutputForAlignment) WriteVLong(i int64) error {
+	v := uint64(i)
+	for v >= 0x80 {
+		if err := o.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return o.WriteByte(byte(v))
+}
+
+// WriteZInt carries the default body Lucene gives IndexOutput.WriteZInt.
+func (o *testIndexOutputForAlignment) WriteZInt(i int32) error {
+	return o.WriteVInt((i >> 31) ^ (i << 1))
+}
+
+// WriteZLong carries the default body Lucene gives IndexOutput.WriteZLong.
+func (o *testIndexOutputForAlignment) WriteZLong(i int64) error {
+	return o.WriteVLong((i >> 63) ^ (i << 1))
+}
+
 // TestAlignOffsetEdgeCases tests additional edge cases for AlignOffset.
 func TestAlignOffsetEdgeCases(t *testing.T) {
 	tests := []struct {
@@ -333,7 +429,7 @@ func TestAlignFilePointerEdgeCases(t *testing.T) {
 	t.Run("align at position 0", func(t *testing.T) {
 		out := &testIndexOutputForAlignment{
 			name:        "test",
-			dataOutput:  NewByteArrayDataOutput(100),
+			dataOutput:  NewByteArrayDataOutput(make([]byte, 100)),
 			filePointer: 0,
 		}
 
@@ -349,12 +445,12 @@ func TestAlignFilePointerEdgeCases(t *testing.T) {
 	t.Run("align when already aligned", func(t *testing.T) {
 		out := &testIndexOutputForAlignment{
 			name:        "test",
-			dataOutput:  NewByteArrayDataOutput(100),
+			dataOutput:  NewByteArrayDataOutput(make([]byte, 100)),
 			filePointer: 0,
 		}
 
 		// Write 8 bytes to get to position 8 (already aligned)
-		out.WriteBytes([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		out.WriteBytes([]byte{1, 2, 3, 4, 5, 6, 7, 8}, 0, 8)
 
 		newPos, err := AlignFilePointer(out, 8)
 		if err != nil {
@@ -373,12 +469,12 @@ func TestAlignFilePointerEdgeCases(t *testing.T) {
 	t.Run("verify padding bytes are zero", func(t *testing.T) {
 		out := &testIndexOutputForAlignment{
 			name:        "test",
-			dataOutput:  NewByteArrayDataOutput(100),
+			dataOutput:  NewByteArrayDataOutput(make([]byte, 100)),
 			filePointer: 0,
 		}
 
 		// Write 5 bytes
-		out.WriteBytes([]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE})
+		out.WriteBytes([]byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE}, 0, 5)
 
 		// Align to 8 bytes
 		AlignFilePointer(out, 8)
@@ -460,7 +556,7 @@ func BenchmarkAlignOffset(b *testing.B) {
 func BenchmarkAlignFilePointer(b *testing.B) {
 	out := &testIndexOutputForAlignment{
 		name:        "bench",
-		dataOutput:  NewByteArrayDataOutput(8192),
+		dataOutput:  NewByteArrayDataOutput(make([]byte, 8192)),
 		filePointer: 0,
 	}
 
@@ -469,7 +565,7 @@ func BenchmarkAlignFilePointer(b *testing.B) {
 		if i%10 == 0 {
 			// Reset periodically to avoid buffer overflow
 			out.filePointer = 0
-			out.dataOutput.Reset()
+			out.dataOutput.Reset(out.dataOutput.GetBytes())
 		}
 		out.WriteByte(byte(i))
 		AlignFilePointer(out, 8)

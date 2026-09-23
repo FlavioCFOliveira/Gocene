@@ -21,15 +21,13 @@ import (
 // Unicode-accented input string.
 func TestStandardFactories_TokenizerBasic(t *testing.T) {
 	f := NewStandardTokenizerFactory()
-	tok := f.Create()
+	tok := f.Create(DefaultTokenAttributeFactory)
 	defer tok.Close()
 	st, ok := tok.(*StandardTokenizer)
 	if !ok {
 		t.Fatalf("expected *StandardTokenizer, got %T", tok)
 	}
-	if err := st.SetReader(strings.NewReader("Whát's this thing do?")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	st.SetReader(strings.NewReader("Whát's this thing do?"))
 
 	want := []string{"Whát's", "this", "thing", "do"}
 	got := driveStandardTokenizer(t, st)
@@ -55,12 +53,10 @@ func TestStandardFactories_MaxTokenLength(t *testing.T) {
 	}
 	longWord := sb.String()
 	input := "one two three " + longWord + " four five six"
-	tok := f.Create()
+	tok := f.Create(DefaultTokenAttributeFactory)
 	defer tok.Close()
 	st := tok.(*StandardTokenizer)
-	if err := st.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	st.SetReader(strings.NewReader(input))
 
 	want := []string{"one", "two", "three", longWord, "four", "five", "six"}
 	got := driveStandardTokenizer(t, st)

@@ -2,117 +2,127 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/search/TestEarlyTermination.java
-//
-// This test drives a MatchAllDocsQuery over a multi-segment index with a
-// collector that may signal early termination in two ways, exactly as Lucene's
-// SimpleCollector does: by raising a CollectionTerminatedException either from
-// the per-leaf hook (GetLeafCollector, the analogue of doSetNextReader) or from
-// collect(). The invariant under test is that once a leaf collector has
-// terminated, Collect is never called on it again — the search loop must swallow
-// the signal and move on to the next leaf. In Go the exception is modelled as
-// the CollectionTerminatedException error value (see IsCollectionTerminated).
+// Port of lucene/core/src/test/org/apache/lucene/search/TestEarlyTermination.java
+// (Apache Lucene 10.5.0).
+
 package search_test
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
-// TestEarlyTermination_TestEarlyTermination mirrors
-// TestEarlyTermination.testEarlyTermination.
-func TestEarlyTermination_TestEarlyTermination(t *testing.T) {
-	ix := newIntegrationIndex(t)
-	const numDocs = 120
-	rng := rand.New(rand.NewSource(7))
+// earlyTerminationTestCase renders the fields of TestEarlyTermination.
+type earlyTerminationTestCase struct {
+	dir    store.Directory
+	writer *testindex.RandomIndexWriter
+}
+
+// etSetUp renders setUp(); the returned function renders tearDown().
+func etSetUp(t *testing.T) (*earlyTerminationTestCase, func()) {
+	t.Helper()
+	tc := &earlyTerminationTestCase{}
+	dir := newDirectory()
+	tc.dir = dir
+	tc.writer = newRandomIndexWriter(t, dir)
+	numDocs := atLeast(100)
 	for i := 0; i < numDocs; i++ {
-		ix.addDoc(document.NewDocument())
-		// "rarely" commit, building a multi-segment index so several leaves are
-		// visited and the per-leaf termination path is actually exercised.
-		if rng.Intn(10) == 0 {
-			ix.commit()
+		mustAddDocument(t, tc.writer, document.NewDocument())
+		if rarely() {
+			mustCommit(t, tc.writer)
 		}
 	}
-	searcher, cleanup := ix.searcher()
-	defer cleanup()
+	return tc, func() {
+		mustClose(t, tc.writer, dir)
+	}
+}
 
-	const iters = 5
+func TestEarlyTermination(t *testing.T) {
+	tc, tearDown := etSetUp(t)
+	defer tearDown()
+	iters := atLeast(5)
+	reader := mustGetReader(t, tc.writer)
+
 	for i := 0; i < iters; i++ {
-		collector := &earlyTerminationCollector{rng: rng, t: t}
-		if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), collector); err != nil {
-			t.Fatalf("SearchWithCollector: %v", err)
+		searcher := newSearcher(t, reader)
+		if _, err := search.SearchWithCollectorManager[*etCollector, struct{}](searcher, search.NewMatchAllDocsQuery(), &etCollectorManager{t: t}); err != nil {
+			t.Fatalf("search: %v", err)
 		}
 	}
+	mustClose(t, reader)
 }
 
-// earlyTerminationCollector mirrors the anonymous SimpleCollector created per leaf in
-// the upstream test. ScoreMode is COMPLETE_NO_SCORES.
-type earlyTerminationCollector struct {
-	rng *rand.Rand
-	t   *testing.T
+// etCollector renders the anonymous SimpleCollector of testEarlyTermination.
+type etCollector struct {
+	search.BaseSimpleCollector
+	search.BaseLeafCollector
+	t                    *testing.T
+	collectionTerminated bool
 }
 
-func (c *earlyTerminationCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
-
-// GetLeafCollector is the analogue of doSetNextReader: it randomly decides to
-// terminate the leaf immediately (returning a CollectionTerminatedException) or
-// to collect it.
-func (c *earlyTerminationCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
-	if c.rng.Intn(2) == 0 {
-		return nil, search.NewCollectionTerminatedException()
+func (c *etCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	if err := c.DoSetNextReader(context); err != nil {
+		return nil, err
 	}
-	return &earlyTerminationLeafCollector{rng: c.rng, t: c.t}, nil
+	return c, nil
 }
 
-// earlyTerminationLeafCollector asserts that Collect is never invoked after the leaf
-// has terminated, and "rarely" terminates from collect itself.
-type earlyTerminationLeafCollector struct {
-	rng        *rand.Rand
-	t          *testing.T
-	terminated bool
-}
-
-func (lc *earlyTerminationLeafCollector) SetScorer(_ search.Scorable) error { return nil }
-
-func (lc *earlyTerminationLeafCollector) Collect(_ int) error {
-	if lc.terminated {
-		lc.t.Errorf("Collect called after the leaf collector terminated")
-		return nil
+func (c *etCollector) Collect(doc int) error {
+	if c.collectionTerminated {
+		c.t.Error("assertFalse(collectionTerminated)")
 	}
-	if lc.rng.Intn(10) == 0 {
-		lc.terminated = true
+	if rarely() {
+		c.collectionTerminated = true
 		return search.NewCollectionTerminatedException()
 	}
 	return nil
 }
 
-// SetWeight carries the default body Lucene gives Collector.SetWeight.
-func (c *earlyTerminationCollector) SetWeight(weight search.Weight) {
-
-}
-
-// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
-func (lc *earlyTerminationLeafCollector) CollectRange(min int, max int) error {
-	return search.DefaultCollectRange(lc, min, max)
-}
-
-// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
-func (lc *earlyTerminationLeafCollector) CollectStream(stream search.DocIdStream) error {
-	return search.DefaultCollectStream(lc, stream)
-}
-
-// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
-func (lc *earlyTerminationLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
-	return nil, nil
-}
-
-// Finish carries the default body Lucene gives LeafCollector.Finish.
-func (lc *earlyTerminationLeafCollector) Finish() error {
+func (c *etCollector) DoSetNextReader(context *index.LeafReaderContext) error {
+	if random().Intn(2) == 0 {
+		c.collectionTerminated = true
+		return search.NewCollectionTerminatedException()
+	}
+	c.collectionTerminated = false
 	return nil
+}
+
+func (c *etCollector) ScoreMode() search.ScoreMode {
+	return search.COMPLETE_NO_SCORES
+}
+
+func (c *etCollector) SetScorer(scorer search.Scorable) error { return nil }
+
+func (c *etCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+func (c *etCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+func (c *etCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return c.BaseLeafCollector.CompetitiveIterator()
+}
+
+func (c *etCollector) Finish() error { return c.BaseLeafCollector.Finish() }
+
+// etCollectorManager renders the anonymous CollectorManager<SimpleCollector, Void>.
+type etCollectorManager struct {
+	t *testing.T
+}
+
+func (m *etCollectorManager) NewCollector() (*etCollector, error) {
+	c := &etCollector{t: m.t, collectionTerminated: true}
+	c.Outer = c
+	return c, nil
+}
+
+func (m *etCollectorManager) Reduce(collectors []*etCollector) (struct{}, error) {
+	return struct{}{}, nil
 }

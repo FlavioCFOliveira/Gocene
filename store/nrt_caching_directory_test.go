@@ -53,7 +53,7 @@ func TestNRTCachingDirectory_NRTAndCommit(t *testing.T) {
 	for i := range testData {
 		testData[i] = byte(i % 256)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -488,7 +488,7 @@ func TestNRTCachingDirectory_MergeContext(t *testing.T) {
 	defer nrt.Close()
 
 	// Small merge should be cached
-	mergeCtx := NewMergeContext(&MergeInfo{
+	mergeCtx := IOContextMerge(&MergeInfo{
 		TotalMaxDoc:         100,
 		EstimatedMergeBytes: 1024, // 1 KB
 		IsExternal:          false,
@@ -551,7 +551,7 @@ func TestNRTCachingDirectory_FSCacheSizeTracking(t *testing.T) {
 		}
 		// Write 100 bytes
 		data := make([]byte, 100)
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			t.Fatalf("Failed to write: %v", err)
 		}
 		out.Close()

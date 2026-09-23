@@ -62,7 +62,7 @@ func TestIOContext(t *testing.T) {
 					MergeFactor:         10,
 				}
 
-				ctx := NewMergeContext(mergeInfo)
+				ctx := IOContextMerge(mergeInfo)
 
 				if ctx.Context != ContextMerge {
 					t.Error("expected ContextMerge")

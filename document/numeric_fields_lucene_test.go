@@ -20,8 +20,8 @@ func TestIntFieldLucene_Type(t *testing.T) {
 	if ft.PointDimensionCount() != 1 || ft.PointNumBytes() != 4 {
 		t.Fatalf("dimensions = (%d, %d)", ft.PointDimensionCount(), ft.PointNumBytes())
 	}
-	if ft.GetDocValuesType() != spi.DocValuesTypeSortedNumeric {
-		t.Fatalf("docValuesType = %v", ft.GetDocValuesType())
+	if ft.DocValuesType() != spi.DocValuesTypeSortedNumeric {
+		t.Fatalf("docValuesType = %v", ft.DocValuesType())
 	}
 	// Sortable-bytes round-trip
 	got := util.SortableBytesToInt(f.BinaryValue(), 0)
@@ -38,7 +38,7 @@ func TestLongFieldLucene_Type(t *testing.T) {
 	if f.FieldType().PointNumBytes() != 8 {
 		t.Fatalf("numBytes = %d", f.FieldType().PointNumBytes())
 	}
-	if !f.FieldType().IsStored() {
+	if !f.FieldType().Stored() {
 		t.Fatalf("stored variant should be stored")
 	}
 	got := util.SortableBytesToLong(f.BinaryValue(), 0)

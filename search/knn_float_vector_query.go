@@ -6,9 +6,12 @@ package search
 
 import (
 	"fmt"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
@@ -31,7 +34,7 @@ func NewKnnFloatVectorQuery(field string, target []float32, k int) *KnnFloatVect
 // NewKnnFloatVectorQueryWithFilter finds the k nearest documents to the target vector
 // according to the vectors in the given field, subject to the provided filter.
 func NewKnnFloatVectorQueryWithFilter(field string, target []float32, k int, filter Query) *KnnFloatVectorQuery {
-	return NewKnnFloatVectorQueryWithStrategy(field, target, k, filter, nil)
+	return NewKnnFloatVectorQueryWithStrategy(field, target, k, filter, knn.DefaultHnsw)
 }
 
 // NewKnnFloatVectorQueryWithStrategy finds the k nearest documents to the target vector
@@ -127,26 +130,25 @@ func (q *KnnFloatVectorQuery) CreateVectorScorer(ctx *index.LeafReaderContext, f
 	return scorer.(VectorScorer), nil
 }
 
-// String returns the string representation of the query.
+// ToString returns the string representation of the query.
 //
-// Mirrors KnnFloatVectorQuery.toString.
-func (q *KnnFloatVectorQuery) String() string {
-	buffer := ""
-	buffer += "KnnFloatVectorQuery:"
-	if len(q.target) > 0 {
-		buffer += fmt.Sprintf("%s[%f,...]", q.field, q.target[0])
-	} else {
-		buffer += fmt.Sprintf("%s[empty]", q.field)
-	}
-	buffer += fmt.Sprintf("[%d]", q.k)
+// Mirrors KnnFloatVectorQuery.toString(String): the field argument is
+// ignored, target[0] is rendered with Java's Float.toString and the filter
+// with its toString().
+func (q *KnnFloatVectorQuery) ToString(field string) string {
+	var buffer strings.Builder
+	buffer.WriteString("KnnFloatVectorQuery:")
+	buffer.WriteString(q.field + "[" + formatJavaFloatingPoint(float64(q.target[0]), 32) + ",...]")
+	buffer.WriteString("[" + strconv.Itoa(q.k) + "]")
 	if q.filter != nil {
-		if s, ok := q.filter.(fmt.Stringer); ok {
-			buffer += fmt.Sprintf("[%s]", s.String())
-		} else {
-			buffer += fmt.Sprintf("[%v]", q.filter)
-		}
+		buffer.WriteString("[" + queryToString(q.filter, "") + "]")
 	}
-	return buffer
+	return buffer.String()
+}
+
+// String renders Query.toString(), which is toString("").
+func (q *KnnFloatVectorQuery) String() string {
+	return q.ToString("")
 }
 
 // Equals checks if two KnnFloatVectorQueries are identical.

@@ -7,11 +7,13 @@ package document
 import (
 	"bytes"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func TestKnnFloatVectorField_Basic(t *testing.T) {
 	v := []float32{1.0, 2.0, 3.0}
-	f, err := NewKnnFloatVectorField("vec", v, index.VectorSimilarityFunctionCosine)
+	f, err := NewKnnFloatVectorField("vec", v, util.CosineSim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,11 +21,11 @@ func TestKnnFloatVectorField_Basic(t *testing.T) {
 	if len(got) != 3 || got[0] != 1.0 || got[2] != 3.0 {
 		t.Fatalf("VectorValue = %v", got)
 	}
-	if f.FieldType().GetVectorDimension() != 3 {
-		t.Fatalf("dim = %d", f.FieldType().GetVectorDimension())
+	if f.FieldType().VectorDimension() != 3 {
+		t.Fatalf("dim = %d", f.FieldType().VectorDimension())
 	}
-	if f.FieldType().GetVectorEncoding() != index.VectorEncodingFloat32 {
-		t.Fatalf("encoding = %v", f.FieldType().GetVectorEncoding())
+	if f.FieldType().VectorEncoding() != util.VectorEncodingFloat32 {
+		t.Fatalf("encoding = %v", f.FieldType().VectorEncoding())
 	}
 	// Encoded length = 12 bytes (3 * 4)
 	if len(f.BinaryValue()) != 12 {
@@ -36,35 +38,35 @@ func TestKnnFloatVectorField_DefaultEuclidean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.FieldType().GetVectorSimilarityFunction() != index.VectorSimilarityFunctionEuclidean {
-		t.Fatalf("similarity = %v", f.FieldType().GetVectorSimilarityFunction())
+	if f.FieldType().VectorSimilarityFunction() != util.EuclideanSim {
+		t.Fatalf("similarity = %v", f.FieldType().VectorSimilarityFunction())
 	}
 }
 
 func TestKnnFloatVectorField_DimMismatch(t *testing.T) {
-	ft := KnnFloatVectorFieldType(3, index.VectorSimilarityFunctionEuclidean)
+	ft := KnnFloatVectorFieldType(3, util.EuclideanSim)
 	if _, err := NewKnnFloatVectorFieldWithType("vec", []float32{1, 2}, ft); err == nil {
 		t.Fatalf("expected error for vector length != FieldType dim")
 	}
 }
 
 func TestKnnFloatVectorField_EmptyErrors(t *testing.T) {
-	if _, err := NewKnnFloatVectorField("vec", nil, index.VectorSimilarityFunctionCosine); err == nil {
+	if _, err := NewKnnFloatVectorField("vec", nil, util.CosineSim); err == nil {
 		t.Fatalf("expected error for empty vector")
 	}
 }
 
 func TestKnnByteVectorField_Basic(t *testing.T) {
 	v := []byte{1, 2, 3, 4}
-	f, err := NewKnnByteVectorField("vec", v, index.VectorSimilarityFunctionDotProduct)
+	f, err := NewKnnByteVectorField("vec", v, util.DotProductSim)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(f.VectorValue(), v) {
 		t.Fatalf("VectorValue = %v", f.VectorValue())
 	}
-	if f.FieldType().GetVectorEncoding() != index.VectorEncodingByte {
-		t.Fatalf("encoding = %v", f.FieldType().GetVectorEncoding())
+	if f.FieldType().VectorEncoding() != util.VectorEncodingByte {
+		t.Fatalf("encoding = %v", f.FieldType().VectorEncoding())
 	}
 }
 
@@ -73,13 +75,13 @@ func TestKnnByteVectorField_DefaultEuclidean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.FieldType().GetVectorSimilarityFunction() != index.VectorSimilarityFunctionEuclidean {
+	if f.FieldType().VectorSimilarityFunction() != util.EuclideanSim {
 		t.Fatalf("similarity wrong")
 	}
 }
 
 func TestKnnByteVectorField_WrongEncodingErrors(t *testing.T) {
-	ft := KnnFloatVectorFieldType(3, index.VectorSimilarityFunctionEuclidean)
+	ft := KnnFloatVectorFieldType(3, util.EuclideanSim)
 	if _, err := NewKnnByteVectorFieldWithType("vec", []byte{1, 2, 3}, ft); err == nil {
 		t.Fatalf("expected error for FLOAT32 FieldType passed to byte ctor")
 	}

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestTokenStream_BasicIncrement tests basic token incrementation.
@@ -26,7 +28,7 @@ func TestTokenStream_BasicIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -94,7 +96,7 @@ func TestTokenStream_ResetMethod(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -113,7 +115,7 @@ func TestTokenStream_ResetMethod(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -190,7 +192,7 @@ func TestTokenStream_AddAttribute(t *testing.T) {
 	ts := NewBaseTokenStream()
 
 	termAttr := NewCharTermAttribute()
-	ts.AddAttribute(termAttr)
+	ts.AddAttributeImpl(termAttr)
 
 	retrieved := ts.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	if retrieved == nil {
@@ -205,12 +207,12 @@ func TestTokenStream_GetAttribute(t *testing.T) {
 	tokenizer := NewWhitespaceTokenizer()
 	tokenizer.SetReader(strings.NewReader("test"))
 
-	attr := tokenizer.GetAttribute("CharTermAttribute")
+	attr := tokenizer.GetAttribute(CharTermAttributeType)
 	if attr == nil {
 		t.Error("Expected to retrieve CharTermAttribute")
 	}
 
-	nonExistent := tokenizer.GetAttribute("NonExistent")
+	nonExistent := tokenizer.GetAttribute(reflect.TypeOf((*nonExistentAttribute)(nil)).Elem())
 	if nonExistent != nil {
 		t.Error("Expected nil for non-existent attribute")
 	}
@@ -226,7 +228,7 @@ func TestTokenStream_CaptureAndRestoreState(t *testing.T) {
 
 	termAttr := NewCharTermAttribute()
 	termAttr.SetValue("test")
-	ts.AddAttribute(termAttr)
+	ts.AddAttributeImpl(termAttr)
 
 	state := ts.GetAttributeSource().CaptureState()
 
@@ -260,7 +262,7 @@ func TestTokenStream_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -347,7 +349,7 @@ func TestTokenStream_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -379,4 +381,10 @@ func TestTokenStream_AttributeSource(t *testing.T) {
 	if !attrSource.HasAttribute(CharTermAttributeType) {
 		t.Error("Expected attribute to exist in source")
 	}
+}
+
+// nonExistentAttribute is an attribute interface no token stream registers.
+type nonExistentAttribute interface {
+	util.AttributeImpl
+	nonExistent()
 }

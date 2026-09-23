@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -635,4 +636,33 @@ func (v *singlePointVisitor) VisitByIntsRef(ref *util.IntsRef) error {
 // does not override.
 func (v *singlePointVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
 	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// Scorer renders the final Weight.scorer(LeafReaderContext): the scorer of
+// scorerSupplier(context).get(Long.MAX_VALUE), or nil when no document
+// matches. It is restated because the embedded BaseWeight.Scorer would call
+// BaseWeight.ScorerSupplier, not this type's override.
+func (w *pointInSetWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	return scorerSupplier.Get(math.MaxInt64)
+}
+
+// BulkScorer renders the final Weight.bulkScorer(LeafReaderContext):
+// scorerSupplier(context), marked as the top-level scoring clause, supplies
+// the bulk scorer; nil when no document matches. It is restated because the
+// embedded BaseWeight.BulkScorer would call BaseWeight.ScorerSupplier, not
+// this type's override.
+func (w *pointInSetWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		// No docs match
+		return nil, err
+	}
+	if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+		return nil, err
+	}
+	return scorerSupplier.BulkScorer()
 }

@@ -6,6 +6,7 @@ package analysis_test
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func (ti tokenInfo) EndOffset() int   { return ti.endOffset }
 // token information, or (nil, nil) when the stream is exhausted.
 func nextToken(ts interface {
 	IncrementToken() (bool, error)
-	GetAttribute(string) util.AttributeImpl
+	GetAttribute(reflect.Type) util.AttributeImpl
 }) (*tokenInfo, error) {
 	ok, err := ts.IncrementToken()
 	if !ok || err != nil {
@@ -41,7 +42,7 @@ func nextToken(ts interface {
 	}
 
 	var text string
-	if attr := ts.GetAttribute("CharTermAttribute"); attr != nil {
+	if attr := ts.GetAttribute(analysis.CharTermAttributeType); attr != nil {
 		if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
 			text = termAttr.String()
 		}
@@ -49,7 +50,7 @@ func nextToken(ts interface {
 
 	ti := &tokenInfo{text: text}
 
-	if attr := ts.GetAttribute("OffsetAttribute"); attr != nil {
+	if attr := ts.GetAttribute(analysis.OffsetAttributeType); attr != nil {
 		if offsetAttr, ok := attr.(analysis.OffsetAttribute); ok {
 			ti.startOffset = offsetAttr.StartOffset()
 			ti.endOffset = offsetAttr.EndOffset()
@@ -62,7 +63,7 @@ func nextToken(ts interface {
 // collectTokenStrings drains a token stream, returning all token texts.
 func collectTokenStrings(ts interface {
 	IncrementToken() (bool, error)
-	GetAttribute(string) util.AttributeImpl
+	GetAttribute(reflect.Type) util.AttributeImpl
 }) ([]string, error) {
 	var tokens []string
 	for {
@@ -89,7 +90,7 @@ func collectFromAnalyzer(a analysis.Analyzer, field, text string) ([]string, err
 	// TokenStream from analyzers embed BaseTokenStream which exposes GetAttribute.
 	type attributeGetter interface {
 		IncrementToken() (bool, error)
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	}
 
 	ag, ok := ts.(attributeGetter)

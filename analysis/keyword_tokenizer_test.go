@@ -29,9 +29,7 @@ func TestKeywordTokenizer_Simple(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewKeywordTokenizer()
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			hasToken, err := tokenizer.IncrementToken()
 			if err != nil {
@@ -67,7 +65,7 @@ func TestKeywordTokenizer_Simple(t *testing.T) {
 // TestKeywordTokenizer_Factory tests the factory creation.
 func TestKeywordTokenizer_Factory(t *testing.T) {
 	factory := NewKeywordTokenizerFactory()
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
@@ -83,9 +81,7 @@ func TestKeywordTokenizer_Factory(t *testing.T) {
 // TestKeywordTokenizer_Empty tests empty input handling.
 func TestKeywordTokenizer_Empty(t *testing.T) {
 	tokenizer := NewKeywordTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader("")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(""))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -111,9 +107,7 @@ func TestKeywordTokenizer_Empty(t *testing.T) {
 func TestKeywordTokenizer_OffsetAttribute(t *testing.T) {
 	input := "Hello World"
 	tokenizer := NewKeywordTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -145,9 +139,7 @@ func TestKeywordTokenizer_Reset(t *testing.T) {
 	tokenizer := NewKeywordTokenizer()
 
 	// First input
-	if err := tokenizer.SetReader(strings.NewReader("first")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("first"))
 	hasToken, _ := tokenizer.IncrementToken()
 	if !hasToken {
 		t.Fatal("Expected token from first input")
@@ -157,9 +149,7 @@ func TestKeywordTokenizer_Reset(t *testing.T) {
 	if err := tokenizer.Reset(); err != nil {
 		t.Fatalf("Reset failed: %v", err)
 	}
-	if err := tokenizer.SetReader(strings.NewReader("second")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("second"))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -182,9 +172,7 @@ func TestKeywordTokenizer_LargeInput(t *testing.T) {
 	large := strings.Repeat("a", 10000)
 
 	tokenizer := NewKeywordTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader(large)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(large))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -218,9 +206,7 @@ func TestKeywordTokenizer_Unicode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewKeywordTokenizer()
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			hasToken, err := tokenizer.IncrementToken()
 			if err != nil {

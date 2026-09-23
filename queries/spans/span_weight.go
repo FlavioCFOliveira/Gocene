@@ -9,6 +9,7 @@ package spans
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -255,3 +256,32 @@ func (w *SpanWeight) Matches(_ *index.LeafReaderContext, _ int) (search.Matches,
 }
 
 var _ search.Weight = (*SpanWeight)(nil)
+
+// Scorer renders the final Weight.scorer(LeafReaderContext): the scorer of
+// scorerSupplier(context).get(Long.MAX_VALUE), or nil when no document
+// matches. It is restated because the embedded BaseWeight.Scorer would call
+// BaseWeight.ScorerSupplier, not this type's override.
+func (w *SpanWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	return scorerSupplier.Get(math.MaxInt64)
+}
+
+// BulkScorer renders the final Weight.bulkScorer(LeafReaderContext):
+// scorerSupplier(context), marked as the top-level scoring clause, supplies
+// the bulk scorer; nil when no document matches. It is restated because the
+// embedded BaseWeight.BulkScorer would call BaseWeight.ScorerSupplier, not
+// this type's override.
+func (w *SpanWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		// No docs match
+		return nil, err
+	}
+	if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+		return nil, err
+	}
+	return scorerSupplier.BulkScorer()
+}

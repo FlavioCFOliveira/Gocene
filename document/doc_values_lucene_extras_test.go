@@ -6,10 +6,12 @@ package document
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestNumericDocValues_INDEXEDTYPE(t *testing.T) {
-	if NumericDocValuesFieldINDEXEDTYPE.DocValuesSkipIndexType() != index.DocValuesSkipIndexTypeRange {
+	if NumericDocValuesFieldINDEXEDTYPE.DocValuesSkipIndexType() != spi.DocValuesSkipIndexTypeRange {
 		t.Fatalf("INDEXED_TYPE must have RANGE skip index")
 	}
 	f, err := NewNumericDocValuesFieldIndexed("n", 42)
@@ -22,7 +24,7 @@ func TestNumericDocValues_INDEXEDTYPE(t *testing.T) {
 }
 
 func TestSortedNumericDocValues_INDEXEDTYPE(t *testing.T) {
-	if SortedNumericDocValuesFieldINDEXEDTYPE.DocValuesSkipIndexType() != index.DocValuesSkipIndexTypeRange {
+	if SortedNumericDocValuesFieldINDEXEDTYPE.DocValuesSkipIndexType() != spi.DocValuesSkipIndexTypeRange {
 		t.Fatalf("INDEXED_TYPE must have RANGE skip index")
 	}
 	f, err := NewSortedNumericDocValuesFieldIndexed("n", []int64{1, 2, 3})

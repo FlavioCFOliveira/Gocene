@@ -2,39 +2,23 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestMinShouldMatch2.java
-//
-// Indexes ~300 single-segment documents carrying a random subset of the always /
-// common / medium / rare terms (plus a parallel SortedSetDocValues "dv" field),
-// then, under ClassicSimilarity, builds BooleanQuery disjunctions with a
-// minimumNumberShouldMatch and compares the documents and scores produced by the
-// two production scorer paths: the per-document Scorer (BooleanWeight.scorer) and
-// the bulk scorer (BooleanWeight.scorerSupplier().bulkScorer()). assertNext walks
-// both via nextDoc; assertAdvance walks both via advance.
-//
-// Deviation from the reference, documented per the binary-compatibility mandate:
-// the upstream test cross-checks against a third reference scorer,
-// SlowMinShouldMatchScorer, that recomputes minShouldMatch matches and scores
-// directly from the SortedSetDocValues "dv" field (using TermStates.build and
-// Similarity.SimScorer.score(freq, norm)), and wraps the bulk scorer in
-// BulkScorerWrapperScorer. Those test-framework helpers (and the
-// SimScorer.score(freq, norm) entry point and BooleanWeight.similarity accessor
-// they rely on) are not yet ported in Gocene, so the DOC_VALUES reference is
-// replaced by the bulk-scorer path: the Scorer and the bulk scorer must still
-// agree on every matching document and score, which is the core minShouldMatch
-// scorer invariant the reference enforces. The "dv" field is still indexed to
-// keep the corpus and term distribution identical to the reference.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestMinShouldMatch2.java
+// (Apache Lucene 10.5.0): tests the scorers for minShouldMatch. The @Nightly
+// testAdvanceVaryingNumberOfTerms lives in test_min_should_match2_monster_test.go
+// behind the gocene_monsters build tag. The static @BeforeClass state is rebuilt
+// per test (msm2BeforeClass).
 
 package search_test
 
 import (
-	"math/rand"
+	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 var (
@@ -46,349 +30,482 @@ var (
 	}
 )
 
-// msm2Index holds the single-segment searcher plus its leaf context.
-type msm2Index struct {
-	s    *search.IndexSearcher
-	ctx  *index.LeafReaderContext
-	stop func()
+// msm2Mode renders the enum Mode.
+type msm2Mode int
+
+const (
+	msm2Scorer msm2Mode = iota
+	msm2BulkScorer
+	msm2DocValues
+)
+
+// msm2Class renders the static fields of TestMinShouldMatch2.
+type msm2Class struct {
+	reader   index.LeafReader
+	ctx      *index.LeafReaderContext
+	searcher *search.IndexSearcher
 }
 
-func newMsm2Index(t *testing.T) *msm2Index {
+// msm2BeforeClass renders beforeClass(); afterClass is registered with t.Cleanup.
+func msm2BeforeClass(t *testing.T) *msm2Class {
 	t.Helper()
-	rng := rand.New(rand.NewSource(hashStringSeed("TestMinShouldMatch2"))) //nolint:gosec // deterministic test seed
-	ix := newIntegrationIndex(t)
-
-	addSome := func(doc *document.Document, values []string) {
-		shuffled := append([]string(nil), values...)
-		rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
-		howMany := rng.Intn(len(shuffled)) + 1
-		for i := 0; i < howMany; i++ {
-			f, err := document.NewStringField("field", shuffled[i], false)
-			if err != nil {
-				t.Fatalf("NewStringField: %v", err)
-			}
-			doc.Add(f)
-			dv, err := document.NewSortedSetDocValuesField("dv", [][]byte{[]byte(shuffled[i])})
-			if err != nil {
-				t.Fatalf("NewSortedSetDocValuesField: %v", err)
-			}
-			doc.Add(dv)
-		}
-	}
-
-	const numDocs = 300
+	c := &msm2Class{}
+	dir := newDirectory()
+	iw := newRandomIndexWriter(t, dir)
+	numDocs := atLeast(300)
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		addSome(doc, msm2AlwaysTerms)
-		if rng.Intn(100) < 90 {
-			addSome(doc, msm2CommonTerms)
-		}
-		if rng.Intn(100) < 50 {
-			addSome(doc, msm2MediumTerms)
-		}
-		if rng.Intn(100) < 10 {
-			addSome(doc, msm2RareTerms)
-		}
-		ix.addDoc(doc)
-	}
-	ix.forceMerge(1)
-	s, cleanup := ix.searcher()
-	s.SetSimilarity(search.NewClassicSimilarity())
 
-	leaves, err := s.GetIndexReader().Leaves()
-	if err != nil {
-		cleanup()
-		t.Fatalf("Leaves: %v", err)
+		msm2AddSome(t, doc, msm2AlwaysTerms)
+
+		if random().Intn(100) < 90 {
+			msm2AddSome(t, doc, msm2CommonTerms)
+		}
+		if random().Intn(100) < 50 {
+			msm2AddSome(t, doc, msm2MediumTerms)
+		}
+		if random().Intn(100) < 10 {
+			msm2AddSome(t, doc, msm2RareTerms)
+		}
+		mustAddDocument(t, iw, doc)
 	}
-	if len(leaves) != 1 {
-		cleanup()
-		t.Fatalf("expected a single leaf after forceMerge, got %d", len(leaves))
+	if err := iw.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	return &msm2Index{s: s, ctx: leaves[0], stop: cleanup}
+	mustClose(t, iw)
+	r := mustOpenDirectoryReader(t, dir)
+	t.Cleanup(func() { mustClose(t, r, dir) })
+	c.reader = mustLeaves(t, r)[0].LeafReader() // getOnlyLeafReader(r)
+	if n := len(mustLeaves(t, r)); n != 1 {
+		t.Fatalf("reader has %d segments instead of exactly one", n)
+	}
+	c.searcher = search.NewIndexSearcher(c.reader)
+	c.searcher.SetSimilarity(search.NewClassicSimilarity())
+	c.ctx = mustLeaves(t, c.searcher.GetIndexReader())[0] // reader.getContext()
+	return c
 }
 
-// scorerFor builds a per-document Scorer for the minShouldMatch disjunction.
-func (ix *msm2Index) scorerFor(t *testing.T, values []string, minShouldMatch int) search.Scorer {
+// msm2AddSome renders the private static addSome(Document, String[]).
+func msm2AddSome(t *testing.T, doc *document.Document, values []string) {
 	t.Helper()
-	bq := search.NewBooleanQueryBuilder()
-	for _, v := range values {
-		bq.Add(search.NewTermQuery(index.NewTerm("field", v)), search.SHOULD)
-	}
-	bq.SetMinimumNumberShouldMatch(minShouldMatch)
-	rewritten, err := bq.Build().Rewrite(ix.s)
-	if err != nil {
-		t.Fatalf("Rewrite: %v", err)
-	}
-	w, err := ix.s.CreateWeight(rewritten, search.COMPLETE, 1)
-	if err != nil {
-		t.Fatalf("CreateWeight: %v", err)
-	}
-	if w == nil {
-		return nil
-	}
-	scorer, err := w.Scorer(ix.ctx)
-	if err != nil {
-		t.Fatalf("Scorer: %v", err)
-	}
-	return scorer
-}
-
-// bulkPairsFor collects (doc, score) pairs from the bulk-scorer path — the
-// production cross-check against the per-document Scorer.
-func (ix *msm2Index) bulkPairsFor(t *testing.T, values []string, minShouldMatch int) []msm2Pair {
-	t.Helper()
-	bq := search.NewBooleanQueryBuilder()
-	for _, v := range values {
-		bq.Add(search.NewTermQuery(index.NewTerm("field", v)), search.SHOULD)
-	}
-	bq.SetMinimumNumberShouldMatch(minShouldMatch)
-	rewritten, err := bq.Build().Rewrite(ix.s)
-	if err != nil {
-		t.Fatalf("Rewrite: %v", err)
-	}
-	w, err := ix.s.CreateWeight(rewritten, search.COMPLETE, 1)
-	if err != nil {
-		t.Fatalf("CreateWeight: %v", err)
-	}
-	if w == nil {
-		return nil
-	}
-	bs, err := w.BulkScorer(ix.ctx)
-	if err != nil {
-		t.Fatalf("BulkScorer: %v", err)
-	}
-	if bs == nil {
-		return nil
-	}
-	c := &msm2Collector{}
-	if _, err := bs.Score(c, nil, 0, search.NO_MORE_DOCS); err != nil {
-		t.Fatalf("bulk Score: %v", err)
-	}
-	return c.pairs
-}
-
-type msm2Pair struct {
-	doc   int
-	score float32
-}
-
-type msm2Collector struct {
-	scorer search.Scorable
-	pairs  []msm2Pair
-}
-
-func (c *msm2Collector) SetScorer(s search.Scorable) error { c.scorer = s; return nil }
-func (c *msm2Collector) Collect(doc int) error {
-	var score float32
-	if c.scorer != nil {
-		s, err := c.scorer.Score()
+	list := values // Arrays.asList(values): a view shuffled in place
+	random().Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
+	howMany := nextInt(1, len(list))
+	for i := 0; i < howMany; i++ {
+		doc.Add(mustStringField(t, "field", list[i], false))
+		dv, err := document.NewSortedSetDocValuesField("dv", [][]byte{[]byte(list[i])})
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		score = s
+		doc.Add(dv)
 	}
-	c.pairs = append(c.pairs, msm2Pair{doc: doc, score: score})
-	return nil
 }
 
-// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
-func (c *msm2Collector) CollectRange(min int, max int) error {
-	return search.DefaultCollectRange(c, min, max)
-}
-
-// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
-func (c *msm2Collector) CollectStream(stream search.DocIdStream) error {
-	return search.DefaultCollectStream(c, stream)
-}
-
-// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
-func (c *msm2Collector) CompetitiveIterator() (search.DocIdSetIterator, error) {
-	return nil, nil
-}
-
-// Finish carries the default body Lucene gives LeafCollector.Finish.
-func (c *msm2Collector) Finish() error {
-	return nil
-}
-
-// assertNext walks the per-document Scorer via nextDoc and checks it produces the
-// same (doc, score) sequence as the bulk-scorer path.
-func assertNextMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair) {
+// scorer renders the private scorer(String[], int, Mode).
+func (c *msm2Class) scorer(t *testing.T, values []string, minShouldMatch int, mode msm2Mode) search.Scorer {
 	t.Helper()
-	if scorer == nil {
-		if len(expected) != 0 {
-			t.Errorf("scorer is nil but bulk path produced %d hits", len(expected))
+	bq := search.NewBooleanQueryBuilder()
+	for _, value := range values {
+		bq.Add(search.NewTermQuery(index.NewTerm("field", value)), search.SHOULD)
+	}
+	bq.SetMinimumNumberShouldMatch(minShouldMatch)
+
+	weight := mustCreateWeight(t, c.searcher, mustRewrite(t, c.searcher, bq.Build()), search.COMPLETE, 1).(*search.BooleanWeight)
+
+	switch mode {
+	case msm2DocValues:
+		return newSlowMinShouldMatchScorer(t, weight, c.reader, c.searcher)
+	case msm2Scorer:
+		s, err := weight.Scorer(c.ctx)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if s == nil {
+			return nil
+		}
+		return s
+	case msm2BulkScorer:
+		ss, err := weight.ScorerSupplier(c.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bulkScorer, err := ss.BulkScorer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bulkScorer == nil {
+			if s, _ := weight.Scorer(c.ctx); s != nil {
+				panic(util.NewAssertionError("BooleanScorer should be applicable for this query"))
+			}
+			return nil
+		}
+		return testsearch.NewBulkScorerWrapperScorer(bulkScorer, nextInt(1, 100))
+	default:
+		panic(util.NewAssertionError(nil))
+	}
+}
+
+// assertNext renders the private assertNext(Scorer, Scorer).
+func msm2AssertNext(t *testing.T, expected, actual search.Scorer) {
+	t.Helper()
+	if actual == nil {
+		doc, err := expected.Iterator().NextDoc()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertIntEquals(t, search.NO_MORE_DOCS, doc)
 		return
 	}
-	i := 0
+	expectedIt := expected.Iterator()
+	actualIt := actual.Iterator()
 	for {
-		doc, err := scorer.Iterator().NextDoc()
+		doc, err := expectedIt.NextDoc()
 		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
+			t.Fatal(err)
 		}
 		if doc == search.NO_MORE_DOCS {
 			break
 		}
-		if i >= len(expected) {
-			t.Fatalf("scorer produced more hits than the bulk path (extra doc %d)", doc)
-		}
-		if doc != expected[i].doc {
-			t.Fatalf("hit %d: scorer doc=%d, bulk doc=%d", i, doc, expected[i].doc)
-		}
-		v235_6, err := scorer.Score()
+		got, err := actualIt.NextDoc()
 		if err != nil {
-			t.Fatalf("scorer.Score: %v", err)
+			t.Fatal(err)
 		}
-		if v235_6 != expected[i].score {
-			v236_60, err := scorer.Score()
-			if err != nil {
-				t.Fatalf("scorer.Score: %v", err)
-			}
-			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, v236_60, expected[i].score)
-		}
-		i++
+		assertIntEquals(t, doc, got)
+		msm2AssertScores(t, expected, actual)
 	}
-	if i != len(expected) {
-		t.Errorf("scorer produced %d hits, bulk path produced %d", i, len(expected))
+	got, err := actualIt.NextDoc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIntEquals(t, search.NO_MORE_DOCS, got)
+}
+
+func msm2AssertScores(t *testing.T, expected, actual search.Scorer) {
+	t.Helper()
+	expectedScore, err := expected.Score()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualScore, err := actual.Score()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expectedScore != actualScore {
+		t.Fatalf("score: expected %v, got %v", expectedScore, actualScore)
 	}
 }
 
-// assertAdvance walks the per-document Scorer via advance and checks it agrees
-// with the bulk-scorer path's matching documents.
-func assertAdvanceMsm2(t *testing.T, scorer search.Scorer, expected []msm2Pair, amount int) {
+// assertAdvance renders the private assertAdvance(Scorer, Scorer, int).
+func msm2AssertAdvance(t *testing.T, expected, actual search.Scorer, amount int) {
 	t.Helper()
-	if scorer == nil {
-		if len(expected) != 0 {
-			t.Errorf("scorer is nil but bulk path produced %d hits", len(expected))
+	if actual == nil {
+		doc, err := expected.Iterator().NextDoc()
+		if err != nil {
+			t.Fatal(err)
 		}
+		assertIntEquals(t, search.NO_MORE_DOCS, doc)
 		return
 	}
-	expectedDocs := make(map[int]float32, len(expected))
-	for _, p := range expected {
-		expectedDocs[p.doc] = p.score
-	}
+	expectedIt := expected.Iterator()
+	actualIt := actual.Iterator()
 	prevDoc := 0
 	for {
-		doc, err := scorer.Iterator().Advance(prevDoc + amount)
+		doc, err := expectedIt.Advance(prevDoc + amount)
 		if err != nil {
-			t.Fatalf("Advance: %v", err)
+			t.Fatal(err)
 		}
 		if doc == search.NO_MORE_DOCS {
 			break
 		}
-		want, ok := expectedDocs[doc]
-		if !ok {
-			t.Fatalf("scorer advanced to doc %d which the bulk path did not match", doc)
-		}
-		v272_6, err := scorer.Score()
+		got, err := actualIt.Advance(prevDoc + amount)
 		if err != nil {
-			t.Fatalf("scorer.Score: %v", err)
+			t.Fatal(err)
 		}
-		if v272_6 != want {
-			v273_60, err := scorer.Score()
-			if err != nil {
-				t.Fatalf("scorer.Score: %v", err)
-			}
-			t.Errorf("doc %d: scorer score=%v, bulk score=%v", doc, v273_60, want)
-		}
+		assertIntEquals(t, doc, got)
+		msm2AssertScores(t, expected, actual)
 		prevDoc = doc
 	}
+	got, err := actualIt.Advance(prevDoc + amount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIntEquals(t, search.NO_MORE_DOCS, got)
 }
 
-func msm2AllTerms() []string {
-	all := append([]string(nil), msm2CommonTerms...)
-	all = append(all, msm2MediumTerms...)
-	all = append(all, msm2RareTerms...)
-	return all
-}
+// simple test for next(): minShouldMatch=2 on 3 terms (one common, one medium, one rare)
+func TestMinShouldMatch2NextCMR2(t *testing.T) {
+	c := msm2BeforeClass(t)
+	for common := 0; common < len(msm2CommonTerms); common++ {
+		for medium := 0; medium < len(msm2MediumTerms); medium++ {
+			for rare := 0; rare < len(msm2RareTerms); rare++ {
+				terms := []string{msm2CommonTerms[common], msm2MediumTerms[medium], msm2RareTerms[rare]}
+				expected := c.scorer(t, terms, 2, msm2DocValues)
+				actual := c.scorer(t, terms, 2, msm2Scorer)
+				msm2AssertNext(t, expected, actual)
 
-// TestMinShouldMatch2_NextCMR2 ports testNextCMR2.
-func TestMinShouldMatch2_NextCMR2(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
-	for _, common := range msm2CommonTerms {
-		for _, medium := range msm2MediumTerms {
-			for _, rare := range msm2RareTerms {
-				terms := []string{common, medium, rare}
-				expected := ix.bulkPairsFor(t, terms, 2)
-				assertNextMsm2(t, ix.scorerFor(t, terms, 2), expected)
+				expected = c.scorer(t, terms, 2, msm2DocValues)
+				actual = c.scorer(t, terms, 2, msm2BulkScorer)
+				msm2AssertNext(t, expected, actual)
 			}
 		}
 	}
 }
 
-// TestMinShouldMatch2_AdvanceCMR2 ports testAdvanceCMR2.
-func TestMinShouldMatch2_AdvanceCMR2(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
+// simple test for advance(): minShouldMatch=2 on 3 terms (one common, one medium, one rare)
+func TestMinShouldMatch2AdvanceCMR2(t *testing.T) {
+	c := msm2BeforeClass(t)
 	for amount := 25; amount < 200; amount += 25 {
-		for _, common := range msm2CommonTerms {
-			for _, medium := range msm2MediumTerms {
-				for _, rare := range msm2RareTerms {
-					terms := []string{common, medium, rare}
-					expected := ix.bulkPairsFor(t, terms, 2)
-					assertAdvanceMsm2(t, ix.scorerFor(t, terms, 2), expected, amount)
+		for common := 0; common < len(msm2CommonTerms); common++ {
+			for medium := 0; medium < len(msm2MediumTerms); medium++ {
+				for rare := 0; rare < len(msm2RareTerms); rare++ {
+					terms := []string{msm2CommonTerms[common], msm2MediumTerms[medium], msm2RareTerms[rare]}
+					expected := c.scorer(t, terms, 2, msm2DocValues)
+					actual := c.scorer(t, terms, 2, msm2Scorer)
+					msm2AssertAdvance(t, expected, actual, amount)
+
+					expected = c.scorer(t, terms, 2, msm2DocValues)
+					actual = c.scorer(t, terms, 2, msm2BulkScorer)
+					msm2AssertAdvance(t, expected, actual, amount)
 				}
 			}
 		}
 	}
 }
 
-// TestMinShouldMatch2_NextAllTerms ports testNextAllTerms.
-func TestMinShouldMatch2_NextAllTerms(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
-	terms := msm2AllTerms()
+func msm2AllTermsList() []string {
+	var termsList []string
+	termsList = append(termsList, msm2CommonTerms...)
+	termsList = append(termsList, msm2MediumTerms...)
+	termsList = append(termsList, msm2RareTerms...)
+	return termsList
+}
+
+// test next with giant bq of all terms with varying minShouldMatch
+func TestMinShouldMatch2NextAllTerms(t *testing.T) {
+	c := msm2BeforeClass(t)
+	terms := msm2AllTermsList()
+
 	for minNrShouldMatch := 1; minNrShouldMatch < len(terms); minNrShouldMatch++ {
-		expected := ix.bulkPairsFor(t, terms, minNrShouldMatch)
-		assertNextMsm2(t, ix.scorerFor(t, terms, minNrShouldMatch), expected)
+		expected := c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+		actual := c.scorer(t, terms, minNrShouldMatch, msm2Scorer)
+		msm2AssertNext(t, expected, actual)
+
+		expected = c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+		actual = c.scorer(t, terms, minNrShouldMatch, msm2BulkScorer)
+		msm2AssertNext(t, expected, actual)
 	}
 }
 
-// TestMinShouldMatch2_AdvanceAllTerms ports testAdvanceAllTerms.
-func TestMinShouldMatch2_AdvanceAllTerms(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
-	terms := msm2AllTerms()
+// test advance with giant bq of all terms with varying minShouldMatch
+func TestMinShouldMatch2AdvanceAllTerms(t *testing.T) {
+	c := msm2BeforeClass(t)
+	terms := msm2AllTermsList()
+
 	for amount := 25; amount < 200; amount += 25 {
 		for minNrShouldMatch := 1; minNrShouldMatch < len(terms); minNrShouldMatch++ {
-			expected := ix.bulkPairsFor(t, terms, minNrShouldMatch)
-			assertAdvanceMsm2(t, ix.scorerFor(t, terms, minNrShouldMatch), expected, amount)
+			expected := c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+			actual := c.scorer(t, terms, minNrShouldMatch, msm2Scorer)
+			msm2AssertAdvance(t, expected, actual, amount)
+
+			expected = c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+			actual = c.scorer(t, terms, minNrShouldMatch, msm2BulkScorer)
+			msm2AssertAdvance(t, expected, actual, amount)
 		}
 	}
 }
 
-// TestMinShouldMatch2_NextVaryingNumberOfTerms ports testNextVaryingNumberOfTerms.
-func TestMinShouldMatch2_NextVaryingNumberOfTerms(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
-	terms := msm2AllTerms()
-	rng := rand.New(rand.NewSource(hashStringSeed(t.Name()))) //nolint:gosec // deterministic test seed
-	rng.Shuffle(len(terms), func(i, j int) { terms[i], terms[j] = terms[j], terms[i] })
-	for numTerms := 2; numTerms <= len(terms); numTerms++ {
-		sub := terms[:numTerms]
-		for minNrShouldMatch := 1; minNrShouldMatch < len(sub); minNrShouldMatch++ {
-			expected := ix.bulkPairsFor(t, sub, minNrShouldMatch)
-			assertNextMsm2(t, ix.scorerFor(t, sub, minNrShouldMatch), expected)
+// test next with varying numbers of terms with varying minShouldMatch
+func TestMinShouldMatch2NextVaryingNumberOfTerms(t *testing.T) {
+	c := msm2BeforeClass(t)
+	termsList := msm2AllTermsList()
+	random().Shuffle(len(termsList), func(i, j int) { termsList[i], termsList[j] = termsList[j], termsList[i] })
+	for numTerms := 2; numTerms <= len(termsList); numTerms++ {
+		terms := append([]string(nil), termsList[:numTerms]...)
+		for minNrShouldMatch := 1; minNrShouldMatch < len(terms); minNrShouldMatch++ {
+			expected := c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+			actual := c.scorer(t, terms, minNrShouldMatch, msm2Scorer)
+			msm2AssertNext(t, expected, actual)
+
+			expected = c.scorer(t, terms, minNrShouldMatch, msm2DocValues)
+			actual = c.scorer(t, terms, minNrShouldMatch, msm2BulkScorer)
+			msm2AssertNext(t, expected, actual)
 		}
 	}
 }
 
-// TestMinShouldMatch2_AdvanceVaryingNumberOfTerms ports testAdvanceVaryingNumberOfTerms.
-func TestMinShouldMatch2_AdvanceVaryingNumberOfTerms(t *testing.T) {
-	ix := newMsm2Index(t)
-	defer ix.stop()
-	terms := msm2AllTerms()
-	rng := rand.New(rand.NewSource(hashStringSeed(t.Name()))) //nolint:gosec // deterministic test seed
-	rng.Shuffle(len(terms), func(i, j int) { terms[i], terms[j] = terms[j], terms[i] })
-	for amount := 25; amount < 200; amount += 25 {
-		for numTerms := 2; numTerms <= len(terms); numTerms++ {
-			sub := terms[:numTerms]
-			for minNrShouldMatch := 1; minNrShouldMatch < len(sub); minNrShouldMatch++ {
-				expected := ix.bulkPairsFor(t, sub, minNrShouldMatch)
-				assertAdvanceMsm2(t, ix.scorerFor(t, sub, minNrShouldMatch), expected, amount)
+// msm2SortedSetDocValuesLookup names the SortedSetDocValues members the slow
+// scorer needs beyond Gocene's spi.SortedSetDocValues.
+type msm2SortedSetDocValuesLookup interface {
+	GetValueCount() int
+	LookupTerm(key *util.BytesRef) (int, error)
+}
+
+// sortedSetDocValuesLookupBlocker names the missing SortedSetDocValues members.
+const sortedSetDocValuesLookupBlocker = "requires org.apache.lucene.index.SortedSetDocValues#getValueCount() and " +
+	"#lookupTerm(BytesRef) on the codec's SortedSetDocValues (not ported)"
+
+// slowMinShouldMatchScorer renders the static class SlowMinShouldMatchScorer:
+// a slow min-should match scorer that uses a docvalues field. later, we can
+// make debugging easier as it can record the set of ords it currently matched
+// and e.g. print out their values and so on for the document.
+type slowMinShouldMatchScorer struct {
+	search.BaseScorer
+	currentDoc     int // current docid
+	currentMatched int // current number of terms matched
+
+	dv     index.SortedSetDocValues
+	maxDoc int
+
+	ords             map[int64]struct{}
+	sims             []search.SimScorer
+	norms            index.NumericDocValues
+	minNrShouldMatch int
+
+	score float64
+	it    *slowMinShouldMatchIterator
+}
+
+func newSlowMinShouldMatchScorer(t *testing.T, weight *search.BooleanWeight, reader index.LeafReader, searcher *search.IndexSearcher) *slowMinShouldMatchScorer {
+	t.Helper()
+	s := &slowMinShouldMatchScorer{currentDoc: -1, currentMatched: -1, ords: map[int64]struct{}{}, score: float64(float32(math.NaN()))}
+	s.it = &slowMinShouldMatchIterator{s: s}
+	dv, err := reader.GetSortedSetDocValues("dv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.dv = dv
+	s.maxDoc = reader.MaxDoc()
+	bq := weight.GetQuery().(*search.BooleanQuery)
+	s.minNrShouldMatch = bq.GetMinimumNumberShouldMatch()
+	lookup, ok := dv.(msm2SortedSetDocValuesLookup)
+	if !ok {
+		t.Fatal(sortedSetDocValuesLookupBlocker)
+	}
+	s.sims = make([]search.SimScorer, lookup.GetValueCount())
+	for _, clause := range bq.Clauses() {
+		if util.AssertsEnabled() && (clause.IsProhibited() || clause.IsRequired()) {
+			panic(util.NewAssertionError(nil))
+		}
+		term := clause.Query().(*search.TermQuery).GetTerm()
+		ord, err := lookup.LookupTerm(term.BytesValue())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ord >= 0 {
+			_, dup := s.ords[int64(ord)]
+			s.ords[int64(ord)] = struct{}{}
+			if util.AssertsEnabled() && dup {
+				panic(util.NewAssertionError(nil)) // no dups
+			}
+			ts, err := index.BuildTermStates(searcher, term, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			collectionStats, err := searcher.CollectionStatistics("field")
+			if err != nil {
+				t.Fatal(err)
+			}
+			termStats := searcher.TermStatistics(term, ts.DocFreq(), ts.TotalTermFreq())
+			s.sims[ord] = search.BooleanWeightSimilarity(weight).Scorer104(1, collectionStats, &termStats)
+		}
+	}
+	norms, err := reader.GetNormValues("field")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.norms = norms
+	return s
+}
+
+func (s *slowMinShouldMatchScorer) Score() (float32, error) {
+	if util.AssertsEnabled() && s.score == 0 {
+		panic(util.NewAssertionError(s.currentMatched))
+	}
+	return float32(s.score), nil
+}
+
+func (s *slowMinShouldMatchScorer) GetMaxScore(upTo int) (float32, error) {
+	return float32(math.Inf(1)), nil
+}
+
+func (s *slowMinShouldMatchScorer) DocID() int { return s.currentDoc }
+
+func (s *slowMinShouldMatchScorer) Iterator() search.DocIdSetIterator { return s.it }
+
+func (s *slowMinShouldMatchScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// slowMinShouldMatchIterator renders the anonymous DocIdSetIterator of iterator().
+type slowMinShouldMatchIterator struct {
+	s *slowMinShouldMatchScorer
+}
+
+func (it *slowMinShouldMatchIterator) NextDoc() (int, error) {
+	s := it.s
+	if util.AssertsEnabled() && s.currentDoc == search.NO_MORE_DOCS {
+		panic(util.NewAssertionError(nil))
+	}
+	for s.currentDoc = s.currentDoc + 1; s.currentDoc < s.maxDoc; s.currentDoc++ {
+		s.currentMatched = 0
+		s.score = 0
+		if s.currentDoc > s.dv.DocID() {
+			if _, err := s.dv.Advance(s.currentDoc); err != nil {
+				return 0, err
 			}
 		}
+		if s.currentDoc != s.dv.DocID() {
+			continue
+		}
+		norm := int64(1)
+		if s.norms != nil {
+			ok, err := s.norms.AdvanceExact(s.currentDoc)
+			if err != nil {
+				return 0, err
+			}
+			if ok {
+				norm, err = s.norms.LongValue()
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+		for i := 0; i < s.dv.DocValueCount(); i++ {
+			ord, err := s.dv.NextOrd()
+			if err != nil {
+				return 0, err
+			}
+			if _, ok := s.ords[int64(ord)]; ok {
+				s.currentMatched++
+				s.score += float64(s.sims[ord].Score104(1, norm))
+			}
+		}
+		if s.currentMatched >= s.minNrShouldMatch {
+			return s.currentDoc, nil
+		}
+	}
+	s.currentDoc = search.NO_MORE_DOCS
+	return s.currentDoc, nil
+}
+
+func (it *slowMinShouldMatchIterator) Advance(target int) (int, error) {
+	for {
+		doc, err := it.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc >= target {
+			return doc, nil
+		}
 	}
 }
+
+func (it *slowMinShouldMatchIterator) Cost() int64 { return int64(it.s.maxDoc) }
+
+func (it *slowMinShouldMatchIterator) DocID() int { return it.s.currentDoc }
+
+func (it *slowMinShouldMatchIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+func (it *slowMinShouldMatchIterator) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(it) }

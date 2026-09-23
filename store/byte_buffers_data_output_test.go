@@ -56,7 +56,7 @@ func TestByteBuffersDataOutput_Reuse(t *testing.T) {
 	addCount := rand.Intn(4000) + 1000
 	rng := rand.New(rand.NewSource(seed))
 	data := generateRandomData(rng, addCount)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 	result := o.ToArrayCopy()
 
 	expectedAllocations := allocations
@@ -64,7 +64,7 @@ func TestByteBuffersDataOutput_Reuse(t *testing.T) {
 	o.Reset()
 	rng = rand.New(rand.NewSource(seed))
 	data = generateRandomData(rng, addCount)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	if allocations != expectedAllocations {
 		t.Errorf("Expected %d allocations, got %d", expectedAllocations, allocations)
@@ -170,7 +170,7 @@ func TestByteBuffersDataOutput_ToBufferList(t *testing.T) {
 	// Write some data
 	data := make([]byte, 1000)
 	rand.Read(data)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	buffers := o.ToBufferList()
 	if len(buffers) == 0 {
@@ -193,7 +193,7 @@ func TestByteBuffersDataOutput_ToWriteableBufferList(t *testing.T) {
 	// Write some data
 	data := make([]byte, 1000)
 	rand.Read(data)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	buffers := o.ToWriteableBufferList()
 	if len(buffers) == 0 {
@@ -216,7 +216,7 @@ func TestByteBuffersDataOutput_Reset(t *testing.T) {
 	// Write some data
 	data := make([]byte, 1000)
 	rand.Read(data)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	if o.Size() == 0 {
 		t.Fatal("Expected non-zero size after writing")
@@ -312,7 +312,7 @@ func TestByteBuffersDataOutput_WriteString(t *testing.T) {
 
 		// Read string bytes
 		strBytes := make([]byte, length)
-		if err := in.ReadBytes(strBytes); err != nil {
+		if err := in.ReadBytes(strBytes, 0, len(strBytes)); err != nil {
 			t.Fatalf("Failed to read string bytes for %q: %v", s, err)
 		}
 
@@ -350,7 +350,7 @@ func TestByteBuffersDataOutput_CopyTo(t *testing.T) {
 	rand.Read(sourceData)
 
 	source := NewByteBuffersDataOutput()
-	source.WriteBytes(sourceData)
+	source.WriteBytes(sourceData, 0, len(sourceData))
 
 	target := NewByteBuffersDataOutput()
 	if err := source.CopyTo(target); err != nil {
@@ -371,7 +371,7 @@ func TestByteBuffersDataOutput_BlockExpansion(t *testing.T) {
 	rand.Read(data)
 
 	o := NewByteBuffersDataOutput()
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	result := o.ToArrayCopy()
 	if !bytes.Equal(result, data) {
@@ -424,7 +424,7 @@ func TestByteBuffersDataOutput_BufferCount(t *testing.T) {
 	blockSize := 1 << DefaultMinBitsPerBlock
 	data := make([]byte, blockSize*3+100)
 	rand.Read(data)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	// Should have multiple buffers
 	if o.BufferCount() < 3 {
@@ -440,7 +440,7 @@ func TestByteBuffersDataOutput_BlockCapacity(t *testing.T) {
 	// Write some data
 	data := make([]byte, 100)
 	rand.Read(data)
-	o.WriteBytes(data)
+	o.WriteBytes(data, 0, len(data))
 
 	capacity := o.BlockCapacity(0)
 	if capacity < 100 {

@@ -28,7 +28,7 @@ func TestByteBuffersIndexInput_ReadLongAt_LittleEndian(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(buf); err != nil {
+	if err := out.WriteBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {

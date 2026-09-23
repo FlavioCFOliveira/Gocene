@@ -1,188 +1,61 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package search
 
 import (
-	"context"
-	"fmt"
-	"sync"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// SearcherFactory is a factory pattern for creating IndexSearcher instances.
-// It allows customization of how IndexSearcher instances are created and configured.
-// Implementations can provide custom warming, caching, or other initialization logic.
+// SearcherFactory is the Go port of org.apache.lucene.search.SearcherFactory
+// (Apache Lucene 10.5.0): a factory class used by [SearcherManager] to create
+// new IndexSearchers. The default implementation just creates an
+// IndexSearcher with no custom behavior:
+//
+//	func (f *SearcherFactory) NewSearcher(r, previousReader index.IndexReaderInterface) (*IndexSearcher, error) {
+//		return NewIndexSearcher(r), nil
+//	}
+//
+// You can pass your own factory instead if you want custom behavior, such as:
+//
+//   - Setting a custom scoring model: IndexSearcher.SetSimilarity
+//   - Parallel per-segment search: NewIndexSearcherWithExecutor
+//   - Return custom subclasses of IndexSearcher (for example that implement
+//     distributed scoring)
+//   - Run queries to warm your IndexSearcher before it is used. Note: when
+//     using near-realtime search you may want to also set
+//     IndexWriterConfig.setMergedSegmentWarmer to warm newly merged segments
+//     in the background, outside of the reopen path.
+//
+// Java's SearcherFactory is a concrete, subclassable class. Go renders the
+// overridable member as this interface and the concrete class as
+// [BaseSearcherFactory] (new SearcherFactory() is [NewSearcherFactory]); a
+// subclass embeds *BaseSearcherFactory and redeclares NewSearcher, calling
+// f.BaseSearcherFactory.NewSearcher where Java calls super.newSearcher.
 type SearcherFactory interface {
-	// NewSearcher creates a new IndexSearcher from the provided IndexReader.
-	// The factory is responsible for any custom initialization of the searcher.
-	NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*IndexSearcher, error)
+	// NewSearcher returns a new IndexSearcher over the given reader.
+	//
+	// reader is the reader to create a new searcher for. previousReader is
+	// the reader previously used to create a new searcher. This can be nil
+	// if unknown or if the given reader is the initially opened reader. If
+	// this reader is non-nil it can be used to find newly opened segments
+	// compared to the new reader to warm the searcher up before returning.
+	NewSearcher(reader, previousReader index.IndexReaderInterface) (*IndexSearcher, error)
 }
 
-// DefaultSearcherFactory is the default implementation of SearcherFactory.
-// It creates IndexSearcher instances with standard configuration.
-type DefaultSearcherFactory struct {
-	// executor is optional and can be used for multithreaded search
-	executor Executor
+// BaseSearcherFactory is the concrete class org.apache.lucene.search.SearcherFactory.
+type BaseSearcherFactory struct{}
+
+// NewSearcherFactory renders new SearcherFactory().
+func NewSearcherFactory() *BaseSearcherFactory {
+	return &BaseSearcherFactory{}
 }
 
-// NewDefaultSearcherFactory creates a new DefaultSearcherFactory.
-// This factory creates IndexSearcher instances with standard configuration.
-func NewDefaultSearcherFactory() *DefaultSearcherFactory {
-	return &DefaultSearcherFactory{}
+// NewSearcher renders public IndexSearcher newSearcher(IndexReader reader,
+// IndexReader previousReader).
+func (f *BaseSearcherFactory) NewSearcher(reader, previousReader index.IndexReaderInterface) (*IndexSearcher, error) {
+	return NewIndexSearcher(reader), nil
 }
 
-// NewDefaultSearcherFactoryWithExecutor creates a new DefaultSearcherFactory
-// with a custom executor for multithreaded search.
-func NewDefaultSearcherFactoryWithExecutor(executor Executor) *DefaultSearcherFactory {
-	return &DefaultSearcherFactory{
-		executor: executor,
-	}
-}
-
-// NewSearcher creates a new IndexSearcher from the provided IndexReader.
-// Returns an error if the reader is nil.
-func (f *DefaultSearcherFactory) NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*IndexSearcher, error) {
-	if reader == nil {
-		return nil, fmt.Errorf("index reader cannot be nil")
-	}
-
-	// Create the IndexSearcher
-	searcher := NewIndexSearcher(reader)
-
-	return searcher, nil
-}
-
-// SetExecutor sets the executor for multithreaded search.
-// This can be used to change the executor after factory creation.
-func (f *DefaultSearcherFactory) SetExecutor(executor Executor) {
-	f.executor = executor
-}
-
-// GetExecutor returns the current executor, or nil if not set.
-func (f *DefaultSearcherFactory) GetExecutor() Executor {
-	return f.executor
-}
-
-// WarmFunction is a function type for warming searchers.
-// Warming is the process of pre-populating caches or performing
-// other initialization work before the searcher is used for queries.
-type WarmFunction func(ctx context.Context, searcher *IndexSearcher) error
-
-// WarmingSearcherFactory is a SearcherFactory that supports warming.
-// It executes a warm function on newly created searchers before they are returned.
-type WarmingSearcherFactory struct {
-	*DefaultSearcherFactory
-	warmFunction WarmFunction
-}
-
-// NewWarmingSearcherFactory creates a new WarmingSearcherFactory.
-// The warm function is called on each new searcher before it is returned.
-func NewWarmingSearcherFactory(warmFunction WarmFunction) *WarmingSearcherFactory {
-	return &WarmingSearcherFactory{
-		DefaultSearcherFactory: NewDefaultSearcherFactory(),
-		warmFunction:           warmFunction,
-	}
-}
-
-// NewWarmingSearcherFactoryWithExecutor creates a new WarmingSearcherFactory
-// with a custom executor for multithreaded search.
-func NewWarmingSearcherFactoryWithExecutor(warmFunction WarmFunction, executor Executor) *WarmingSearcherFactory {
-	return &WarmingSearcherFactory{
-		DefaultSearcherFactory: NewDefaultSearcherFactoryWithExecutor(executor),
-		warmFunction:           warmFunction,
-	}
-}
-
-// NewSearcher creates a new IndexSearcher and warms it if a warm function is configured.
-func (f *WarmingSearcherFactory) NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*IndexSearcher, error) {
-	// Create the searcher using the default factory
-	searcher, err := f.DefaultSearcherFactory.NewSearcher(ctx, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Warm the searcher if a warm function is configured
-	if f.warmFunction != nil {
-		if err := f.warmFunction(ctx, searcher); err != nil {
-			return nil, fmt.Errorf("warming searcher failed: %w", err)
-		}
-	}
-
-	return searcher, nil
-}
-
-// SetWarmFunction sets the warm function for this factory.
-// The warm function will be called on all newly created searchers.
-func (f *WarmingSearcherFactory) SetWarmFunction(warmFunction WarmFunction) {
-	f.warmFunction = warmFunction
-}
-
-// GetWarmFunction returns the current warm function, or nil if not set.
-func (f *WarmingSearcherFactory) GetWarmFunction() WarmFunction {
-	return f.warmFunction
-}
-
-// CachingSearcherFactory is a SearcherFactory that caches IndexSearcher instances
-// by IndexReader to avoid recreating them for the same reader.
-// Note: This is primarily useful when readers are reused.
-type CachingSearcherFactory struct {
-	*DefaultSearcherFactory
-	cache map[index.IndexReaderInterface]*IndexSearcher
-	mu    sync.RWMutex
-}
-
-// NewCachingSearcherFactory creates a new CachingSearcherFactory.
-func NewCachingSearcherFactory() *CachingSearcherFactory {
-	return &CachingSearcherFactory{
-		DefaultSearcherFactory: NewDefaultSearcherFactory(),
-		cache:                  make(map[index.IndexReaderInterface]*IndexSearcher),
-	}
-}
-
-// NewSearcher creates or retrieves a cached IndexSearcher for the given reader.
-func (f *CachingSearcherFactory) NewSearcher(ctx context.Context, reader index.IndexReaderInterface) (*IndexSearcher, error) {
-	if reader == nil {
-		return nil, fmt.Errorf("index reader cannot be nil")
-	}
-
-	// Check cache first
-	f.mu.RLock()
-	if searcher, ok := f.cache[reader]; ok {
-		f.mu.RUnlock()
-		return searcher, nil
-	}
-	f.mu.RUnlock()
-
-	// Create new searcher
-	searcher, err := f.DefaultSearcherFactory.NewSearcher(ctx, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache the searcher
-	f.mu.Lock()
-	f.cache[reader] = searcher
-	f.mu.Unlock()
-
-	return searcher, nil
-}
-
-// ClearCache removes all cached searchers.
-func (f *CachingSearcherFactory) ClearCache() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.cache = make(map[index.IndexReaderInterface]*IndexSearcher)
-}
-
-// RemoveFromCache removes a specific reader's searcher from the cache.
-func (f *CachingSearcherFactory) RemoveFromCache(reader index.IndexReaderInterface) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.cache, reader)
-}
-
-// GetCacheSize returns the number of cached searchers.
-func (f *CachingSearcherFactory) GetCacheSize() int {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return len(f.cache)
-}
+var _ SearcherFactory = (*BaseSearcherFactory)(nil)

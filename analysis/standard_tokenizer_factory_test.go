@@ -19,7 +19,7 @@ func TestStandardTokenizerFactory_DefaultConstructor(t *testing.T) {
 		t.Errorf("MaxTokenLength: got %d, want %d", got, DefaultMaxTokenLength)
 	}
 
-	tk := f.Create()
+	tk := f.Create(DefaultTokenAttributeFactory)
 	defer tk.Close()
 	st, ok := tk.(*StandardTokenizer)
 	if !ok {
@@ -65,7 +65,7 @@ func TestStandardTokenizerFactory_WithArgs_MaxTokenLength(t *testing.T) {
 		t.Errorf("MaxTokenLength: got %d, want 42", got)
 	}
 
-	tk := f.Create().(*StandardTokenizer)
+	tk := f.Create(DefaultTokenAttributeFactory).(*StandardTokenizer)
 	defer tk.Close()
 	if got := tk.MaxTokenLength(); got != 42 {
 		t.Errorf("created tokenizer MaxTokenLength: got %d, want 42", got)
@@ -108,11 +108,9 @@ func TestStandardTokenizerFactory_WithArgs_InvalidValue(t *testing.T) {
 // expected token sequence for a representative input.
 func TestStandardTokenizerFactory_TokenizerProducesExpectedTokens(t *testing.T) {
 	f := NewStandardTokenizerFactory()
-	tk := f.Create()
+	tk := f.Create(DefaultTokenAttributeFactory)
 	defer tk.Close()
-	if err := tk.SetReader(strings.NewReader("Hello, World 123!")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tk.SetReader(strings.NewReader("Hello, World 123!"))
 	var tokens []string
 	for {
 		ok, err := tk.IncrementToken()

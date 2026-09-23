@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -278,6 +279,16 @@ func formatFloat64Slice(a []float64) string {
 // formatFloat64 renders a float64 the way java.lang.Double.toString does for
 // the common finite-value range. Special values match Java's literal names.
 func formatFloat64(v float64) string {
+	return formatJavaFloatingPoint(v, 64)
+}
+
+// formatJavaFloatingPoint renders java.lang.Double.toString(double)
+// (bitSize 64) and java.lang.Float.toString(float) (bitSize 32), which
+// Arrays.toString uses: the shortest decimal that uniquely distinguishes the
+// value, written as a plain decimal with at least one fractional digit when
+// 10^-3 <= |v| < 10^7, and in computerized scientific notation ("1.0E10",
+// "1.234E-5") otherwise.
+func formatJavaFloatingPoint(v float64, bitSize int) string {
 	switch {
 	case math.IsNaN(v):
 		return "NaN"
@@ -285,12 +296,56 @@ func formatFloat64(v float64) string {
 		return "Infinity"
 	case math.IsInf(v, -1):
 		return "-Infinity"
-	default:
-		// Shortest round-trip representation. Go's %g matches Java's
-		// Double.toString for the common finite-value range; callers compare
-		// strings only in tests, not as a wire format.
-		return fmt.Sprintf("%g", v)
+	case v == 0:
+		if math.Signbit(v) {
+			return "-0.0"
+		}
+		return "0.0"
 	}
+	// Shortest digits and decimal exponent: d.ddddde±x.
+	e := strconv.FormatFloat(v, 'e', -1, bitSize)
+	neg := e[0] == '-'
+	if neg {
+		e = e[1:]
+	}
+	mant, expStr, _ := strings.Cut(e, "e")
+	exp, _ := strconv.Atoi(expStr)
+	digits := strings.Replace(mant, ".", "", 1)
+	var b strings.Builder
+	if neg {
+		b.WriteByte('-')
+	}
+	abs := math.Abs(v)
+	if abs >= 1e-3 && abs < 1e7 {
+		if exp >= 0 {
+			intLen := exp + 1
+			for len(digits) < intLen {
+				digits += "0"
+			}
+			b.WriteString(digits[:intLen])
+			b.WriteByte('.')
+			if frac := digits[intLen:]; frac != "" {
+				b.WriteString(frac)
+			} else {
+				b.WriteByte('0')
+			}
+		} else {
+			b.WriteString("0.")
+			b.WriteString(strings.Repeat("0", -exp-1))
+			b.WriteString(digits)
+		}
+		return b.String()
+	}
+	b.WriteByte(digits[0])
+	b.WriteByte('.')
+	if len(digits) > 1 {
+		b.WriteString(digits[1:])
+	} else {
+		b.WriteByte('0')
+	}
+	b.WriteByte('E')
+	b.WriteString(strconv.Itoa(exp))
+	return b.String()
 }
 
 // classHashDoubleRangeSlowRangeQuery seeds the double query hash. Distinct

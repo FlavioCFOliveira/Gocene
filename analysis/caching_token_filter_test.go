@@ -29,7 +29,7 @@ func TestCachingTokenFilter_Basic(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := cacheFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := cacheFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				firstPass = append(firstPass, termAttr.String())
 			}
@@ -56,7 +56,7 @@ func TestCachingTokenFilter_Basic(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := cacheFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := cacheFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				secondPass = append(secondPass, termAttr.String())
 			}

@@ -13,6 +13,7 @@ package store
 import (
 	"errors"
 	"hash/crc32"
+	"math"
 	"testing"
 )
 
@@ -41,7 +42,8 @@ func (f *fakeIndexInput) ReadByte() (byte, error) {
 	return b, nil
 }
 
-func (f *fakeIndexInput) ReadBytes(b []byte) error {
+func (f *fakeIndexInput) ReadBytes(bBuf []byte, offset, length int) error {
+	b := bBuf[offset : offset+length]
 	fp := f.GetFilePointer()
 	if fp+int64(len(b)) > int64(len(f.data)) {
 		return errors.New("EOF")
@@ -53,7 +55,7 @@ func (f *fakeIndexInput) ReadBytes(b []byte) error {
 
 func (f *fakeIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := f.ReadBytes(b); err != nil {
+	if err := f.ReadBytes(b, 0, len(b)); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -100,11 +102,133 @@ func (f *fakeIndexInput) SetPosition(pos int64) error {
 	return nil
 }
 
+// ReadFloats carries the default body Lucene gives DataInput.ReadFloats.
+func (f *fakeIndexInput) ReadFloats(dst []float32, offset int, len int) error {
+	for i := 0; i < len; i++ {
+		v, err := f.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts carries the default body Lucene gives DataInput.ReadInts.
+func (f *fakeIndexInput) ReadInts(dst []int32, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := f.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs carries the default body Lucene gives DataInput.ReadLongs.
+func (f *fakeIndexInput) ReadLongs(dst []int64, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := f.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadMapOfStrings carries the default body Lucene gives DataInput.ReadMapOfStrings.
+func (f *fakeIndexInput) ReadMapOfStrings() (map[string]string, error) {
+	count, err := f.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]string, count)
+	for i := 0; i < int(count); i++ {
+		k, err := f.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		v, err := f.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res[k] = v
+	}
+	return res, nil
+}
+
+// ReadSetOfStrings carries the default body Lucene gives DataInput.ReadSetOfStrings.
+func (f *fakeIndexInput) ReadSetOfStrings() ([]string, error) {
+	count, err := f.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, 0, count)
+	for i := 0; i < int(count); i++ {
+		v, err := f.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+// ReadVInt carries the default body Lucene gives DataInput.ReadVInt.
+func (f *fakeIndexInput) ReadVInt() (int32, error) {
+	var v int32
+	for shift := 0; ; shift += 7 {
+		b, err := f.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int32(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadVLong carries the default body Lucene gives DataInput.ReadVLong.
+func (f *fakeIndexInput) ReadVLong() (int64, error) {
+	var v int64
+	for shift := 0; ; shift += 7 {
+		b, err := f.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadZInt carries the default body Lucene gives DataInput.ReadZInt.
+func (f *fakeIndexInput) ReadZInt() (int32, error) {
+	v, err := f.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(uint32(v)>>1) ^ -(v & 1), nil
+}
+
+// ReadZLong carries the default body Lucene gives DataInput.ReadZLong.
+func (f *fakeIndexInput) ReadZLong() (int64, error) {
+	v, err := f.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return int64(uint64(v)>>1) ^ -(v & 1), nil
+}
+
 func TestBufferedChecksumIndexInput_AccumulatesChecksum(t *testing.T) {
 	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
 	in := newCRCTestInput(data)
 	buf := make([]byte, len(data))
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("ReadBytes failed: %v", err)
 	}
 	want := crc32.ChecksumIEEE(data)

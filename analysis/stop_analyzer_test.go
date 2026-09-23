@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -136,7 +135,7 @@ func TestStopAnalyzer_PositionIncrement(t *testing.T) {
 
 	attrSrc := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	}).GetAttributeSource()
 	posIncrAttr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 	if posIncrAttr == nil {
@@ -269,7 +268,7 @@ func collectTokens(analyzer Analyzer, input string) ([]string, error) {
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) util.AttributeImpl
+			GetAttribute(reflect.Type) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {

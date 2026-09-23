@@ -67,7 +67,7 @@ func assertFooHits(t *testing.T, searcher *search.IndexSearcher, expected int64)
 
 func newTryDeleteSearcherManager(t *testing.T, writer *index.IndexWriter) *search.SearcherManager {
 	t.Helper()
-	mgr, err := search.NewSearcherManager(writer, search.NewDefaultSearcherFactory())
+	mgr, err := search.NewSearcherManager(writer, search.NewSearcherFactory())
 	if err != nil {
 		t.Fatalf("new SearcherManager: %v", err)
 	}

@@ -242,21 +242,7 @@ func formatFloat32Slice(a []float32) string {
 // formatFloat32 renders a float32 the way java.lang.Float.toString does for
 // the common finite-value range. Special values match Java's literal names.
 func formatFloat32(v float32) string {
-	d := float64(v)
-	switch {
-	case math.IsNaN(d):
-		return "NaN"
-	case math.IsInf(d, 1):
-		return "Infinity"
-	case math.IsInf(d, -1):
-		return "-Infinity"
-	default:
-		// Shortest round-trip representation at float32 precision. Go's %g
-		// with bitSize 32 matches Java's Float.toString for the common
-		// finite-value range; callers compare strings only in tests, not as
-		// a wire format.
-		return fmt.Sprintf("%g", v)
-	}
+	return formatJavaFloatingPoint(float64(v), 32)
 }
 
 // classHashFloatRangeSlowRangeQuery seeds the float query hash. Distinct from

@@ -2,14 +2,10 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestSeededKnnByteVectorQuery.java
-//
-// Byte analogue of TestSeededKnnFloatVectorQuery: every KnnByteVectorQuery is
-// wrapped in a SeededKnnVectorQuery seeded by MatchNoDocsQuery, and the full
-// inherited BaseKnnVectorQueryTestCase scenario set runs through it.
-
 package search_test
+
+// Ported from Apache Lucene 10.5.0:
+//   lucene/core/src/test/org/apache/lucene/search/TestSeededKnnByteVectorQuery.java
 
 import (
 	"testing"
@@ -19,112 +15,188 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// seededByteKnnFixture wraps byteKnnFixture's queries in a SeededKnnVectorQuery
-// seeded by MatchNoDocsQuery.
-type seededByteKnnFixture struct {
-	byteKnnFixture
+// testSeededKnnByteVectorQuery renders TestSeededKnnByteVectorQuery extends
+// BaseKnnVectorQueryTestCase.
+type testSeededKnnByteVectorQuery struct {
+	*knnVectorQueryTestCase
 }
 
-func (seededByteKnnFixture) newQuery(field string, target []float32, k int, filter search.Query) search.Query {
-	b := floatToBytes(target)
-	var inner search.Query
-	if filter == nil {
-		inner = search.NewKnnByteVectorQuery(field, b, k)
-	} else {
-		inner = search.NewKnnByteVectorQueryWithFilter(field, b, k, filter)
+func newTestSeededKnnByteVectorQuery(t *testing.T) *testSeededKnnByteVectorQuery {
+	c := &knnVectorQueryTestCase{t: t}
+	c.getKnnVectorQueryWithFilter = func(field string, query []float32, k int, queryFilter search.Query) abstractKnnVectorQuery {
+		// SeededKnnVectorQuery.fromByteQuery(new KnnByteVectorQuery(...), MATCH_NONE)
+		t.Fatal(seededKnnVectorQueryBlocker)
+		return nil
 	}
-	return search.NewSeededKnnVectorQuery(field, inner, search.NewMatchNoDocsQuery(""), k)
+	c.getThrowingKnnVectorQuery = func(field string, vec []float32, k int, query search.Query) abstractKnnVectorQuery {
+		// SeededKnnVectorQuery.fromByteQuery(new TestKnnByteVectorQuery.ThrowingKnnVectorQuery(...), MATCH_NONE)
+		t.Fatal(seededKnnVectorQueryBlocker)
+		return nil
+	}
+	c.getCappedResultsThrowingKnnVectorQuery = func(field string, vec []float32, k int, query search.Query, maxResults int) abstractKnnVectorQuery {
+		// SeededKnnVectorQuery.fromByteQuery(new TestKnnByteVectorQuery.CappedResultsThrowingKnnVectorQuery(...), MATCH_NONE)
+		t.Fatal(seededKnnVectorQueryBlocker)
+		return nil
+	}
+	c.randomVector = byteVectorAsFloats
+	c.getKnnVectorFieldWithSimilarity = func(name string, vector []float32, similarityFunction index.VectorSimilarityFunction) document.IndexableField {
+		return mustKnnByteVectorField(t, name, floatToBytes(vector), similarityFunction)
+	}
+	c.getKnnVectorField = func(name string, vector []float32) document.IndexableField {
+		return mustKnnByteVectorField(t, name, floatToBytes(vector), index.VectorSimilarityFunctionEuclidean)
+	}
+	return &testSeededKnnByteVectorQuery{c}
 }
 
-// TestSeededKnnByteVectorQuery runs the inherited scenario set through the
-// seeded-by-MatchNone byte query.
-func TestSeededKnnByteVectorQuery(t *testing.T) {
-	runKnnAllScenarios(t, seededByteKnnFixture{})
-}
-
-// TestSeededKnnByteVectorQuery_RandomWithSeed ports the no-seed fallback path of
-// testRandomWithSeed for byte vectors (see the float counterpart for the
-// deferred entry-point/timeout assertions).
-func TestSeededKnnByteVectorQuery_RandomWithSeed(t *testing.T) {
-	const numDocs = 300
-	const dim = 5
-	rng := newDeterministicRand(0xB17E5)
-	f := byteKnnFixture{}
-	ix := newIntegrationIndex(t)
-	numWithVector := 0
+func (c *testSeededKnnByteVectorQuery) testSeedWithTimeout() {
+	t := c.t
+	numDocs := atLeast(50)
+	dimension := atLeast(5)
+	d := c.newDirectoryForTest()
+	defer mustClose(t, d)
+	iwc := index.NewIndexWriterConfig()
+	iwc.SetCodec(index.GetDefaultCodec())
+	w := newRandomIndexWriterWithConfig(t, d, iwc)
 	for i := 0; i < numDocs; i++ {
-		if rng.intn(2) == 0 {
-			f.addVectorDoc(ix, "field", randomVectorValues(rng, dim),
-				index.VectorSimilarityFunctionEuclidean,
-				mustNumericDocValues(t, "tag", int64(i)))
-			numWithVector++
-		} else {
-			doc := document.NewDocument()
-			doc.Add(mustNumericDocValues(t, "tag", int64(i)))
-			ix.addDoc(doc)
-		}
+		doc := document.NewDocument()
+		doc.Add(c.getKnnVectorField("field", c.randomVector(dimension)))
+		doc.Add(mustNumericDocValuesField(t, "tag", int64(i)))
+		doc.Add(document.NewIntPoint("tag", int32(i)))
+		mustAddDocument(t, w, doc)
 	}
-	ix.forceMerge(1)
-	s, cleanup := ix.searcher()
-	defer cleanup()
+	mustClose(t, w)
 
-	for iter := 0; iter < 10; iter++ {
-		k := rng.intn(10) + 1
-		n := rng.intn(100) + 1
-		inner := search.NewKnnByteVectorQuery("field", floatToBytes(randomVectorValues(rng, dim)), k)
-		q := search.NewSeededKnnVectorQuery("field", inner, search.NewMatchNoDocsQuery(""), k)
-		res, err := s.Search(q, n)
-		if err != nil {
-			t.Fatalf("iter %d: search: %v", iter, err)
-		}
-		expected := min3(n, k, numWithVector)
-		if len(res.ScoreDocs) != expected {
-			t.Fatalf("iter %d: got %d docs, want %d", iter, len(res.ScoreDocs), expected)
-		}
-		assertDescendingScores(t, res.ScoreDocs)
-	}
+	reader := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, reader)
+	searcher := newSearcher(t, reader)
+	searcher.SetTimeout(queryTimeoutFunc(func() bool { return true }))
+	// Query knnQuery = SeededKnnVectorQuery.fromByteQuery(knnVectorQuery, seed);
+	t.Fatal(seededKnnVectorQueryBlocker)
 }
 
-// TestSeededKnnByteVectorQuery_SeedWithTimeout is a structural test for the
-// SeedWithTimeout scenario — it verifies the SeededKnnVectorQuery type
-// construction and accessor behaviour using a byte vector inner query.
-// The full timeout-integration test is deferred until those subsystems are wired.
-func TestSeededKnnByteVectorQuery_SeedWithTimeout(t *testing.T) {
-	b := floatToBytes([]float32{1, 2, 3})
-	inner := search.NewKnnByteVectorQuery("vec", b, 10)
-	seed := search.NewMatchAllDocsQuery()
-	q := search.NewSeededKnnVectorQuery("vec", inner, seed, 50)
-	if q.GetField() != "vec" {
-		t.Fatalf("got field %q, want %q", q.GetField(), "vec")
-	}
-	if q.MaxK() != 50 {
-		t.Fatalf("got maxK %d, want 50", q.MaxK())
-	}
-	if q.Inner() != inner {
-		t.Fatalf("Inner() returned different query")
-	}
-	if q.Seed() != seed {
-		t.Fatalf("Seed() returned different query")
-	}
-	s := q.String()
-	if s != "SeededKnnVectorQuery(field=vec, maxK=50)" {
-		t.Fatalf("unexpected String: %q", s)
-	}
-	// Equals / HashCode
-	q2 := search.NewSeededKnnVectorQuery("vec", inner, search.NewMatchAllDocsQuery(), 50)
-	if !q.Equals(q2) {
-		t.Fatal("equal queries should be Equal")
-	}
-	if q.HashCode() != q2.HashCode() {
-		t.Fatal("equal queries should have same HashCode")
-	}
-	// Different maxK not Equal
-	q3 := search.NewSeededKnnVectorQuery("vec", inner, seed, 100)
-	if q.Equals(q3) {
-		t.Fatal("different maxK should not be Equal")
-	}
+// testRandomWithSeed tests with random vectors and a random seed. Uses
+// RandomIndexWriter.
+func (c *testSeededKnnByteVectorQuery) testRandomWithSeed() {
+	t := c.t
+	d := c.newDirectoryForTest()
+	defer mustClose(t, d)
+	// Always use the default kNN format to have predictable behavior around
+	// when it hits visitedLimit. This is fine since the test targets
+	// AbstractKnnVectorQuery logic, not the kNN format implementation.
+	// iwc.setCodec(TestUtil.alwaysKnnVectorsFormat(new Lucene99HnswVectorsFormat(
+	//     DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH, 0)));
+	t.Fatal(alwaysKnnVectorsFormatOnlyBlocker)
+}
 
-	// Compile-time interface compliance.
-	var _ search.Query = q
-	_ = q
+// Inherited from BaseKnnVectorQueryTestCase.
+func TestSeededKnnByteVectorQueryEquals(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testEquals()
+}
+func TestSeededKnnByteVectorQueryGetField(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testGetField()
+}
+func TestSeededKnnByteVectorQueryGetK(t *testing.T) { newTestSeededKnnByteVectorQuery(t).testGetK() }
+func TestSeededKnnByteVectorQueryGetFilter(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testGetFilter()
+}
+func TestSeededKnnByteVectorQueryEmptyIndex(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testEmptyIndex()
+}
+func TestSeededKnnByteVectorQueryFindAll(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testFindAll()
+}
+func TestSeededKnnByteVectorQueryFindFewer(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testFindFewer()
+}
+func TestSeededKnnByteVectorQuerySearchBoost(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testSearchBoost()
+}
+func TestSeededKnnByteVectorQuerySimpleFilter(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testSimpleFilter()
+}
+func TestSeededKnnByteVectorQueryFilterWithNoVectorMatches(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testFilterWithNoVectorMatches()
+}
+func TestSeededKnnByteVectorQueryMatchAllFilter(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testMatchAllFilter()
+}
+func TestSeededKnnByteVectorQueryDimensionMismatch(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testDimensionMismatch()
+}
+func TestSeededKnnByteVectorQueryNonVectorField(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testNonVectorField()
+}
+func TestSeededKnnByteVectorQueryIllegalArguments(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testIllegalArguments()
+}
+func TestSeededKnnByteVectorQueryDifferentReader(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testDifferentReader()
+}
+func TestSeededKnnByteVectorQueryScoreEuclidean(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testScoreEuclidean()
+}
+func TestSeededKnnByteVectorQueryScoreCosine(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testScoreCosine()
+}
+func TestSeededKnnByteVectorQueryScoreMIP(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testScoreMIP()
+}
+func TestSeededKnnByteVectorQueryExplain(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testExplain()
+}
+func TestSeededKnnByteVectorQueryExplainMultipleSegments(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testExplainMultipleSegments()
+}
+func TestSeededKnnByteVectorQuerySkewedIndex(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testSkewedIndex()
+}
+func TestSeededKnnByteVectorQueryRandomConsistencySingleThreaded(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testRandomConsistencySingleThreaded()
+}
+func TestSeededKnnByteVectorQueryRandomConsistencyMultiThreaded(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testRandomConsistencyMultiThreaded()
+}
+func TestSeededKnnByteVectorQueryRandom(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testRandom()
+}
+func TestSeededKnnByteVectorQueryRandomWithFilter(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testRandomWithFilter()
+}
+func TestSeededKnnByteVectorQueryFilterWithSameScore(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testFilterWithSameScore()
+}
+func TestSeededKnnByteVectorQueryDeletes(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testDeletes()
+}
+func TestSeededKnnByteVectorQueryAllDeletes(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testAllDeletes()
+}
+func TestSeededKnnByteVectorQueryMergeAwayAllValues(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testMergeAwayAllValues()
+}
+func TestSeededKnnByteVectorQueryNoLiveDocsReader(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testNoLiveDocsReader()
+}
+func TestSeededKnnByteVectorQueryBitSetQuery(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testBitSetQuery()
+}
+func TestSeededKnnByteVectorQueryTimeLimitingKnnCollectorManager(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testTimeLimitingKnnCollectorManager()
+}
+func TestSeededKnnByteVectorQueryTimeout(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testTimeout()
+}
+func TestSeededKnnByteVectorQuerySameFieldDifferentFormats(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testSameFieldDifferentFormats()
+}
+func TestSeededKnnByteVectorQueryStrategy(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testStrategy()
+}
+
+// Declared by TestSeededKnnByteVectorQuery.
+func TestSeededKnnByteVectorQuerySeedWithTimeout(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testSeedWithTimeout()
+}
+func TestSeededKnnByteVectorQueryRandomWithSeed(t *testing.T) {
+	newTestSeededKnnByteVectorQuery(t).testRandomWithSeed()
 }

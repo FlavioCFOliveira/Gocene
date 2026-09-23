@@ -9,6 +9,8 @@
 package store
 
 import (
+	"errors"
+	"sort"
 	"sync/atomic"
 	"testing"
 
@@ -37,8 +39,11 @@ type capturingOutput struct {
 	buf []byte
 }
 
-func (c *capturingOutput) WriteByte(b byte) error    { c.buf = append(c.buf, b); return nil }
-func (c *capturingOutput) WriteBytes(b []byte) error { c.buf = append(c.buf, b...); return nil }
+func (c *capturingOutput) WriteByte(b byte) error { c.buf = append(c.buf, b); return nil }
+func (c *capturingOutput) WriteBytes(b []byte, _ int, _ int) error {
+	c.buf = append(c.buf, b...)
+	return nil
+}
 func (c *capturingOutput) WriteBytesN(b []byte, n int) error {
 	c.buf = append(c.buf, b[:n]...)
 	return nil
@@ -51,11 +56,103 @@ func (c *capturingOutput) Close() error             { return nil }
 func (c *capturingOutput) SetPosition(int64) error  { return nil }
 func (c *capturingOutput) Length() int64            { return int64(len(c.buf)) }
 
+// CopyBytes carries the default body Lucene gives IndexOutput.CopyBytes.
+func (c *capturingOutput) CopyBytes(input spi.DataInput, numBytes int64) error {
+	buf := make([]byte, 16384)
+	for left := numBytes; left > 0; {
+		n := len(buf)
+		if left < int64(n) {
+			n = int(left)
+		}
+		if err := input.ReadBytes(buf, 0, n); err != nil {
+			return err
+		}
+		if err := c.WriteBytes(buf, 0, n); err != nil {
+			return err
+		}
+		left -= int64(n)
+	}
+	return nil
+}
+
+// WriteGroupVInts is abstract in Lucene's IndexOutput; this double does not support it.
+func (c *capturingOutput) WriteGroupVInts(values []int32, limit int) error {
+	return errors.New("capturingOutput.WriteGroupVInts: unsupported operation")
+}
+
+// WriteMapOfStrings carries the default body Lucene gives IndexOutput.WriteMapOfStrings.
+func (c *capturingOutput) WriteMapOfStrings(m map[string]string) error {
+	if err := c.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := c.WriteString(k); err != nil {
+			return err
+		}
+		if err := c.WriteString(m[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings carries the default body Lucene gives IndexOutput.WriteSetOfStrings.
+func (c *capturingOutput) WriteSetOfStrings(s []string) error {
+	if err := c.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := c.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteVInt carries the default body Lucene gives IndexOutput.WriteVInt.
+func (c *capturingOutput) WriteVInt(i int32) error {
+	v := uint32(i)
+	for v >= 0x80 {
+		if err := c.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return c.WriteByte(byte(v))
+}
+
+// WriteVLong carries the default body Lucene gives IndexOutput.WriteVLong.
+func (c *capturingOutput) WriteVLong(i int64) error {
+	v := uint64(i)
+	for v >= 0x80 {
+		if err := c.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return c.WriteByte(byte(v))
+}
+
+// WriteZInt carries the default body Lucene gives IndexOutput.WriteZInt.
+func (c *capturingOutput) WriteZInt(i int32) error {
+	return c.WriteVInt((i >> 31) ^ (i << 1))
+}
+
+// WriteZLong carries the default body Lucene gives IndexOutput.WriteZLong.
+func (c *capturingOutput) WriteZLong(i int64) error {
+	return c.WriteVLong((i >> 63) ^ (i << 1))
+}
+
 func TestRateLimitedIndexOutput_PausesAtThreshold(t *testing.T) {
 	rl := &recordingRateLimiter{mbPerSec: 1.0, minPauseBytes: 16}
 	wrapped := &capturingOutput{BaseIndexOutput: spi.NewBaseIndexOutput("test")}
 	out := NewRateLimitedIndexOutput(rl, wrapped)
-	if err := out.WriteBytes(make([]byte, 32)); err != nil {
+	if err := out.WriteBytes(make([]byte, 32), 0, len(make([]byte, 32))); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if rl.pauses.Load() != 1 {
@@ -85,7 +182,7 @@ func TestRateLimitedIndexOutput_DataForwarded(t *testing.T) {
 	wrapped := &capturingOutput{BaseIndexOutput: spi.NewBaseIndexOutput("test")}
 	out := NewRateLimitedIndexOutput(rl, wrapped)
 	data := []byte{0xAA, 0xBB, 0xCC, 0xDD}
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if len(wrapped.buf) != 4 {

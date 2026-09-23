@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestUAX29URLEmailTokenizer_Basic tests basic tokenization.
@@ -69,7 +68,7 @@ func TestUAX29URLEmailTokenizer_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -159,7 +158,7 @@ func TestUAX29URLEmailTokenizer_URLs(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -244,7 +243,7 @@ func TestUAX29URLEmailTokenizer_Emails(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -294,7 +293,7 @@ func TestUAX29URLEmailTokenizer_Combined(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -333,12 +332,12 @@ func TestUAX29URLEmailTokenizer_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := tokenizer.GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOff = offsetAttr.StartOffset()
 				info.endOff = offsetAttr.EndOffset()
@@ -387,12 +386,12 @@ func TestUAX29URLEmailTokenizer_URLWithOffsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := tokenizer.GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOff = offsetAttr.StartOffset()
 				info.endOff = offsetAttr.EndOffset()
@@ -438,7 +437,7 @@ func TestUAX29URLEmailTokenizer_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -543,7 +542,7 @@ func TestUAX29URLEmailTokenizer_Unicode(t *testing.T) {
 func TestUAX29URLEmailTokenizer_MaxTokenLength(t *testing.T) {
 	longWord := strings.Repeat("a", 1000)
 
-	tokenizer := NewUAX29URLEmailTokenizerWithMaxTokenLength(255)
+	tokenizer := NewUAX29URLEmailTokenizerWithMaxTokenLength(DefaultTokenAttributeFactory, 255)
 	tokenizer.SetReader(strings.NewReader(longWord))
 	defer tokenizer.Close()
 
@@ -555,7 +554,7 @@ func TestUAX29URLEmailTokenizer_MaxTokenLength(t *testing.T) {
 		t.Error("Expected to get the long token")
 	}
 
-	if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+	if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 		if termAttr, ok := attr.(CharTermAttribute); ok {
 			if len(termAttr.String()) != 255 {
 				t.Errorf("Expected token length 255, got %d", len(termAttr.String()))
@@ -581,7 +580,7 @@ func TestUAX29URLEmailTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -600,7 +599,7 @@ func TestUAX29URLEmailTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -640,7 +639,7 @@ func TestUAX29URLEmailTokenizer_EndMethod(t *testing.T) {
 	}
 
 	// Check that End() set the final offset
-	if attr := tokenizer.GetAttribute("OffsetAttribute"); attr != nil {
+	if attr := tokenizer.GetAttribute(OffsetAttributeType); attr != nil {
 		if offsetAttr, ok := attr.(OffsetAttribute); ok {
 			if offsetAttr.EndOffset() != 4 {
 				t.Errorf("Expected final offset 4, got %d", offsetAttr.EndOffset())
@@ -723,7 +722,7 @@ func TestUAX29URLEmailTokenizer_Whitespace(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -742,7 +741,7 @@ func TestUAX29URLEmailTokenizer_Whitespace(t *testing.T) {
 // Purpose: Tests factory creation.
 func TestUAX29URLEmailTokenizer_Factory(t *testing.T) {
 	factory := NewUAX29URLEmailTokenizerFactory()
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 
 	if tokenizer == nil {
 		t.Fatal("Expected non-nil tokenizer from factory")
@@ -766,7 +765,7 @@ func TestUAX29URLEmailTokenizer_Factory(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := uaxTokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := uaxTokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -786,7 +785,7 @@ func TestUAX29URLEmailTokenizer_Factory(t *testing.T) {
 // Purpose: Tests factory with custom max token length.
 func TestUAX29URLEmailTokenizer_FactoryWithMaxLength(t *testing.T) {
 	factory := NewUAX29URLEmailTokenizerFactoryWithMaxLength(100)
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 
 	// Cast to access specific methods
 	uaxTokenizer, ok := tokenizer.(*UAX29URLEmailTokenizer)
@@ -865,7 +864,7 @@ func TestUAX29URLEmailTokenizer_InvalidEmails(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -915,7 +914,7 @@ func TestUAX29URLEmailTokenizer_InvalidURLs(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -965,7 +964,7 @@ func TestUAX29URLEmailTokenizer_Katakana(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -1015,7 +1014,7 @@ func TestUAX29URLEmailTokenizer_Hebrew(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -1080,7 +1079,7 @@ func TestUAX29URLEmailTokenizer_Numbers(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}

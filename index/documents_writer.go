@@ -89,7 +89,7 @@ type DocumentsWriter struct {
 	config             *LiveIndexWriterConfig
 	numDocsInRAM       *atomic.Int32
 
-	deleteQueue                      *DocumentsWriterDeleteQueue
+	deleteQueue                      atomic.Pointer[DocumentsWriterDeleteQueue] // volatile in Lucene
 	ticketQueue                      *DocumentsWriterFlushQueue
 	pendingChangesInCurrentFullFlush atomic.Bool
 
@@ -115,7 +115,7 @@ func NewDocumentsWriter(
 		flushNotifications: flushNotifications,
 		numDocsInRAM:       &atomic.Int32{},
 	}
-	dw.deleteQueue = NewDocumentsWriterDeleteQueue(dw.infoStream)
+	dw.deleteQueue.Store(NewDocumentsWriterDeleteQueue(dw.infoStream))
 	dw.perThreadPool = NewDocumentsWriterPerThreadPool(func() *DocumentsWriterPerThread {
 		infos := NewFieldInfosBuilderFor(globalFieldNumberMap)
 		return NewDocumentsWriterPerThread(
@@ -124,7 +124,7 @@ func NewDocumentsWriter(
 			directoryOrig,
 			directory,
 			config,
-			dw.deleteQueue,
+			dw.deleteQueue.Load(),
 			infos,
 			pendingNumDocs,
 			enableTestPoints,
@@ -158,7 +158,7 @@ func (dw *DocumentsWriter) applyDeleteOrUpdate(function func(*DocumentsWriterDel
 	dw.lock.Lock(owner)
 	defer dw.lock.Unlock(owner)
 
-	dq := dw.deleteQueue
+	dq := dw.deleteQueue.Load()
 	seqNo, err := function(dq)
 	if err != nil {
 		return 0, err
@@ -173,7 +173,7 @@ func (dw *DocumentsWriter) applyDeleteOrUpdate(function func(*DocumentsWriterDel
 }
 
 func (dw *DocumentsWriter) applyAllDeletes() (bool, error) {
-	dq := dw.deleteQueue
+	dq := dw.deleteQueue.Load()
 
 	if dw.flushControl.GetApplyAllDeletes() &&
 		!dw.flushControl.IsFullFlush() &&
@@ -217,7 +217,7 @@ func (dw *DocumentsWriter) GetNumDocs() int {
 // unsynchronized here too: taking dw.mu would invert the lock order against
 // DocumentsWriterFlushControl.mu.
 func (dw *DocumentsWriter) GetDeleteQueue() *DocumentsWriterDeleteQueue {
-	return dw.deleteQueue
+	return dw.deleteQueue.Load()
 }
 
 // GetPerThreadPool returns the per-thread pool backing this writer. Mirrors the
@@ -245,7 +245,7 @@ func (dw *DocumentsWriter) Abort() error {
 		}
 	}()
 
-	dw.deleteQueue.Clear()
+	dw.deleteQueue.Load().Clear()
 	if dw.infoStream.IsEnabled("DW") {
 		dw.infoStream.Message("DW", "abort")
 	}
@@ -328,7 +328,7 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 		}
 	}()
 
-	dw.deleteQueue.Clear()
+	dw.deleteQueue.Load().Clear()
 	dw.perThreadPool.LockNewWriters()
 	writers = dw.perThreadPool.FilterAndLock(owner, func(x *DocumentsWriterPerThread) bool { return true })
 	for _, perThread := range writers {
@@ -337,8 +337,8 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 			return nil, err
 		}
 	}
-	dw.deleteQueue.Clear()
-	dw.deleteQueue.SkipSequenceNumbers(int64(len(writers) + 1))
+	dw.deleteQueue.Load().Clear()
+	dw.deleteQueue.Load().SkipSequenceNumbers(int64(len(writers) + 1))
 
 	dw.flushControl.AbortPendingFlushes()
 	dw.flushControl.WaitForFlush()
@@ -364,7 +364,7 @@ func (dw *DocumentsWriter) abortDocumentsWriterPerThread(owner util.LockOwner, p
 }
 
 func (dw *DocumentsWriter) GetMaxCompletedSequenceNumber() int64 {
-	return dw.deleteQueue.GetMaxCompletedSeqNo()
+	return dw.deleteQueue.Load().GetMaxCompletedSeqNo()
 }
 
 func (dw *DocumentsWriter) AnyChanges() bool {
@@ -382,11 +382,11 @@ func (dw *DocumentsWriter) AnyChanges() bool {
 }
 
 func (dw *DocumentsWriter) GetBufferedDeleteTermsSize() int {
-	return dw.deleteQueue.GetBufferedUpdatesTermsSize()
+	return dw.deleteQueue.Load().GetBufferedUpdatesTermsSize()
 }
 
 func (dw *DocumentsWriter) AnyDeletions() bool {
-	return dw.deleteQueue.AnyChanges()
+	return dw.deleteQueue.Load().AnyChanges()
 }
 
 func (dw *DocumentsWriter) Close() error {
@@ -452,13 +452,21 @@ func (dw *DocumentsWriter) UpdateDocuments(docs [][]IndexableField, delNode Node
 
 	func() {
 		defer func() {
-			dw.lock.Lock(owner)
+			// If a flush is occurring, we don't want to allow this dwpt to be reused
+			// If it is aborted, we shouldn't allow it to be reused
+			// If the deleteQueue is advanced, this means the maximum seqNo has been set and it cannot be
+			// reused
+			// synchronized (flushControl): the flush-control monitor, not the
+			// DocumentsWriter one. flushAllThreads holds the DocumentsWriter
+			// monitor while markForFullFlush locks every DWPT, so taking that
+			// monitor here while this DWPT is still locked deadlocks.
+			dw.flushControl.mu.Lock()
 			if dwpt.IsFlushPending() || dwpt.IsAborted() || dwpt.IsQueueAdvanced() {
 				dwpt.Unlock(owner)
 			} else {
 				dw.perThreadPool.MarksAsFreeAndUnlock(owner, dwpt)
 			}
-			dw.lock.Unlock(owner)
+			dw.flushControl.mu.Unlock()
 		}()
 
 		if err := dw.ensureOpen(); err != nil {
@@ -507,13 +515,21 @@ func (dw *DocumentsWriter) UpdateBatch(columnBatch *column.ColumnBatch, delNode 
 
 	func() {
 		defer func() {
-			dw.lock.Lock(owner)
+			// If a flush is occurring, we don't want to allow this dwpt to be reused
+			// If it is aborted, we shouldn't allow it to be reused
+			// If the deleteQueue is advanced, this means the maximum seqNo has been set and it cannot be
+			// reused
+			// synchronized (flushControl): the flush-control monitor, not the
+			// DocumentsWriter one. flushAllThreads holds the DocumentsWriter
+			// monitor while markForFullFlush locks every DWPT, so taking that
+			// monitor here while this DWPT is still locked deadlocks.
+			dw.flushControl.mu.Lock()
 			if dwpt.IsFlushPending() || dwpt.IsAborted() || dwpt.IsQueueAdvanced() {
 				dwpt.Unlock(owner)
 			} else {
 				dw.perThreadPool.MarksAsFreeAndUnlock(owner, dwpt)
 			}
-			dw.lock.Unlock(owner)
+			dw.flushControl.mu.Unlock()
 		}()
 
 		if err := dw.ensureOpen(); err != nil {
@@ -670,15 +686,15 @@ func (dw *DocumentsWriter) GetNextSequenceNumber() int64 {
 	owner := util.NewLockOwner()
 	dw.lock.Lock(owner)
 	defer dw.lock.Unlock(owner)
-	return dw.deleteQueue.GetNextSequenceNumber()
+	return dw.deleteQueue.Load().GetNextSequenceNumber()
 }
 
 func (dw *DocumentsWriter) ResetDeleteQueue(owner util.LockOwner, maxNumPendingOps int) int64 {
 	dw.lock.Lock(owner)
 	defer dw.lock.Unlock(owner)
 
-	oldMaxSeqNo := dw.deleteQueue.GetMaxSeqNo()
-	dw.deleteQueue = dw.deleteQueue.AdvanceQueue(maxNumPendingOps)
+	oldMaxSeqNo := dw.deleteQueue.Load().GetMaxSeqNo()
+	dw.deleteQueue.Store(dw.deleteQueue.Load().AdvanceQueue(maxNumPendingOps))
 	return oldMaxSeqNo
 }
 
@@ -703,7 +719,7 @@ func (dw *DocumentsWriter) FlushAllThreads() (int64, error) {
 	owner := util.NewLockOwner()
 	dw.lock.Lock(owner)
 	dw.pendingChangesInCurrentFullFlush.Store(dw.AnyChanges())
-	flushingDeleteQueue = dw.deleteQueue
+	flushingDeleteQueue = dw.deleteQueue.Load()
 	seqNo = dw.flushControl.MarkForFullFlush(owner)
 	dw.lock.Unlock(owner)
 

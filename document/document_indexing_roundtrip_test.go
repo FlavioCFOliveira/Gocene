@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -23,7 +24,7 @@ func TestDocumentIndexingRoundtrip_StringField(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -44,7 +45,7 @@ func TestDocumentIndexingRoundtrip_StringField(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -66,7 +67,7 @@ func TestDocumentIndexingRoundtrip_TextField(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -87,7 +88,7 @@ func TestDocumentIndexingRoundtrip_TextField(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -108,7 +109,7 @@ func TestDocumentIndexingRoundtrip_StoredField(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -129,7 +130,7 @@ func TestDocumentIndexingRoundtrip_StoredField(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -150,7 +151,7 @@ func TestDocumentIndexingRoundtrip_NumericFields(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -180,7 +181,7 @@ func TestDocumentIndexingRoundtrip_NumericFields(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -201,7 +202,7 @@ func TestDocumentIndexingRoundtrip_BinaryField(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -216,14 +217,14 @@ func TestDocumentIndexingRoundtrip_BinaryField(t *testing.T) {
 
 	// Binary field
 	binaryData := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0xFF, 0xFE}
-	binaryField, _ := document.NewBinaryPoint("data", binaryData)
+	binaryField := document.NewBinaryPoint("data", binaryData)
 	doc.Add(binaryField)
 
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -244,7 +245,7 @@ func TestDocumentIndexingRoundtrip_MultipleFields(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -280,7 +281,7 @@ func TestDocumentIndexingRoundtrip_MultipleFields(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -301,7 +302,7 @@ func TestDocumentIndexingRoundtrip_BatchDocuments(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -325,13 +326,13 @@ func TestDocumentIndexingRoundtrip_BatchDocuments(t *testing.T) {
 
 		// Periodic commit
 		if (i+1)%25 == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("failed to commit at %d: %v", i, err)
 			}
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to final commit: %v", err)
 	}
 
@@ -353,7 +354,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -373,13 +374,13 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
 	// Update document
 	term := index.NewTerm("id", "doc-001")
-	if _, err := writer.DeleteDocuments(term); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*term}); err != nil {
 		t.Fatalf("failed to delete document: %v", err)
 	}
 
@@ -392,7 +393,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 		t.Fatalf("failed to add updated document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit update: %v", err)
 	}
 
@@ -420,7 +421,7 @@ func TestDocumentIndexingRoundtrip_DeleteDocument(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -439,19 +440,19 @@ func TestDocumentIndexingRoundtrip_DeleteDocument(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
 	// Delete half the documents
 	for i := 0; i < 5; i++ {
 		term := index.NewTerm("id", fmt.Sprintf("doc-%d", i))
-		if _, err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments([]index.Term{*term}); err != nil {
 			t.Fatalf("failed to delete document: %v", err)
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit deletions: %v", err)
 	}
 
@@ -478,7 +479,7 @@ func TestDocumentIndexingRoundtrip_BinaryDataIntegrity(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -507,7 +508,7 @@ func TestDocumentIndexingRoundtrip_BinaryDataIntegrity(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("binary-%d", i), true)
 		doc.Add(idField)
 
-		binaryField, _ := document.NewBinaryPoint("data", pattern)
+		binaryField := document.NewBinaryPoint("data", pattern)
 		doc.Add(binaryField)
 
 		if _, err := writer.AddDocument(doc); err != nil {
@@ -515,7 +516,7 @@ func TestDocumentIndexingRoundtrip_BinaryDataIntegrity(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -536,7 +537,7 @@ func TestDocumentIndexingRoundtrip_LargeContent(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -561,7 +562,7 @@ func TestDocumentIndexingRoundtrip_LargeContent(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -582,7 +583,7 @@ func TestDocumentIndexingRoundtrip_SpecialCharacters(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -612,7 +613,7 @@ func TestDocumentIndexingRoundtrip_SpecialCharacters(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -633,7 +634,7 @@ func TestDocumentIndexingRoundtrip_ReopenWriter(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// First writer session
 	writer1, err := index.NewIndexWriter(dir, config)
@@ -649,7 +650,7 @@ func TestDocumentIndexingRoundtrip_ReopenWriter(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer1.Commit(); err != nil {
+	if _, err := writer1.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -670,7 +671,7 @@ func TestDocumentIndexingRoundtrip_ReopenWriter(t *testing.T) {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -691,7 +692,7 @@ func BenchmarkDocumentIndexing_Index(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 	defer writer.Close()

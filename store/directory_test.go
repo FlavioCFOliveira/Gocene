@@ -148,7 +148,7 @@ func TestFilterDirectory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateOutput() error = %v", err)
 		}
-		if err := out.WriteBytes([]byte("hello")); err != nil {
+		if err := out.WriteBytes([]byte("hello"), 0, len([]byte("hello"))); err != nil {
 			t.Fatalf("WriteBytes() error = %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -189,7 +189,7 @@ func TestFilterDirectory(t *testing.T) {
 			t.Fatalf("OpenInput() error = %v", err)
 		}
 		buf := make([]byte, 5)
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			t.Errorf("ReadBytes() error = %v", err)
 		}
 		if string(buf) != "hello" {
@@ -375,7 +375,7 @@ func TestTrackingDirectoryWrapper(t *testing.T) {
 
 		// Create and write file
 		out, _ := trackingDir.CreateOutput("test", IOContextWrite)
-		out.WriteBytes([]byte("Hello, World!")) // 13 bytes
+		out.WriteBytes([]byte("Hello, World!"), 0, len([]byte("Hello, World!"))) // 13 bytes
 		out.Close()
 
 		written := trackingDir.GetTotalBytesWritten()
@@ -392,7 +392,7 @@ func TestTrackingDirectoryWrapper(t *testing.T) {
 
 		// Create and write file
 		out, _ := trackingDir.CreateOutput("test", IOContextWrite)
-		out.WriteBytes([]byte("Hello, World!")) // 13 bytes
+		out.WriteBytes([]byte("Hello, World!"), 0, len([]byte("Hello, World!"))) // 13 bytes
 		out.Close()
 
 		// Delete file
@@ -464,7 +464,7 @@ func TestTrackingDirectoryWrapper(t *testing.T) {
 
 		// Create file
 		out, _ := trackingDir.CreateOutput("foo", IOContextWrite)
-		out.WriteBytes([]byte("content"))
+		out.WriteBytes([]byte("content"), 0, len([]byte("content")))
 		out.Close()
 
 		// Clear tracking
@@ -488,7 +488,7 @@ func TestTrackingDirectoryWrapper(t *testing.T) {
 
 		// Create file
 		out, _ := trackingDir.CreateOutput("test", IOContextWrite)
-		out.WriteBytes([]byte("Hello"))
+		out.WriteBytes([]byte("Hello"), 0, len([]byte("Hello")))
 		out.Close()
 
 		size := trackingDir.GetFileSize("test")
@@ -571,7 +571,7 @@ func TestFSDirectoryCrossCompatibility(t *testing.T) {
 		if err := out.WriteByte(42); err != nil {
 			t.Fatalf("WriteByte() error = %v", err)
 		}
-		if err := out.WriteBytes(testData); err != nil {
+		if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 			t.Fatalf("WriteBytes() error = %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -609,7 +609,7 @@ func TestFSDirectoryCrossCompatibility(t *testing.T) {
 
 		// Read array
 		readBuf := make([]byte, 256)
-		if err := in.ReadBytes(readBuf); err != nil {
+		if err := in.ReadBytes(readBuf, 0, len(readBuf)); err != nil {
 			t.Errorf("ReadBytes() error = %v", err)
 		}
 		for i, b := range readBuf {
@@ -833,7 +833,7 @@ func TestConcurrentDirectoryAccess(t *testing.T) {
 					t.Errorf("CreateOutput(%s) error: %v", name, err)
 					return
 				}
-				out.WriteBytes([]byte(fmt.Sprintf("content%d", n)))
+				out.WriteBytes([]byte(fmt.Sprintf("content%d", n)), 0, len([]byte(fmt.Sprintf("content%d", n))))
 				out.Close()
 			}(i)
 		}
@@ -856,7 +856,7 @@ func TestConcurrentDirectoryAccess(t *testing.T) {
 
 		// Create file
 		out, _ := dir.CreateOutput("concurrent", IOContextWrite)
-		out.WriteBytes([]byte("concurrent access test data"))
+		out.WriteBytes([]byte("concurrent access test data"), 0, len([]byte("concurrent access test data")))
 		out.Close()
 
 		var wg sync.WaitGroup
@@ -875,7 +875,7 @@ func TestConcurrentDirectoryAccess(t *testing.T) {
 				defer in.Close()
 
 				buf := make([]byte, 25)
-				if err := in.ReadBytes(buf); err != nil {
+				if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 					t.Errorf("ReadBytes() error: %v", err)
 				}
 			}()

@@ -104,7 +104,7 @@ func TestByteBuffersDataInput_RandomReads(t *testing.T) {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	data := make([]byte, max)
 	rnd.Read(data)
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	src := toByteBuffersDataInput(out.ToDataInput())
 	readBuf := make([]byte, max)
@@ -136,7 +136,7 @@ func TestByteBuffersDataInput_RandomReadsOnSlices(t *testing.T) {
 		prefixLen := rnd.Intn(1024 * 8)
 		prefix := make([]byte, prefixLen)
 		rnd.Read(prefix)
-		out.WriteBytes(prefix)
+		out.WriteBytes(prefix, 0, len(prefix))
 
 		// Write main data
 		max := 500
@@ -145,13 +145,13 @@ func TestByteBuffersDataInput_RandomReadsOnSlices(t *testing.T) {
 		}
 		mainData := make([]byte, max)
 		rnd.Read(mainData)
-		out.WriteBytes(mainData)
+		out.WriteBytes(mainData, 0, len(mainData))
 
 		// Write suffix
 		suffixLen := rnd.Intn(1024 * 8)
 		suffix := make([]byte, suffixLen)
 		rnd.Read(suffix)
-		out.WriteBytes(suffix)
+		out.WriteBytes(suffix, 0, len(suffix))
 
 		totalSize := out.Size()
 		sliceLen := totalSize - int64(prefixLen) - int64(suffixLen)
@@ -170,7 +170,7 @@ func TestByteBuffersDataInput_RandomReadsOnSlices(t *testing.T) {
 
 		// Read all data from slice
 		readBuf := make([]byte, sliceLen)
-		err = src.ReadBytes(readBuf)
+		err = src.ReadBytes(readBuf, 0, len(readBuf))
 		if err != nil {
 			t.Fatalf("unexpected error reading bytes: %v", err)
 		}
@@ -230,7 +230,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 			prefixLen = rnd.Intn(1024*8) + 1
 			prefix := make([]byte, prefixLen)
 			rnd.Read(prefix)
-			out.WriteBytes(prefix)
+			out.WriteBytes(prefix, 0, len(prefix))
 		}
 
 		// Write main data
@@ -240,7 +240,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 		mainData := make([]byte, max)
 		rnd.Read(mainData)
-		out.WriteBytes(mainData)
+		out.WriteBytes(mainData, 0, len(mainData))
 
 		totalSize := out.Size()
 		sliceLen := totalSize - int64(prefixLen)
@@ -354,7 +354,7 @@ func TestByteBuffersDataInput_SlicingWindow(t *testing.T) {
 	dataLen := 1024 * 8
 	data := make([]byte, dataLen)
 	rnd.Read(data)
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 	max := out.Size()
@@ -403,12 +403,12 @@ func TestByteBuffersDataInput_SlicingWindow(t *testing.T) {
 // Source: TestByteBuffersDataInput.testEofOnArrayReadPastBufferSize()
 func TestByteBuffersDataInput_EofOnArrayReadPastBufferSize(t *testing.T) {
 	out := NewByteBuffersDataOutput()
-	out.WriteBytes(make([]byte, 10))
+	out.WriteBytes(make([]byte, 10), 0, len(make([]byte, 10)))
 
 	// Try to read more bytes than available
 	in := toByteBuffersDataInput(out.ToDataInput())
 	buf := make([]byte, 100)
-	err := in.ReadBytes(buf)
+	err := in.ReadBytes(buf, 0, len(buf))
 	if err != io.EOF {
 		t.Errorf("expected EOF when reading past buffer, got %v", err)
 	}
@@ -449,7 +449,7 @@ func TestByteBuffersDataInput_SlicingLargeBuffers(t *testing.T) {
 	data = data[shift:]
 
 	out := NewByteBuffersDataOutput()
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 	if in.Length() != simulatedLength {
@@ -512,7 +512,7 @@ func TestByteBuffersDataInput_SlicingLargeBuffers(t *testing.T) {
 func TestByteBuffersDataInput_PositionTracking(t *testing.T) {
 	out := NewByteBuffersDataOutput()
 	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 
@@ -531,7 +531,7 @@ func TestByteBuffersDataInput_PositionTracking(t *testing.T) {
 
 	// Read multiple bytes
 	buf := make([]byte, 2)
-	err = in.ReadBytes(buf)
+	err = in.ReadBytes(buf, 0, len(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestByteBuffersDataInput_PositionTracking(t *testing.T) {
 func TestByteBuffersDataInput_ReadByteAt(t *testing.T) {
 	out := NewByteBuffersDataOutput()
 	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 
@@ -583,7 +583,7 @@ func TestByteBuffersDataInput_ReadByteAt(t *testing.T) {
 func TestByteBuffersDataInput_SliceBounds(t *testing.T) {
 	out := NewByteBuffersDataOutput()
 	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A}
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 
@@ -684,7 +684,7 @@ func TestByteBuffersDataInput_EmptyInput(t *testing.T) {
 		t.Errorf("expected EOF, got %v", err)
 	}
 
-	err = in.ReadBytes(make([]byte, 1))
+	err = in.ReadBytes(make([]byte, 1), 0, len(make([]byte, 1)))
 	if err != io.EOF {
 		t.Errorf("expected EOF, got %v", err)
 	}
@@ -735,7 +735,7 @@ func TestByteBuffersDataInput_RamBytesUsed(t *testing.T) {
 	}
 
 	// Write some data
-	out.WriteBytes(make([]byte, 1000))
+	out.WriteBytes(make([]byte, 1000), 0, len(make([]byte, 1000)))
 	in = toByteBuffersDataInput(out.ToDataInput())
 
 	if in.RamBytesUsed() <= 0 {
@@ -751,7 +751,7 @@ func TestByteBuffersDataInput_RamBytesUsed(t *testing.T) {
 func TestByteBuffersDataInput_SkipBytes(t *testing.T) {
 	out := NewByteBuffersDataOutput()
 	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	out.WriteBytes(data)
+	out.WriteBytes(data, 0, len(data))
 
 	in := toByteBuffersDataInput(out.ToDataInput())
 

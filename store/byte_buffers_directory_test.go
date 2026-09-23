@@ -33,7 +33,7 @@ func TestByteBuffersDirectory_CreateOutput(t *testing.T) {
 
 	// Write data
 	testData := []byte("Hello, ByteBuffers!")
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestByteBuffersDirectory_OpenInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -92,7 +92,7 @@ func TestByteBuffersDirectory_OpenInput(t *testing.T) {
 
 	// Read remaining bytes
 	remaining := make([]byte, len(testData)-1)
-	if err := in.ReadBytes(remaining); err != nil {
+	if err := in.ReadBytes(remaining, 0, len(remaining)); err != nil {
 		t.Fatalf("Failed to read bytes: %v", err)
 	}
 	if string(remaining) != string(testData[1:]) {
@@ -180,7 +180,7 @@ func TestByteBuffersDirectory_Rename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -210,7 +210,7 @@ func TestByteBuffersDirectory_Rename(t *testing.T) {
 	defer in.Close()
 
 	content := make([]byte, len(testData))
-	if err := in.ReadBytes(content); err != nil {
+	if err := in.ReadBytes(content, 0, len(content)); err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}
 	if string(content) != string(testData) {
@@ -228,7 +228,7 @@ func TestByteBuffersDirectory_Seek(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -267,7 +267,7 @@ func TestByteBuffersDirectory_Clone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -283,7 +283,7 @@ func TestByteBuffersDirectory_Clone(t *testing.T) {
 
 	// Read first 5 bytes
 	first5 := make([]byte, 5)
-	if err := in.ReadBytes(first5); err != nil {
+	if err := in.ReadBytes(first5, 0, len(first5)); err != nil {
 		t.Fatalf("Failed to read bytes: %v", err)
 	}
 
@@ -301,7 +301,7 @@ func TestByteBuffersDirectory_Clone(t *testing.T) {
 
 	// Read remaining from clone
 	remaining := make([]byte, len(testData)-5)
-	if err := cloned.ReadBytes(remaining); err != nil {
+	if err := cloned.ReadBytes(remaining, 0, len(remaining)); err != nil {
 		t.Fatalf("Failed to read from clone: %v", err)
 	}
 	if string(remaining) != string(testData[5:]) {
@@ -319,7 +319,7 @@ func TestByteBuffersDirectory_Slice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -342,7 +342,7 @@ func TestByteBuffersDirectory_Slice(t *testing.T) {
 
 	// Read slice content
 	sliceData := make([]byte, 4)
-	if err := slice.ReadBytes(sliceData); err != nil {
+	if err := slice.ReadBytes(sliceData, 0, len(sliceData)); err != nil {
 		t.Fatalf("Failed to read from slice: %v", err)
 	}
 	if string(sliceData) != "test" {
@@ -365,7 +365,7 @@ func TestByteBuffersDirectory_TempOutput(t *testing.T) {
 
 	// Write and close
 	testData := []byte("Temporary data")
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -387,7 +387,7 @@ func TestByteBuffersDirectory_Sync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes([]byte("data")); err != nil {
+	if err := out.WriteBytes([]byte("data"), 0, len([]byte("data"))); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -464,7 +464,7 @@ func TestByteBuffersDirectory_WriteIndividualBytes(t *testing.T) {
 	defer in.Close()
 
 	content := make([]byte, len(testData))
-	if err := in.ReadBytes(content); err != nil {
+	if err := in.ReadBytes(content, 0, len(content)); err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}
 	if string(content) != string(testData) {
@@ -481,7 +481,7 @@ func TestByteBuffersDirectory_ConcurrentAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes([]byte("Concurrent access test data")); err != nil {
+	if err := out.WriteBytes([]byte("Concurrent access test data"), 0, len([]byte("Concurrent access test data"))); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -496,7 +496,7 @@ func TestByteBuffersDirectory_ConcurrentAccess(t *testing.T) {
 		}
 
 		content := make([]byte, 25)
-		if err := in.ReadBytes(content); err != nil {
+		if err := in.ReadBytes(content, 0, len(content)); err != nil {
 			t.Fatalf("Failed to read: %v", err)
 		}
 		in.Close()
@@ -521,7 +521,7 @@ func TestByteBuffersDataInput(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create output: %v", err)
 		}
-		if err := out.WriteBytes(largeData); err != nil {
+		if err := out.WriteBytes(largeData, 0, len(largeData)); err != nil {
 			t.Fatalf("Failed to write: %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -540,7 +540,7 @@ func TestByteBuffersDataInput(t *testing.T) {
 		}
 
 		buf := make([]byte, 20)
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			t.Fatalf("Failed to read across boundary: %v", err)
 		}
 
@@ -594,7 +594,7 @@ func TestByteBuffersDataInput(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create output: %v", err)
 		}
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			t.Fatalf("Failed to write: %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -635,7 +635,7 @@ func TestByteBuffersDataInput(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create output: %v", err)
 		}
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			t.Fatalf("Failed to write: %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -691,7 +691,7 @@ func TestByteBuffersDataOutput(t *testing.T) {
 			if end > len(largeData) {
 				end = len(largeData)
 			}
-			if err := out.WriteBytes(largeData[i:end]); err != nil {
+			if err := out.WriteBytes(largeData[i:end], 0, len(largeData[i:end])); err != nil {
 				t.Fatalf("Failed to write chunk at %d: %v", i, err)
 			}
 		}
@@ -713,7 +713,7 @@ func TestByteBuffersDataOutput(t *testing.T) {
 		defer in.Close()
 
 		readData := make([]byte, len(largeData))
-		if err := in.ReadBytes(readData); err != nil {
+		if err := in.ReadBytes(readData, 0, len(readData)); err != nil {
 			t.Fatalf("Failed to read: %v", err)
 		}
 
@@ -793,7 +793,7 @@ func TestByteBuffersDataOutput(t *testing.T) {
 			t.Errorf("Expected position 1, got %d", out.GetFilePointer())
 		}
 
-		out.WriteBytes([]byte{2, 3, 4})
+		out.WriteBytes([]byte{2, 3, 4}, 0, 3)
 		if out.GetFilePointer() != 4 {
 			t.Errorf("Expected position 4, got %d", out.GetFilePointer())
 		}
@@ -819,7 +819,7 @@ func TestByteBuffersDataOutput(t *testing.T) {
 		}
 
 		// Write after getting name
-		if err := out.WriteBytes([]byte("data")); err != nil {
+		if err := out.WriteBytes([]byte("data"), 0, len([]byte("data"))); err != nil {
 			t.Fatalf("Failed to write: %v", err)
 		}
 

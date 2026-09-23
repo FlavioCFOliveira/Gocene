@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestStandardTokenizer_Basic tests basic tokenization.
@@ -59,7 +58,7 @@ func TestStandardTokenizer_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -98,12 +97,12 @@ func TestStandardTokenizer_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := tokenizer.GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOff = offsetAttr.StartOffset()
 				info.endOff = offsetAttr.EndOffset()
@@ -144,7 +143,7 @@ func TestStandardTokenizer_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -261,7 +260,7 @@ func TestStandardTokenizer_MaxTokenLength(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		attr := tokenizer.GetAttribute("CharTermAttribute")
+		attr := tokenizer.GetAttribute(CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("missing CharTermAttribute")
 		}
@@ -296,7 +295,7 @@ func TestStandardTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -315,7 +314,7 @@ func TestStandardTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -398,7 +397,7 @@ func TestStandardTokenizer_Numbers(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -453,7 +452,7 @@ func TestStandardTokenizer_Whitespace(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -542,7 +541,7 @@ func TestStandardTokenizer_MaxTokenLengthNonDefault(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		attr := tokenizer.GetAttribute("CharTermAttribute")
+		attr := tokenizer.GetAttribute(CharTermAttributeType)
 		tokens = append(tokens, attr.(CharTermAttribute).String())
 	}
 	want := []string{"ab", "cd", "toolo", "ng", "xy", "z"}
@@ -581,7 +580,7 @@ func TestStandardTokenizer_TypeAttribute(t *testing.T) {
 			t.Errorf("input %q: no token", tc.input)
 			continue
 		}
-		typeAttr := tokenizer.GetAttribute("TypeAttribute")
+		typeAttr := tokenizer.GetAttribute(TypeAttributeType)
 		if typeAttr == nil {
 			tokenizer.Close()
 			t.Errorf("input %q: missing TypeAttribute", tc.input)

@@ -11,7 +11,23 @@ func TestIntRangeDocValuesField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.GetMin(0) != 1 || f.GetMax(0) != 10 || f.GetMin(1) != 2 || f.GetMax(1) != 20 {
+	min0, err := f.GetMin(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	max0, err := f.GetMax(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	min1, err := f.GetMin(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	max1, err := f.GetMax(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if min0 != 1 || max0 != 10 || min1 != 2 || max1 != 20 {
 		t.Fatalf("min/max mismatch")
 	}
 }
@@ -28,7 +44,15 @@ func TestLongRangeDocValuesField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.GetMin(0) != -1 || f.GetMax(0) != 1 {
+	min0, err := f.GetMin(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	max0, err := f.GetMax(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if min0 != -1 || max0 != 1 {
 		t.Fatalf("min/max mismatch")
 	}
 }

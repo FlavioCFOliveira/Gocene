@@ -17,12 +17,11 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"reflect"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -585,7 +584,7 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 
 	if attrSrc, ok := ts.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	}); ok {
 		as := attrSrc.GetAttributeSource()
 		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {
@@ -645,7 +644,7 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 
 	if attrSrc, ok := ts.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	}); ok {
 		as := attrSrc.GetAttributeSource()
 		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {

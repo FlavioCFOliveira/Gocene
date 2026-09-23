@@ -33,7 +33,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				if err != nil {
 					t.Fatalf("CreateOutput: %v", err)
 				}
-				if err := out.WriteBytes(data); err != nil {
+				if err := out.WriteBytes(data, 0, len(data)); err != nil {
 					t.Fatalf("WriteBytes: %v", err)
 				}
 				if err := out.Close(); err != nil {
@@ -47,7 +47,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				defer in.Close()
 
 				got := make([]byte, num)
-				if err := in.ReadBytes(got); err != nil {
+				if err := in.ReadBytes(got, 0, len(got)); err != nil {
 					t.Fatalf("ReadBytes: %v", err)
 				}
 				if !bytes.Equal(got, data) {
@@ -60,7 +60,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 						t.Fatalf("SetPosition(%d): %v", offset, err)
 					}
 					sub := make([]byte, num-offset)
-					if err := in.ReadBytes(sub); err != nil {
+					if err := in.ReadBytes(sub, 0, len(sub)); err != nil {
 						t.Fatalf("ReadBytes at %d: %v", offset, err)
 					}
 					if !bytes.Equal(sub, data[offset:]) {
@@ -159,7 +159,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				if err != nil {
 					t.Fatalf("CreateOutput: %v", err)
 				}
-				if err := out.WriteBytes(data); err != nil {
+				if err := out.WriteBytes(data, 0, len(data)); err != nil {
 					t.Fatalf("WriteBytes: %v", err)
 				}
 				if err := out.Close(); err != nil {
@@ -171,7 +171,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 					t.Fatalf("OpenInput: %v", err)
 				}
 				got := make([]byte, 1<<i)
-				if err := in.ReadBytes(got); err != nil {
+				if err := in.ReadBytes(got, 0, len(got)); err != nil {
 					t.Fatalf("ReadBytes: %v", err)
 				}
 				if !bytes.Equal(got, data) {
@@ -200,7 +200,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				if err != nil {
 					t.Fatalf("CreateOutput: %v", err)
 				}
-				if err := out.WriteBytes(data); err != nil {
+				if err := out.WriteBytes(data, 0, len(data)); err != nil {
 					t.Fatalf("WriteBytes: %v", err)
 				}
 				if err := out.Close(); err != nil {
@@ -214,7 +214,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				defer in.Close()
 
 				got := make([]byte, len(data))
-				if err := in.ReadBytes(got); err != nil {
+				if err := in.ReadBytes(got, 0, len(got)); err != nil {
 					t.Fatalf("ReadBytes(full): %v", err)
 				}
 				if !bytes.Equal(got, data) {
@@ -226,7 +226,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 							t.Fatalf("SetPosition(%d): %v", start, err)
 						}
 						buf := make([]byte, length)
-						if err := in.ReadBytes(buf); err != nil {
+						if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 							t.Fatalf("ReadBytes(%d,%d): %v", start, length, err)
 						}
 						if !bytes.Equal(buf, data[start:start+length]) {
@@ -251,7 +251,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 				if err != nil {
 					t.Fatalf("CreateOutput: %v", err)
 				}
-				if err := out.WriteBytes(data); err != nil {
+				if err := out.WriteBytes(data, 0, len(data)); err != nil {
 					t.Fatalf("WriteBytes: %v", err)
 				}
 				if err := out.Close(); err != nil {
@@ -271,7 +271,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 							t.Fatalf("Slice(%d,%d): %v", start, length, err)
 						}
 						buf := make([]byte, length)
-						if err := sl.ReadBytes(buf); err != nil {
+						if err := sl.ReadBytes(buf, 0, len(buf)); err != nil {
 							sl.Close()
 							t.Fatalf("ReadBytes(slice %d,%d): %v", start, length, err)
 						}
@@ -366,7 +366,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 						for j := range junk {
 							junk[j] = byte(r.IntN(256))
 						}
-						if err := out.WriteBytes(junk); err != nil {
+						if err := out.WriteBytes(junk, 0, len(junk)); err != nil {
 							t.Fatalf("WriteBytes: %v", err)
 						}
 					}

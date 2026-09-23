@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestSimplePatternTokenizer_Basic tests basic pattern tokenization.
@@ -90,9 +89,7 @@ func TestSimplePatternTokenizer_Basic(t *testing.T) {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -135,9 +132,7 @@ func TestSimplePatternTokenizer_Offsets(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	expectedOffsets := []struct {
 		start int
@@ -189,9 +184,7 @@ func TestSimplePatternTokenizer_PositionIncrement(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader("one two three")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("one two three"))
 
 	for i := 0; i < 3; i++ {
 		hasToken, err := tokenizer.IncrementToken()
@@ -222,9 +215,7 @@ func TestSimplePatternTokenizer_Reset(t *testing.T) {
 	}
 
 	// First input
-	if err := tokenizer.SetReader(strings.NewReader("first second")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("first second"))
 
 	// Consume first token
 	hasToken, _ := tokenizer.IncrementToken()
@@ -242,9 +233,7 @@ func TestSimplePatternTokenizer_Reset(t *testing.T) {
 	if err := tokenizer.Reset(); err != nil {
 		t.Fatalf("Reset failed: %v", err)
 	}
-	if err := tokenizer.SetReader(strings.NewReader("third fourth")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("third fourth"))
 
 	// Consume first token from new input
 	hasToken, err = tokenizer.IncrementToken()
@@ -270,9 +259,7 @@ func TestSimplePatternTokenizer_End(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -312,7 +299,7 @@ func TestSimplePatternTokenizer_InvalidPattern(t *testing.T) {
 // TestSimplePatternTokenizer_WithPrecompiledRegexp tests creation with pre-compiled regexp.
 func TestSimplePatternTokenizer_WithPrecompiledRegexp(t *testing.T) {
 	re := regexp.MustCompile(`\w+`)
-	tokenizer := NewSimplePatternTokenizerWithRegexp(re)
+	tokenizer := NewSimplePatternTokenizerWithRegexp(DefaultTokenAttributeFactory, re)
 
 	if tokenizer == nil {
 		t.Fatal("Tokenizer is nil")
@@ -322,9 +309,7 @@ func TestSimplePatternTokenizer_WithPrecompiledRegexp(t *testing.T) {
 		t.Error("Pattern mismatch")
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader("hello world")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("hello world"))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -376,9 +361,7 @@ func TestSimplePatternTokenizer_Unicode(t *testing.T) {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -419,9 +402,7 @@ func TestSimplePatternTokenizer_LargeInput(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader(large)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(large))
 
 	count := 0
 	for {
@@ -451,7 +432,7 @@ func TestSimplePatternTokenizer_Factory(t *testing.T) {
 		t.Errorf("Factory pattern = %q, want %q", factory.GetPattern(), `\w+`)
 	}
 
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
 	}
@@ -463,9 +444,7 @@ func TestSimplePatternTokenizer_Factory(t *testing.T) {
 	}
 
 	// Test that the tokenizer works
-	if err := concreteTokenizer.SetReader(strings.NewReader("hello world")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	concreteTokenizer.SetReader(strings.NewReader("hello world"))
 
 	hasToken, err := concreteTokenizer.IncrementToken()
 	if err != nil {
@@ -500,9 +479,7 @@ func TestSimplePatternTokenizer_OverlappingMatches(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader("aaaa")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("aaaa"))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -532,9 +509,7 @@ func TestSimplePatternTokenizer_SingleToken(t *testing.T) {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader("single")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("single"))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {

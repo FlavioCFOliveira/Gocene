@@ -46,7 +46,7 @@ func TestShapeField_QueryRelation_String(t *testing.T) {
 }
 
 func TestLatLonShape_Point(t *testing.T) {
-	fields, err := CreateIndexableFieldsPoint("loc", 38.7, -9.1)
+	fields, err := CreateIndexableFieldsFromLatLonPointArray("loc", 38.7, -9.1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestLatLonShape_PolygonStubError(t *testing.T) {
 		[]float64{0, 0, 0.5, 0.5, 0.25, 0},
 		[]float64{0, 0.5, 0.5, 0, 0.25, 0},
 	)
-	_, err := CreateIndexableFieldsPolygon("loc", poly)
+	_, err := CreateIndexableFieldsFromLatLonPolygon("loc", poly)
 	// Should not panic; either succeeds for simple triangles or returns a
 	// wrapped ErrTessellatorUnsupported. Accept both.
 	if err != nil && !errors.Is(err, geo.ErrTessellatorUnsupported) {

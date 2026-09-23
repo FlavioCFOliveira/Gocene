@@ -8,93 +8,91 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// ReaderManager safely shares a single DirectoryReader across multiple
-// goroutines, periodically reopening it via MaybeRefresh to pick up new
-// index commits. Each caller acquires a reference-counted reader snapshot
-// via Acquire and releases it via Release when done. Mirrors
-// org.apache.lucene.index.ReaderManager from Apache Lucene 10.4.0.
+// ReaderManager is the Go port of org.apache.lucene.index.ReaderManager
+// (Apache Lucene 10.5.0): utility class to safely share [DirectoryReader]
+// instances across multiple threads, while periodically reopening. This class
+// ensures each reader is closed only once all threads have finished using it.
 //
-// # Deviation from Lucene 10.4.0
-//
-// Lucene's ReaderManager extends the generic ReferenceManager<DirectoryReader>
-// and implements four abstract methods: decRef, refreshIfNeeded, tryIncRef,
-// and getRefCount. Gocene's ReferenceManager[T] provides an equivalent generic
-// implementation already wired for DirectoryReader via NewReaderManagerFromDir
-// and NewReaderManagerFromWriter. The Acquire/Release/MaybeRefresh/Close API
-// surface is identical.
-//
-// DirectoryReader.OpenIfChanged is not yet ported (see backlog #2707); the
-// refreshIfNeeded delegate therefore returns nil (no new reader available)
-// until that port lands. All other behaviour — reference counting, listener
-// notification, thread safety — is fully functional via the embedded
-// ReferenceManager[*DirectoryReader].
+// See the search package's SearcherManager.
 type ReaderManager struct {
 	*ReferenceManager[*DirectoryReader]
 }
 
-// NewReaderManagerFromDir opens a DirectoryReader from the given directory
-// and returns a ReaderManager that owns its lifecycle.
-func NewReaderManagerFromDir(dir store.Directory) (*ReaderManager, error) {
-	dr, err := OpenDirectoryReader(dir)
+// newReaderManagerBase wires the ReferenceManager base to rm.
+func newReaderManagerBase() *ReaderManager {
+	rm := &ReaderManager{}
+	rm.ReferenceManager = NewReferenceManager[*DirectoryReader](rm)
+	return rm
+}
+
+// NewReaderManager creates and returns a new ReaderManager from the given
+// [IndexWriter]; it renders ReaderManager(IndexWriter), which applies all
+// deletes and does not write them.
+func NewReaderManager(writer *IndexWriter) (*ReaderManager, error) {
+	return NewReaderManagerWithDeletes(writer, true, false)
+}
+
+// NewReaderManagerWithDeletes creates and returns a new ReaderManager from
+// the given [IndexWriter]; it renders ReaderManager(IndexWriter, boolean
+// applyAllDeletes, boolean writeAllDeletes).
+//
+// If applyAllDeletes is true, all buffered deletes will be applied (made
+// visible) in the returned reader. If false, the deletes are not applied but
+// remain buffered (in IndexWriter) so that they will be applied in the
+// future. Applying deletes can be costly, so if your app can tolerate deleted
+// documents being returned you might gain some performance by passing false.
+// If writeAllDeletes is true, new deletes will be forcefully written to index
+// files.
+func NewReaderManagerWithDeletes(writer *IndexWriter, applyAllDeletes, writeAllDeletes bool) (*ReaderManager, error) {
+	current, err := OpenDirectoryReaderFromWriterWithOptions(writer, applyAllDeletes, writeAllDeletes)
 	if err != nil {
 		return nil, err
 	}
-	return newReaderManager(dr), nil
+	rm := newReaderManagerBase()
+	rm.SetCurrent(current)
+	return rm, nil
 }
 
-// NewReaderManagerFromWriterAndDir opens a DirectoryReader from the given
-// directory (which must be the same directory the IndexWriter operates on)
-// and returns a ReaderManager.
-//
-// Deviation from Lucene 10.4.0: Lucene's ReaderManager(IndexWriter) opens
-// the reader directly from the writer's in-memory state via
-// DirectoryReader.open(IndexWriter, boolean, boolean), which is not yet ported
-// (backlog #2707). Pass the writer's directory explicitly here until that path
-// lands.
-func NewReaderManagerFromWriterAndDir(dir store.Directory) (*ReaderManager, error) {
-	return NewReaderManagerFromDir(dir)
+// NewReaderManagerFromDir creates and returns a new ReaderManager from the
+// given [store.Directory]; it renders ReaderManager(Directory).
+func NewReaderManagerFromDir(dir store.Directory) (*ReaderManager, error) {
+	current, err := OpenDirectoryReader(dir)
+	if err != nil {
+		return nil, err
+	}
+	rm := newReaderManagerBase()
+	rm.SetCurrent(current)
+	return rm, nil
 }
 
-// NewReaderManagerFromReader takes ownership of an already-open DirectoryReader
-// and wraps it in a ReaderManager. The caller must not Close the reader
-// directly after this call; the manager owns its lifecycle.
-func NewReaderManagerFromReader(reader *DirectoryReader) *ReaderManager {
-	return newReaderManager(reader)
+// NewReaderManagerFromReader creates and returns a new ReaderManager from
+// the given already-opened [DirectoryReader], stealing the incoming reference;
+// it renders ReaderManager(DirectoryReader).
+func NewReaderManagerFromReader(reader *DirectoryReader) (*ReaderManager, error) {
+	rm := newReaderManagerBase()
+	rm.SetCurrent(reader)
+	return rm, nil
 }
 
-// newReaderManager is the internal constructor shared by all public variants.
-func newReaderManager(initial *DirectoryReader) *ReaderManager {
-	rm := NewReferenceManagerWithFuncs[*DirectoryReader](
-		initial,
-		// acquireFunc: increment refcount, return same reader (the caller
-		// will Release via releaseFunc when done).
-		func(r *DirectoryReader) *DirectoryReader {
-			if r != nil {
-				_ = r.IncRef()
-			}
-			return r
-		},
-		// releaseFunc: decrement refcount; the reader closes itself when it
-		// reaches zero.
-		func(r *DirectoryReader) error {
-			if r == nil {
-				return nil
-			}
-			return r.DecRef()
-		},
-	)
-	return &ReaderManager{ReferenceManager: rm}
+// DecRef renders protected void decRef(DirectoryReader reference).
+func (rm *ReaderManager) DecRef(reference *DirectoryReader) error {
+	return reference.DecRef()
 }
 
-// MaybeRefresh checks whether a newer index commit is available and, if so,
-// replaces the current reader with a freshly opened one. Returns true if the
-// reader was refreshed.
-//
-// Deviation: DirectoryReader.OpenIfChanged is not yet ported (backlog #2707).
-// Until it lands this method always returns (false, nil), meaning the manager
-// serves the same reader snapshot it was opened with. Reference counting and
-// listener notification still work correctly.
-func (rm *ReaderManager) MaybeRefresh() (bool, error) {
-	// OpenIfChanged not yet available — no refresh performed.
-	return false, nil
+// RefreshIfNeeded renders protected DirectoryReader
+// refreshIfNeeded(DirectoryReader referenceToRefresh).
+func (rm *ReaderManager) RefreshIfNeeded(referenceToRefresh *DirectoryReader) (*DirectoryReader, error) {
+	return OpenIfChanged(referenceToRefresh)
 }
+
+// TryIncRef renders protected boolean tryIncRef(DirectoryReader reference).
+func (rm *ReaderManager) TryIncRef(reference *DirectoryReader) (bool, error) {
+	return reference.TryIncRef(), nil
+}
+
+// GetRefCount renders protected int getRefCount(DirectoryReader reference).
+func (rm *ReaderManager) GetRefCount(reference *DirectoryReader) int {
+	return int(reference.GetRefCount())
+}
+
+var _ ReferenceManagerOverrides[*DirectoryReader] = (*ReaderManager)(nil)

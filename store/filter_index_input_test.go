@@ -22,6 +22,7 @@
 package store
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -80,7 +81,7 @@ func (in *interceptingIndexInput) ReadByte() (byte, error) {
 	panic("interceptingIndexInput.ReadByte: unexpected read")
 }
 
-func (in *interceptingIndexInput) ReadBytes([]byte) error {
+func (in *interceptingIndexInput) ReadBytes(_ []byte, _ int, _ int) error {
 	panic("interceptingIndexInput.ReadBytes: unexpected read")
 }
 
@@ -116,6 +117,128 @@ func (in *interceptingIndexInput) Slice(string, int64, int64) (IndexInput, error
 	panic("interceptingIndexInput.Slice: unsupported")
 }
 
+// ReadFloats carries the default body Lucene gives IndexInput.ReadFloats.
+func (in *interceptingIndexInput) ReadFloats(dst []float32, offset int, len int) error {
+	for i := 0; i < len; i++ {
+		v, err := in.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts carries the default body Lucene gives IndexInput.ReadInts.
+func (in *interceptingIndexInput) ReadInts(dst []int32, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := in.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs carries the default body Lucene gives IndexInput.ReadLongs.
+func (in *interceptingIndexInput) ReadLongs(dst []int64, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := in.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadMapOfStrings carries the default body Lucene gives IndexInput.ReadMapOfStrings.
+func (in *interceptingIndexInput) ReadMapOfStrings() (map[string]string, error) {
+	count, err := in.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]string, count)
+	for i := 0; i < int(count); i++ {
+		k, err := in.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		v, err := in.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res[k] = v
+	}
+	return res, nil
+}
+
+// ReadSetOfStrings carries the default body Lucene gives IndexInput.ReadSetOfStrings.
+func (in *interceptingIndexInput) ReadSetOfStrings() ([]string, error) {
+	count, err := in.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, 0, count)
+	for i := 0; i < int(count); i++ {
+		v, err := in.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+// ReadVInt carries the default body Lucene gives IndexInput.ReadVInt.
+func (in *interceptingIndexInput) ReadVInt() (int32, error) {
+	var v int32
+	for shift := 0; ; shift += 7 {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int32(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadVLong carries the default body Lucene gives IndexInput.ReadVLong.
+func (in *interceptingIndexInput) ReadVLong() (int64, error) {
+	var v int64
+	for shift := 0; ; shift += 7 {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadZInt carries the default body Lucene gives IndexInput.ReadZInt.
+func (in *interceptingIndexInput) ReadZInt() (int32, error) {
+	v, err := in.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(uint32(v)>>1) ^ -(v & 1), nil
+}
+
+// ReadZLong carries the default body Lucene gives IndexInput.ReadZLong.
+func (in *interceptingIndexInput) ReadZLong() (int64, error) {
+	v, err := in.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return int64(uint64(v)>>1) ^ -(v & 1), nil
+}
+
 var _ IndexInput = (*interceptingIndexInput)(nil)
 
 // checkReads is the Go port of TestIndexInput.checkReads: it walks
@@ -133,7 +256,7 @@ func checkReads(t *testing.T, in DataInput) {
 	}
 	wantVLong := func(want int64) {
 		t.Helper()
-		got, err := ReadVLong(in)
+		got, err := in.ReadVLong()
 		if err != nil || got != want {
 			t.Fatalf("ReadVLong = (%d, %v), want (%d, nil)", got, err, want)
 		}
@@ -285,7 +408,7 @@ func TestFilterIndexInput_RawFilterIndexInputRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateOutput(foo) failed: %v", err)
 		}
-		if err := os.WriteBytes(readTestBytes); err != nil {
+		if err := os.WriteBytes(readTestBytes, 0, len(readTestBytes)); err != nil {
 			t.Fatalf("WriteBytes(foo) failed: %v", err)
 		}
 		if err := os.Close(); err != nil {
@@ -367,7 +490,7 @@ func TestFilterIndexInput_DelegateForwarding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput(fwd) failed: %v", err)
 	}
-	if err := out.WriteBytes(want); err != nil {
+	if err := out.WriteBytes(want, 0, len(want)); err != nil {
 		t.Fatalf("WriteBytes(fwd) failed: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -397,7 +520,7 @@ func TestFilterIndexInput_DelegateForwarding(t *testing.T) {
 	}
 
 	rest := make([]byte, 3)
-	if err := filter.ReadBytes(rest); err != nil {
+	if err := filter.ReadBytes(rest, 0, len(rest)); err != nil {
 		t.Fatalf("ReadBytes failed: %v", err)
 	}
 	if rest[0] != 0xAD || rest[1] != 0xBE || rest[2] != 0xEF {

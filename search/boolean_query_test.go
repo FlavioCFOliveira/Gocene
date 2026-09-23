@@ -16,16 +16,10 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
-
-// fixedBitSetCollectorBlocker names org.apache.lucene.tests.search.FixedBitSetCollector.
-const fixedBitSetCollectorBlocker = "requires org.apache.lucene.tests.search.FixedBitSetCollector (not ported)"
-
-// dummyTotalHitCountCollectorBlocker names
-// org.apache.lucene.tests.search.DummyTotalHitCountCollector.
-const dummyTotalHitCountCollectorBlocker = "requires org.apache.lucene.tests.search.DummyTotalHitCountCollector (not ported)"
 
 // bqOccurValues renders Occur.values().
 var bqOccurValues = []search.Occur{search.MUST, search.FILTER, search.SHOULD, search.MUST_NOT}
@@ -422,8 +416,11 @@ func TestBooleanQueryMinShouldMatchLeniency(t *testing.T) {
 // searcher.search(query, FixedBitSetCollector.createManager(maxDoc)).
 func bqGetMatches(t *testing.T, searcher *search.IndexSearcher, query search.Query) *util.FixedBitSet {
 	t.Helper()
-	t.Fatal(fixedBitSetCollectorBlocker)
-	return nil
+	matches, err := search.SearchWithCollectorManager(searcher, query, testsearch.FixedBitSetCollectorCreateManager(searcher.GetIndexReader().MaxDoc()))
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	return matches
 }
 
 func TestBooleanQueryFILTERClauseBehavesLikeMUST(t *testing.T) {
@@ -860,35 +857,35 @@ func TestBooleanQueryConjunctionMatchesCount(t *testing.T) {
 
 	query := search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongExact(t, "long", 3), search.FILTER).
+		Add(longPointNewExactQuery(t, "long", 3), search.FILTER).
 		Build()
 	// Both queries match a single doc, BooleanWeight can't figure out the count of the conjunction
 	bqAssertCount(t, searcher, query, leaf, -1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "missing"), search.MUST).
-		Add(pqLongExact(t, "long", 3), search.FILTER).
+		Add(longPointNewExactQuery(t, "long", 3), search.FILTER).
 		Build()
 	// One query has a count of 0, the conjunction has a count of 0 too
 	bqAssertCount(t, searcher, query, leaf, 0)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongExact(t, "long", 5), search.FILTER).
+		Add(longPointNewExactQuery(t, "long", 5), search.FILTER).
 		Build()
 	// One query has a count of 0, the conjunction has a count of 0 too
 	bqAssertCount(t, searcher, query, leaf, 0)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongRange(t, "long", 0, 10), search.FILTER).
+		Add(longPointNewRangeQuery(t, "long", 0, 10), search.FILTER).
 		Build()
 	// One query matches all docs, the count of the conjunction is the count of the other query
 	bqAssertCount(t, searcher, query, leaf, 1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(search.Instance, search.MUST).
-		Add(pqLongRange(t, "long", 1, 5), search.FILTER).
+		Add(longPointNewRangeQuery(t, "long", 1, 5), search.FILTER).
 		Build()
 	// One query matches all docs, the count of the conjunction is the count of the other query
 	bqAssertCount(t, searcher, query, leaf, 1)
@@ -896,19 +893,12 @@ func TestBooleanQueryConjunctionMatchesCount(t *testing.T) {
 	closeAll()
 }
 
-// bqLongMultiDimRange renders LongPoint.newRangeQuery(String, long[], long[]).
+// bqLongMultiDimRange renders LongPoint.newRangeQuery(String, long[], long[]),
+// one of the unported static query factories of the document point classes.
 func bqLongMultiDimRange(t *testing.T, field string, lower, upper []int64) search.Query {
 	t.Helper()
-	var lo, hi []byte
-	for i := range lower {
-		lo = append(lo, pqEncodeLong(lower[i])...)
-		hi = append(hi, pqEncodeLong(upper[i])...)
-	}
-	q, err := search.NewPointRangeQueryMultiDim(field, lo, hi, len(lower))
-	if err != nil {
-		t.Fatalf("long range query: %v", err)
-	}
-	return q
+	t.Fatal(pointQueryFactoriesBlocker)
+	return nil
 }
 
 func TestBooleanQueryDisjunctionMatchesCount(t *testing.T) {
@@ -918,35 +908,35 @@ func TestBooleanQueryDisjunctionMatchesCount(t *testing.T) {
 
 	query := search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.SHOULD).
-		Add(pqLongExact(t, "long", 3), search.SHOULD).
+		Add(longPointNewExactQuery(t, "long", 3), search.SHOULD).
 		Build()
 	// Both queries match a single doc, BooleanWeight can't figure out the count of the disjunction
 	bqAssertCount(t, searcher, query, leaf, -1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "missing"), search.SHOULD).
-		Add(pqLongExact(t, "long", 3), search.SHOULD).
+		Add(longPointNewExactQuery(t, "long", 3), search.SHOULD).
 		Build()
 	// One query has a count of 0, the disjunction count is the other count
 	bqAssertCount(t, searcher, query, leaf, 1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.SHOULD).
-		Add(pqLongExact(t, "long", 5), search.SHOULD).
+		Add(longPointNewExactQuery(t, "long", 5), search.SHOULD).
 		Build()
 	// One query has a count of 0, the disjunction count is the other count
 	bqAssertCount(t, searcher, query, leaf, 1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.SHOULD).
-		Add(pqLongRange(t, "long", 0, 10), search.SHOULD).
+		Add(longPointNewRangeQuery(t, "long", 0, 10), search.SHOULD).
 		Build()
 	// One query matches all docs, the count of the disjunction is the number of docs
 	bqAssertCount(t, searcher, query, leaf, 2)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(search.Instance, search.SHOULD).
-		Add(pqLongRange(t, "long", 1, 5), search.SHOULD).
+		Add(longPointNewRangeQuery(t, "long", 1, 5), search.SHOULD).
 		Build()
 	// One query matches all docs, the count of the disjunction is the number of docs
 	bqAssertCount(t, searcher, query, leaf, 2)
@@ -1270,21 +1260,21 @@ func TestBooleanQueryProhibitedMatchesCount(t *testing.T) {
 
 	query := search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongExact(t, "long", 3), search.MUST_NOT).
+		Add(longPointNewExactQuery(t, "long", 3), search.MUST_NOT).
 		Build()
 	// Both queries match a single doc, BooleanWeight can't figure out the count of the query
 	bqAssertCount(t, searcher, query, leaf, -1)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "missing"), search.MUST).
-		Add(pqLongExact(t, "long", 3), search.MUST_NOT).
+		Add(longPointNewExactQuery(t, "long", 3), search.MUST_NOT).
 		Build()
 	// the positive clause doesn't match any docs, so the overall query doesn't either
 	bqAssertCount(t, searcher, query, leaf, 0)
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongExact(t, "long", 5), search.MUST_NOT).
+		Add(longPointNewExactQuery(t, "long", 5), search.MUST_NOT).
 		Build()
 	// the negative clause doesn't match any docs, so the overall count is the count of the positive
 	// clause
@@ -1292,13 +1282,13 @@ func TestBooleanQueryProhibitedMatchesCount(t *testing.T) {
 
 	query = search.NewBooleanQueryBuilder().
 		Add(bqTermQuery("string", "abc"), search.MUST).
-		Add(pqLongRange(t, "long", 0, 10), search.MUST_NOT).
+		Add(longPointNewRangeQuery(t, "long", 0, 10), search.MUST_NOT).
 		Build()
 	// the negative clause matches all docs, so the query doesn't match any docs
 	bqAssertCount(t, searcher, query, leaf, 0)
 
 	query = search.NewBooleanQueryBuilder().
-		Add(pqLongRange(t, "long", 0, 10), search.MUST).
+		Add(longPointNewRangeQuery(t, "long", 0, 10), search.MUST).
 		Add(bqTermQuery("string", "abc"), search.MUST_NOT).
 		Build()
 	// The positive clause matches all docs, so we can subtract the number of matches of the
@@ -1322,15 +1312,15 @@ func TestBooleanQueryRandomBooleanQueryMatchesCount(t *testing.T) {
 			case 0:
 				query = bqTermQuery("string", "abc")
 			case 1:
-				query = pqLongExact(t, "long", 3)
+				query = longPointNewExactQuery(t, "long", 3)
 			case 2:
 				query = bqTermQuery("string", "missing")
 			case 3:
-				query = pqLongExact(t, "long", 5)
+				query = longPointNewExactQuery(t, "long", 5)
 			case 4:
 				query = search.Instance
 			default:
-				query = pqLongRange(t, "long", 0, 10)
+				query = longPointNewRangeQuery(t, "long", 0, 10)
 			}
 			occur := bqOccurValues[random().Intn(len(bqOccurValues))]
 			if occur == search.SHOULD {
@@ -1340,9 +1330,11 @@ func TestBooleanQueryRandomBooleanQueryMatchesCount(t *testing.T) {
 		}
 		builder.SetMinimumNumberShouldMatch(nextInt(0, numShouldClauses))
 		booleanQuery := builder.Build()
-		// searcher.search(booleanQuery, DummyTotalHitCountCollector.createManager())
-		t.Fatal(dummyTotalHitCountCollectorBlocker)
-		_ = mustCount(t, searcher, booleanQuery)
+		expected, err := search.SearchWithCollectorManager(searcher, booleanQuery, testsearch.DummyTotalHitCountCollectorCreateManager())
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		assertIntEquals(t, expected, mustCount(t, searcher, booleanQuery))
 	}
 }
 

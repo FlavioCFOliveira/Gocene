@@ -15,9 +15,7 @@ import (
 // the final accept state.
 func TestTokenStreamToAutomaton_SingleTokenAccepts(t *testing.T) {
 	tok := NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("abc")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("abc"))
 
 	conv := NewTokenStreamToAutomaton()
 	a, err := conv.ToAutomaton(tok)
@@ -58,18 +56,14 @@ func TestTokenStreamToAutomaton_MultiTokenInsertsPosSep(t *testing.T) {
 	conv := NewTokenStreamToAutomaton()
 
 	tok1 := NewWhitespaceTokenizer()
-	if err := tok1.SetReader(strings.NewReader("ab")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok1.SetReader(strings.NewReader("ab"))
 	a1, err := conv.ToAutomaton(tok1)
 	if err != nil {
 		t.Fatalf("ToAutomaton(single): %v", err)
 	}
 
 	tok2 := NewWhitespaceTokenizer()
-	if err := tok2.SetReader(strings.NewReader("ab cd")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok2.SetReader(strings.NewReader("ab cd"))
 	a2, err := conv.ToAutomaton(tok2)
 	if err != nil {
 		t.Fatalf("ToAutomaton(multi): %v", err)

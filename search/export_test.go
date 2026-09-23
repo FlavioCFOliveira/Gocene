@@ -60,3 +60,30 @@ func IsPhraseScorer(scorer Scorer) bool {
 func IndexSearcherSearchLeaf(s *IndexSearcher, ctx *index.LeafReaderContext, minDocId, maxDocId int, weight Weight, collector Collector) error {
 	return s.searchLeaf(ctx, minDocId, maxDocId, weight, collector)
 }
+
+// SearcherManagerIsSearcherCurrent renders the package-private
+// SearcherManager.isSearcherCurrent().
+func SearcherManagerIsSearcherCurrent(sm *SearcherManager) (bool, error) {
+	return sm.isSearcherCurrent()
+}
+
+// SearcherManagerGetSearcherCommitGeneration renders the package-private
+// SearcherManager.getSearcherCommitGeneration().
+func SearcherManagerGetSearcherCommitGeneration(sm *SearcherManager) (int64, error) {
+	return sm.getSearcherCommitGeneration()
+}
+
+// BooleanScorerSIZE renders the package-private BooleanScorer.SIZE.
+const BooleanScorerSIZE = booleanScorerSize
+
+// BooleanWeightSimilarity renders the package-private BooleanWeight.similarity.
+func BooleanWeightSimilarity(w *BooleanWeight) Similarity { return w.similarity }
+
+// SetKnnVectorQueryOverrides renders a Java subclass of KnnFloatVectorQuery /
+// KnnByteVectorQuery that overrides the protected exactSearch or
+// approximateSearch (TestKnnFloatVectorQuery.ThrowingKnnVectorQuery and
+// friends): it re-points the AbstractKnnVectorQuery back-pointer at the
+// overriding value, so the rewrite dispatches to its methods.
+func SetKnnVectorQueryOverrides(q *BaseKnnVectorQuery, impl KnnVectorQueryImpl) {
+	q.impl = impl
+}

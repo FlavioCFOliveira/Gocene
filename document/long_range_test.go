@@ -5,6 +5,7 @@
 package document
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -17,10 +18,7 @@ import (
 //	new LongRange("foo", new long[]{1,11,21,31}, new long[]{2,12,22,32})
 //	  .toString() == "LongRange <foo: [1 : 2] [11 : 12] [21 : 22] [31 : 32]>"
 func TestLongRange_ToString(t *testing.T) {
-	r, err := NewLongRange("foo", []int64{1, 11, 21, 31}, []int64{2, 12, 22, 32})
-	if err != nil {
-		t.Fatalf("NewLongRange: %v", err)
-	}
+	r := NewLongRange("foo", []int64{1, 11, 21, 31}, []int64{2, 12, 22, 32})
 	got := r.String()
 	want := "LongRange <foo: [1 : 2] [11 : 12] [21 : 22] [31 : 32]>"
 	if got != want {
@@ -29,11 +27,8 @@ func TestLongRange_ToString(t *testing.T) {
 }
 
 func TestLongRange_BasicRoundTrip(t *testing.T) {
-	r, err := NewLongRange("r", []int64{-100, 0}, []int64{200, 50})
-	if err != nil {
-		t.Fatalf("NewLongRange: %v", err)
-	}
-	if got := r.NumDimensions(); got != 2 {
+	r := NewLongRange("r", []int64{-100, 0}, []int64{200, 50})
+	if got := r.FieldType().PointDimensionCount() / 2; got != 2 {
 		t.Fatalf("NumDimensions = %d, want 2", got)
 	}
 	if got, want := r.GetMin(0), int64(-100); got != want {
@@ -54,10 +49,7 @@ func TestLongRange_BasicRoundTrip(t *testing.T) {
 }
 
 func TestLongRange_OpenEndedRange(t *testing.T) {
-	r, err := NewLongRange("r", []int64{math.MinInt64}, []int64{math.MaxInt64})
-	if err != nil {
-		t.Fatalf("NewLongRange: %v", err)
-	}
+	r := NewLongRange("r", []int64{math.MinInt64}, []int64{math.MaxInt64})
 	if got, want := r.GetMin(0), int64(math.MinInt64); got != want {
 		t.Fatalf("GetMin(0) = %d, want %d", got, want)
 	}
@@ -67,7 +59,7 @@ func TestLongRange_OpenEndedRange(t *testing.T) {
 }
 
 func TestLongRange_MinGreaterThanMaxErrors(t *testing.T) {
-	_, err := NewLongRange("r", []int64{10}, []int64{5})
+	err := panicErr(func() { NewLongRange("r", []int64{10}, []int64{5}) })
 	if err == nil {
 		t.Fatalf("expected error for min > max")
 	}
@@ -77,17 +69,17 @@ func TestLongRange_MinGreaterThanMaxErrors(t *testing.T) {
 }
 
 func TestLongRange_MismatchedSizesErrors(t *testing.T) {
-	_, err := NewLongRange("r", []int64{1, 2}, []int64{3})
+	err := panicErr(func() { NewLongRange("r", []int64{1, 2}, []int64{3}) })
 	if err == nil {
 		t.Fatalf("expected error for mismatched dimension counts")
 	}
 }
 
 func TestLongRange_EmptyErrors(t *testing.T) {
-	if _, err := NewLongRange("r", nil, nil); err == nil {
+	if err := panicErr(func() { NewLongRange("r", nil, nil) }); err == nil {
 		t.Fatalf("expected error for nil min/max")
 	}
-	if _, err := NewLongRange("r", []int64{}, []int64{}); err == nil {
+	if err := panicErr(func() { NewLongRange("r", []int64{}, []int64{}) }); err == nil {
 		t.Fatalf("expected error for empty min/max")
 	}
 }
@@ -95,7 +87,7 @@ func TestLongRange_EmptyErrors(t *testing.T) {
 func TestLongRange_TooManyDimensionsErrors(t *testing.T) {
 	min := []int64{0, 0, 0, 0, 0}
 	max := []int64{1, 1, 1, 1, 1}
-	_, err := NewLongRange("r", min, max)
+	err := panicErr(func() { NewLongRange("r", min, max) })
 	if err == nil {
 		t.Fatalf("expected error for 5 dimensions")
 	}
@@ -110,10 +102,7 @@ func TestLongRange_TooManyDimensionsErrors(t *testing.T) {
 func TestLongRange_EncodeMatchesSortableBytes(t *testing.T) {
 	min := []int64{-1, 0, 100}
 	max := []int64{10, 50, 200}
-	got, err := EncodeLongRange(min, max)
-	if err != nil {
-		t.Fatalf("EncodeLongRange: %v", err)
-	}
+	got := EncodeLongRange(min, max)
 	want := make([]byte, 2*len(min)*LongRangeBytes)
 	for i, v := range min {
 		util.LongToSortableBytes(v, want, i*LongRangeBytes)
@@ -132,10 +121,7 @@ func TestLongRange_EncodeMatchesSortableBytes(t *testing.T) {
 }
 
 func TestLongRange_GetMinOutOfRangePanics(t *testing.T) {
-	r, err := NewLongRange("r", []int64{0}, []int64{1})
-	if err != nil {
-		t.Fatalf("NewLongRange: %v", err)
-	}
+	r := NewLongRange("r", []int64{0}, []int64{1})
 	defer func() {
 		if recover() == nil {
 			t.Fatalf("expected panic for dim out of range")
@@ -148,23 +134,31 @@ func TestLongRange_GetMinOutOfRangePanics(t *testing.T) {
 // type alias and constructor variables still resolve to the new canonical
 // implementations.
 func TestLongRange_DeprecatedAliases(t *testing.T) {
-	r, err := NewLongRangeLucene("r", []int64{-7}, []int64{42})
-	if err != nil {
-		t.Fatalf("NewLongRangeLucene: %v", err)
-	}
+	r := NewLongRangeLucene("r", []int64{-7}, []int64{42})
 	var _ *LongRangeLucene = r // alias is identical type
 	if got, want := r.GetMin(0), int64(-7); got != want {
 		t.Fatalf("GetMin = %d, want %d", got, want)
 	}
-	got, err := EncodeLongRangeLucene([]int64{1}, []int64{2})
-	if err != nil {
-		t.Fatalf("EncodeLongRangeLucene: %v", err)
-	}
-	want, err := EncodeLongRange([]int64{1}, []int64{2})
-	if err != nil {
-		t.Fatalf("EncodeLongRange: %v", err)
-	}
+	got := EncodeLongRangeLucene([]int64{1}, []int64{2})
+	want := EncodeLongRange([]int64{1}, []int64{2})
 	if string(got) != string(want) {
 		t.Fatalf("alias encoding mismatch")
 	}
+}
+
+// panicErr runs fn and returns the value it panicked with as an error, or nil
+// if it returned normally: the constructor signals invalid arguments by
+// panicking, as Lucene throws IllegalArgumentException.
+func panicErr(fn func()) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("%v", r)
+			}
+		}
+	}()
+	fn()
+	return nil
 }

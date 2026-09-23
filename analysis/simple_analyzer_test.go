@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func getTokenAttribute(stream TokenStream) (CharTermAttribute, bool) {
 			// Check if input has GetAttributeSource (Tokenizer or BaseTokenStream)
 			if hasAttrSrc, ok := input.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) util.AttributeImpl
+				GetAttribute(reflect.Type) util.AttributeImpl
 			}); ok {
 				attrSrc := hasAttrSrc.GetAttributeSource()
 				attr := attrSrc.GetAttribute(CharTermAttributeType)
@@ -40,7 +41,7 @@ func getTokenAttribute(stream TokenStream) (CharTermAttribute, bool) {
 			// No more wrapping, check if current itself has attributes
 			if hasAttrSrc, ok := current.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) util.AttributeImpl
+				GetAttribute(reflect.Type) util.AttributeImpl
 			}); ok {
 				attrSrc := hasAttrSrc.GetAttributeSource()
 				attr := attrSrc.GetAttribute(CharTermAttributeType)

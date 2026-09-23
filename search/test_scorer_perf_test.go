@@ -2,232 +2,247 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/search/TestScorerPerf.java
-//
-// TestScorerPerf validates the BooleanScorer conjunction logic by building
-// random FixedBitSet "documents" and wrapping each in a constant-score
-// BitSetQuery, then asserting that a conjunction (MUST) of those queries collects
-// exactly the documents in the intersection of the corresponding bitsets. The
-// index itself carries a single empty document — the bitsets ARE the document
-// sets the scorers iterate, so the test exercises the scorer/collector plumbing
-// directly with a known-correct reference (the bitset AND).
+// Port of lucene/core/src/test/org/apache/lucene/search/TestScorerPerf.java
+// (Apache Lucene 10.5.0).
+
 package search_test
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// TestScorerPerf_Perf mirrors TestScorerPerf.testConjunctions.
-func TestScorerPerf_Perf(t *testing.T) {
-	ix := newIntegrationIndex(t)
-	ix.addDoc(document.NewDocument()) // single empty document, as upstream
-	searcher, cleanup := ix.searcher()
-	defer cleanup()
+// scorerPerfValidate renders `private final boolean validate = true; // set to
+// false when doing performance testing`.
+const scorerPerfValidate = true
 
-	rng := rand.New(rand.NewSource(1234))
-	const (
-		numSets    = 1000
-		setSize    = 30
-		iterations = 200
-	)
-	sets := randBitSets(t, rng, numSets, setSize)
-
-	doConjunctions(t, searcher, rng, sets, iterations, 5)
-	doNestedConjunctions(t, searcher, rng, sets, iterations, 3, 3)
-}
-
-// randBitSet builds a FixedBitSet of sz bits with numBitsToSet random bits set.
-func randBitSet(t *testing.T, rng *rand.Rand, sz, numBitsToSet int) *util.FixedBitSet {
+// spRandBitSet renders the static randBitSet(int, int).
+func spRandBitSet(t *testing.T, sz, numBitsToSet int) *util.FixedBitSet {
 	t.Helper()
 	set, err := util.NewFixedBitSet(sz)
 	if err != nil {
-		t.Fatalf("NewFixedBitSet: %v", err)
+		t.Fatal(err)
 	}
 	for i := 0; i < numBitsToSet; i++ {
-		set.Set(rng.Intn(sz))
+		set.Set(random().Intn(sz))
 	}
 	return set
 }
 
-func randBitSets(t *testing.T, rng *rand.Rand, numSets, setSize int) []*util.FixedBitSet {
+// spRandBitSets renders the static randBitSets(int, int).
+func spRandBitSets(t *testing.T, numSets, setSize int) []*util.FixedBitSet {
 	t.Helper()
 	sets := make([]*util.FixedBitSet, numSets)
-	for i := range sets {
-		sets[i] = randBitSet(t, rng, setSize, rng.Intn(setSize))
+	for i := 0; i < len(sets); i++ {
+		sets[i] = spRandBitSet(t, setSize, random().Intn(setSize))
 	}
 	return sets
 }
 
-// addClause adds a random bitset query as a MUST clause and folds its bitset
-// into the running expected-intersection result.
-func addClause(t *testing.T, rng *rand.Rand, sets []*util.FixedBitSet, bq *search.BooleanQueryBuilder, result *util.FixedBitSet) *util.FixedBitSet {
-	t.Helper()
-	rnd := sets[rng.Intn(len(sets))]
-	bq.Add(newBitSetQuery(rnd), search.MUST)
-	if result == nil {
-		result = rnd.Clone()
-	} else {
-		if err := result.And(rnd); err != nil {
-			t.Fatalf("FixedBitSet.And: %v", err)
-		}
-	}
-	return result
+// countingHitCollectorManager renders the private record
+// CountingHitCollectorManager.
+type countingHitCollectorManager struct{}
+
+func (countingHitCollectorManager) NewCollector() (*countingHitCollector, error) {
+	return newCountingHitCollector(), nil
 }
 
-func doConjunctions(t *testing.T, s *search.IndexSearcher, rng *rand.Rand, sets []*util.FixedBitSet, iter, maxClauses int) {
-	t.Helper()
-	for i := 0; i < iter; i++ {
-		nClauses := rng.Intn(maxClauses-1) + 2 // min 2 clauses
-		bq := search.NewBooleanQueryBuilder()
-		var result *util.FixedBitSet
-		for j := 0; j < nClauses; j++ {
-			result = addClause(t, rng, sets, bq, result)
-		}
-		count := countHits(t, s, bq.Build())
-		if got, want := count, result.Cardinality(); got != want {
-			t.Fatalf("conjunction iter %d: collected %d, want intersection cardinality %d", i, got, want)
-		}
+func (countingHitCollectorManager) Reduce(collectors []*countingHitCollector) (*countingHitCollector, error) {
+	result := newCountingHitCollector()
+	for _, collector := range collectors {
+		result.count += collector.count
+		result.sum += collector.sum
 	}
+	return result, nil
 }
 
-func doNestedConjunctions(t *testing.T, s *search.IndexSearcher, rng *rand.Rand, sets []*util.FixedBitSet, iter, maxOuterClauses, maxClauses int) {
-	t.Helper()
-	for i := 0; i < iter; i++ {
-		oClauses := rng.Intn(maxOuterClauses-1) + 2
-		oq := search.NewBooleanQueryBuilder()
-		var result *util.FixedBitSet
-		for o := 0; o < oClauses; o++ {
-			nClauses := rng.Intn(maxClauses-1) + 2 // min 2 clauses
-			bq := search.NewBooleanQueryBuilder()
-			for j := 0; j < nClauses; j++ {
-				result = addClause(t, rng, sets, bq, result)
-			}
-			oq.Add(bq.Build(), search.MUST)
-		}
-		count := countHits(t, s, oq.Build())
-		if got, want := count, result.Cardinality(); got != want {
-			t.Fatalf("nested conjunction iter %d: collected %d, want intersection cardinality %d", i, got, want)
-		}
-	}
-}
-
-// countHits runs the query with a counting collector that, like the upstream
-// CountingHitCollector, sums docBase+doc to defeat any dead-code elimination
-// while reporting the number of collected documents.
-func countHits(t *testing.T, s *search.IndexSearcher, q search.Query) int {
-	t.Helper()
-	c := &countingHitCollector{}
-	if err := s.SearchWithCollector(q, c); err != nil {
-		t.Fatalf("SearchWithCollector: %v", err)
-	}
-	return c.count
-}
-
-// countingHitCollector mirrors TestScorerPerf.CountingHitCollector. ScoreMode is
-// COMPLETE_NO_SCORES.
+// countingHitCollector renders the private static class CountingHitCollector.
 type countingHitCollector struct {
+	search.BaseSimpleCollector
+	search.BaseLeafCollector
 	count   int
 	sum     int
 	docBase int
 }
 
-func (c *countingHitCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
+func newCountingHitCollector() *countingHitCollector {
+	c := &countingHitCollector{}
+	c.Outer = c
+	return c
+}
 
-func (c *countingHitCollector) GetLeafCollector(ctx *index.LeafReaderContext) (search.LeafCollector, error) {
-	if ctx != nil {
-		c.docBase = ctx.DocBase
+func (c *countingHitCollector) Collect(doc int) error {
+	c.count++
+	c.sum += c.docBase + doc // use it to avoid any possibility of being eliminated by hotspot
+	return nil
+}
+
+func (c *countingHitCollector) getCount() int { return c.count }
+
+func (c *countingHitCollector) DoSetNextReader(context *index.LeafReaderContext) error {
+	c.docBase = context.DocBase
+	return nil
+}
+
+func (c *countingHitCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	if err := c.DoSetNextReader(context); err != nil {
+		return nil, err
 	}
 	return c, nil
 }
 
-func (c *countingHitCollector) SetScorer(_ search.Scorable) error { return nil }
+func (c *countingHitCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
 
-func (c *countingHitCollector) Collect(doc int) error {
-	c.count++
-	c.sum += c.docBase + doc
-	return nil
-}
+func (c *countingHitCollector) SetScorer(scorer search.Scorable) error { return nil }
 
-// SetWeight carries the default body Lucene gives Collector.SetWeight.
-func (c *countingHitCollector) SetWeight(weight search.Weight) {
-
-}
-
-// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
-func (c *countingHitCollector) CollectRange(min int, max int) error {
+func (c *countingHitCollector) CollectRange(min, max int) error {
 	return search.DefaultCollectRange(c, min, max)
 }
 
-// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
 func (c *countingHitCollector) CollectStream(stream search.DocIdStream) error {
 	return search.DefaultCollectStream(c, stream)
 }
 
-// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
 func (c *countingHitCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
-	return nil, nil
+	return c.BaseLeafCollector.CompetitiveIterator()
 }
 
-// Finish carries the default body Lucene gives LeafCollector.Finish.
-func (c *countingHitCollector) Finish() error {
-	return nil
-}
+func (c *countingHitCollector) Finish() error { return c.BaseLeafCollector.Finish() }
 
-// newBitSetQuery builds a constant-score query whose scorer iterates the set
-// bits of docs, mirroring TestScorerPerf.BitSetQuery.
-func newBitSetQuery(docs *util.FixedBitSet) *bitSetQuery {
-	return &bitSetQuery{docs: docs}
-}
-
-// bitSetQuery is a faithful port of TestScorerPerf.BitSetQuery: a Query whose
-// Weight is a ConstantScoreWeight returning a ConstantScoreScorer over a
-// BitSetIterator built from the bitset.
+// bitSetQuery renders the private static class BitSetQuery.
 type bitSetQuery struct {
+	search.BaseQuery
 	docs *util.FixedBitSet
 }
 
+// CreateWeight renders createWeight: an anonymous ConstantScoreWeight.
 func (q *bitSetQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
-	supplier := func(_ *index.LeafReaderContext) (search.ScorerSupplier, error) {
-		iter := util.NewBitSetIterator(q.docs, int64(q.docs.Cardinality()))
-		return search.NewConstantScoreScorerSupplierFromIterator(boost, scoreMode, iter), nil
-	}
-	cacheable := func(_ *index.LeafReaderContext) bool { return false }
-	return search.NewConstantScoreWeight(q, boost, supplier, cacheable), nil
+	var w *search.ConstantScoreWeight
+	w = search.NewConstantScoreWeight(q, boost,
+		func(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
+			scorer := search.NewConstantScoreScorer(
+				w.Score(), scoreMode, util.NewBitSetIterator(q.docs, int64(q.docs.ApproximateCardinality())))
+			return search.NewDefaultScorerSupplier(scorer), nil
+		},
+		func(ctx *index.LeafReaderContext) bool {
+			return false
+		})
+	return w, nil
 }
 
-func (q *bitSetQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
+func (q *bitSetQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) { return q, nil }
 
-// Visit mirrors BitSetQuery.visit, whose body is empty.
+// Visit renders visit(QueryVisitor), which is empty.
 func (q *bitSetQuery) Visit(visitor search.QueryVisitor) {}
 
+// ToString renders toString(String).
+func (q *bitSetQuery) ToString(field string) string { return "randomBitSetFilter" }
+
+func (q *bitSetQuery) String() string { return q.ToString("") }
+
+// Equals renders equals(Object).
 func (q *bitSetQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*bitSetQuery)
-	return ok && o.docs == q.docs
+	return ok && q.docs.Equals(o.docs)
 }
 
-// HashCode hashes the bitset contents, mirroring Lucene's
-// FixedBitSet.hashCode so that BooleanQuery.rewrite's clause-dedup (keyed by
-// type+hashCode) does not collapse distinct bitset clauses into one (which it
-// would if every bitset hashed to the same value). This matches the upstream
-// BitSetQuery.hashCode that mixes docs.hashCode() into the result.
+// HashCode renders hashCode(): 31 * classHash() + docs.hashCode().
 func (q *bitSetQuery) HashCode() int {
-	var h uint64 = 0
-	for _, word := range q.docs.GetBits() {
-		h = (h << 1) | (h >> 63) // rotate left 1, per FixedBitSet.hashCode
-		h += word
-	}
-	return int((h>>32)^h) + 0x98761234
+	return int(int32(31*javaStringHashCode("org.apache.lucene.search.TestScorerPerf$BitSetQuery")) + int32(q.docs.HashCode()))
 }
 
-func (q *bitSetQuery) String() string { return "randomBitSetFilter" }
+// spAddClause renders the private addClause(FixedBitSet[], BooleanQuery.Builder, FixedBitSet).
+func spAddClause(t *testing.T, sets []*util.FixedBitSet, bq *search.BooleanQueryBuilder, result *util.FixedBitSet) *util.FixedBitSet {
+	t.Helper()
+	rnd := sets[random().Intn(len(sets))]
+	q := &bitSetQuery{docs: rnd}
+	bq.Add(q, search.MUST)
+	if scorerPerfValidate {
+		if result == nil {
+			result = rnd.Clone()
+		} else if err := result.And(rnd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return result
+}
 
-var _ search.Query = (*bitSetQuery)(nil)
+// spDoConjunctions renders the private doConjunctions(IndexSearcher, FixedBitSet[], int, int).
+func spDoConjunctions(t *testing.T, s *search.IndexSearcher, sets []*util.FixedBitSet, iter, maxClauses int) {
+	t.Helper()
+	for i := 0; i < iter; i++ {
+		nClauses := random().Intn(maxClauses-1) + 2 // min 2 clauses
+		bq := search.NewBooleanQueryBuilder()
+		var result *util.FixedBitSet
+		for j := 0; j < nClauses; j++ {
+			result = spAddClause(t, sets, bq, result)
+		}
+		hc, err := search.SearchWithCollectorManager[*countingHitCollector, *countingHitCollector](s, bq.Build(), countingHitCollectorManager{})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+
+		if scorerPerfValidate {
+			assertIntEquals(t, result.Cardinality(), hc.getCount())
+		}
+	}
+}
+
+// spDoNestedConjunctions renders the private doNestedConjunctions(IndexSearcher,
+// FixedBitSet[], int, int, int).
+func spDoNestedConjunctions(t *testing.T, s *search.IndexSearcher, sets []*util.FixedBitSet, iter, maxOuterClauses, maxClauses int) {
+	t.Helper()
+	nMatches := int64(0)
+
+	for i := 0; i < iter; i++ {
+		oClauses := random().Intn(maxOuterClauses-1) + 2
+		oq := search.NewBooleanQueryBuilder()
+		var result *util.FixedBitSet
+
+		for o := 0; o < oClauses; o++ {
+			nClauses := random().Intn(maxClauses-1) + 2 // min 2 clauses
+			bq := search.NewBooleanQueryBuilder()
+			for j := 0; j < nClauses; j++ {
+				result = spAddClause(t, sets, bq, result)
+			}
+
+			oq.Add(bq.Build(), search.MUST)
+		} // outer
+
+		hc, err := search.SearchWithCollectorManager[*countingHitCollector, *countingHitCollector](s, oq.Build(), countingHitCollectorManager{})
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		nMatches += int64(hc.getCount())
+		if scorerPerfValidate {
+			assertIntEquals(t, result.Cardinality(), hc.getCount())
+		}
+	}
+	if testing.Verbose() {
+		t.Logf("Average number of matches=%d", nMatches/int64(iter))
+	}
+}
+
+func TestScorerPerfConjunctions(t *testing.T) {
+	// test many small sets... the bugs will be found on boundary conditions
+	d := newDirectory()
+	defer mustClose(t, d)
+	iw := mustNewIndexWriter(t, d, newIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzerRandom(random())))
+	mustAddDocument(t, iw, document.NewDocument())
+	mustClose(t, iw)
+
+	r := mustOpenDirectoryReader(t, d)
+	defer mustClose(t, r)
+	s := newSearcher(t, r)
+	s.SetQueryCache(nil)
+	sets := spRandBitSets(t, atLeast(1000), atLeast(10))
+	iterations := atLeast(500) // TEST_NIGHTLY ? atLeast(10000) : atLeast(500)
+	spDoConjunctions(t, s, sets, iterations, atLeast(5))
+	spDoNestedConjunctions(t, s, sets, iterations, atLeast(3), atLeast(3))
+}

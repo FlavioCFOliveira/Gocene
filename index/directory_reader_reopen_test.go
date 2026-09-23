@@ -279,16 +279,12 @@ func TestDirectoryReaderReopenReopenOnCommit(t *testing.T) {
 
 	commits := mustListCommits(t, dir)
 	for _, commit := range commits {
-		nr, err := index.OpenIfChangedWithCommit(r, commit)
+		r2, err := index.OpenIfChangedWithCommit(r, commit)
 		if err != nil {
 			t.Fatalf("openIfChanged(r, commit): %v", err)
 		}
-		if nr == nil {
+		if r2 == nil {
 			t.Fatal("assertNotNull(r2)")
-		}
-		r2, ok := nr.(*index.DirectoryReader)
-		if !ok {
-			t.Fatalf("openIfChanged returned %T", nr)
 		}
 		if r2 == r {
 			t.Fatal("assertTrue(r2 != r)")
@@ -460,7 +456,7 @@ func expectOpenIfChangedIllegalState(t *testing.T, r *index.DirectoryReader) {
 	t.Helper()
 	nr, err := index.OpenIfChanged(r)
 	if err == nil {
-		if nr != nil && nr != index.IndexReaderInterface(r) {
+		if nr != nil && nr != r {
 			mustClose(t, nr)
 		}
 		t.Fatal("expected IllegalStateException from openIfChanged")
@@ -552,11 +548,10 @@ func openIfChangedToCommit(t testing.TB, r *index.DirectoryReader, ic *index.Ind
 	if err != nil {
 		t.Fatalf("openIfChanged(r, commit): %v", err)
 	}
-	dr, ok := nr.(*index.DirectoryReader)
-	if !ok || dr == nil {
-		t.Fatalf("openIfChanged(r, commit) returned %T", nr)
+	if nr == nil {
+		t.Fatal("openIfChanged(r, commit) returned null")
 	}
-	return dr
+	return nr
 }
 
 // assertSameCore renders assertSame(latest.leaves().get(0).reader()

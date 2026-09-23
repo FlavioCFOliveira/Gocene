@@ -6,21 +6,27 @@ package search
 
 import "github.com/FlavioCFOliveira/Gocene/index"
 
-// RefreshCommitSupplier controls which IndexCommit a searcher is refreshed to.
-// Returning nil indicates the latest commit, matching Lucene's default
-// behavior.
+// RefreshCommitSupplier is the Go port of
+// org.apache.lucene.search.RefreshCommitSupplier (Apache Lucene 10.5.0).
 //
-// Mirrors org.apache.lucene.search.RefreshCommitSupplier.
+// Expert: Interface to supply commit for searcher refresh.
+//
+// @lucene.experimental
 type RefreshCommitSupplier interface {
-	// GetSearcherRefreshCommit returns the commit to refresh to, or nil for
-	// the latest commit.
+	// GetSearcherRefreshCommit returns the index commit that searcher should
+	// refresh on. A nil return value (default) indicates reader should
+	// refresh on the latest commit.
 	GetSearcherRefreshCommit(reader *index.DirectoryReader) (*index.IndexCommit, error)
 }
 
-// DefaultRefreshCommitSupplier returns nil (latest commit).
+// DefaultRefreshCommitSupplier carries the default method body of
+// RefreshCommitSupplier.getSearcherRefreshCommit; it renders the anonymous
+// `new RefreshCommitSupplier() {}`, and implementations embed it to inherit
+// the default.
 type DefaultRefreshCommitSupplier struct{}
 
-// GetSearcherRefreshCommit always returns nil for the latest commit.
+// GetSearcherRefreshCommit renders the default body: it returns nil, the
+// latest commit.
 func (DefaultRefreshCommitSupplier) GetSearcherRefreshCommit(reader *index.DirectoryReader) (*index.IndexCommit, error) {
 	return nil, nil
 }

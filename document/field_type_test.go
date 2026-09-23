@@ -21,19 +21,19 @@ func TestFieldType_Defaults(t *testing.T) {
 	if ft.IsFrozen() {
 		t.Fatalf("new FieldType should not be frozen")
 	}
-	if ft.IsStored() {
+	if ft.Stored() {
 		t.Fatalf("default Stored should be false")
 	}
-	if ft.IsTokenized() {
+	if ft.Tokenized() {
 		t.Fatalf("Gocene default Tokenized should be false (back-compat divergence)")
 	}
-	if got, want := ft.GetIndexOptions(), spi.IndexOptionsNone; got != want {
+	if got, want := ft.IndexOptions(), spi.IndexOptionsNone; got != want {
 		t.Fatalf("default IndexOptions = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorEncoding(), util.VectorEncodingFloat32; got != want {
+	if got, want := ft.VectorEncoding(), util.VectorEncodingFloat32; got != want {
 		t.Fatalf("default VectorEncoding = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorSimilarityFunction(), util.EuclideanSim; got != want {
+	if got, want := ft.VectorSimilarityFunction(), util.EuclideanSim; got != want {
 		t.Fatalf("default VectorSimilarityFunction = %v, want %v", got, want)
 	}
 	if ft.DocValuesSkipIndexType() != DocValuesSkipIndexTypeNone {
@@ -43,7 +43,7 @@ func TestFieldType_Defaults(t *testing.T) {
 
 func TestFieldType_LuceneDefaults(t *testing.T) {
 	ft := NewLuceneFieldType()
-	if !ft.IsTokenized() {
+	if !ft.Tokenized() {
 		t.Fatalf("Lucene-flavored FieldType should default Tokenized=true")
 	}
 }
@@ -123,8 +123,8 @@ func TestFieldType_SetDimensionsValidation(t *testing.T) {
 func TestFieldType_SetVectorAttributes(t *testing.T) {
 	ft := NewFieldType()
 	ft.SetVectorAttributes(128, util.VectorEncodingFloat32, util.DotProductSim)
-	if ft.GetVectorDimension() != 128 {
-		t.Fatalf("vector dim = %d", ft.GetVectorDimension())
+	if ft.VectorDimension() != 128 {
+		t.Fatalf("vector dim = %d", ft.VectorDimension())
 	}
 	defer func() {
 		if r := recover(); r == nil {

@@ -667,3 +667,20 @@ func (s *combinedFieldScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, bu
 	buffer.Size = size
 	return s.simScorer.scoreRange(buffer)
 }
+
+// BulkScorer renders the final Weight.bulkScorer(LeafReaderContext):
+// scorerSupplier(context), marked as the top-level scoring clause, supplies
+// the bulk scorer; nil when no document matches. It is restated because the
+// embedded BaseWeight.BulkScorer would call BaseWeight.ScorerSupplier, not
+// this type's override.
+func (w *combinedFieldWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		// No docs match
+		return nil, err
+	}
+	if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+		return nil, err
+	}
+	return scorerSupplier.BulkScorer()
+}

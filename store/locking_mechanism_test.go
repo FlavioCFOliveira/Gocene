@@ -22,7 +22,7 @@ func TestLockingMechanism_WriteLock(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// First writer should succeed
 	writer1, err := index.NewIndexWriter(dir, config)
@@ -47,7 +47,7 @@ func TestLockingMechanism_UnlockOnClose(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	// Create and close writer
 	writer, err := index.NewIndexWriter(dir, config)
@@ -78,7 +78,7 @@ func TestLockingMechanism_ConcurrentAccess(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestLockingMechanism_ReaderDuringWrite(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -170,7 +170,7 @@ func BenchmarkLockingMechanism_Contention(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 	defer writer.Close()

@@ -63,14 +63,14 @@ func TestBinaryRangeDocValuesFieldType(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	ft := f.FieldType()
-	if ft.Indexed {
+	if ft.IndexOptions() != spi.IndexOptionsNone {
 		t.Error("range field must not be indexed")
 	}
-	if ft.Stored {
+	if ft.Stored() {
 		t.Error("range field must not be stored")
 	}
-	if ft.DocValuesType != spi.DocValuesTypeBinary {
-		t.Errorf("DocValuesType = %v, want %v", ft.DocValuesType, spi.DocValuesTypeBinary)
+	if ft.DocValuesType() != spi.DocValuesTypeBinary {
+		t.Errorf("DocValuesType = %v, want %v", ft.DocValuesType(), spi.DocValuesTypeBinary)
 	}
 }
 

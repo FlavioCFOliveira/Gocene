@@ -22,10 +22,10 @@ func TestKeywordField_StringNotStored(t *testing.T) {
 	if f.FieldType() != KeywordFieldType {
 		t.Fatalf("FieldType mismatch")
 	}
-	if f.FieldType().IsStored() {
+	if f.FieldType().Stored() {
 		t.Fatalf("not-stored variant must not have Stored=true")
 	}
-	if f.FieldType().GetDocValuesType() != spi.DocValuesTypeSortedSet {
+	if f.FieldType().DocValuesType() != spi.DocValuesTypeSortedSet {
 		t.Fatalf("DocValuesType must be SORTED_SET")
 	}
 }
@@ -35,7 +35,7 @@ func TestKeywordField_StringStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !f.FieldType().IsStored() {
+	if !f.FieldType().Stored() {
 		t.Fatalf("stored variant must have Stored=true")
 	}
 }

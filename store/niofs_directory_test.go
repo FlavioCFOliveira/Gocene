@@ -51,7 +51,7 @@ func TestNIOFSDirectory_CreateOutput(t *testing.T) {
 
 	// Write data
 	testData := []byte("Hello, NIOFS!")
-	if err := out.WriteBytes(testData); err != nil {
+	if err := out.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestNIOFSDirectory_OpenInput(t *testing.T) {
 
 	// Read remaining bytes
 	remaining := make([]byte, len(testData)-1)
-	if err := in.ReadBytes(remaining); err != nil {
+	if err := in.ReadBytes(remaining, 0, len(remaining)); err != nil {
 		t.Fatalf("Failed to read bytes: %v", err)
 	}
 	if string(remaining) != string(testData[1:]) {
@@ -193,7 +193,7 @@ func TestNIOFSDirectory_Clone(t *testing.T) {
 
 	// Read first 5 bytes
 	first5 := make([]byte, 5)
-	if err := in.ReadBytes(first5); err != nil {
+	if err := in.ReadBytes(first5, 0, len(first5)); err != nil {
 		t.Fatalf("Failed to read bytes: %v", err)
 	}
 
@@ -213,7 +213,7 @@ func TestNIOFSDirectory_Clone(t *testing.T) {
 
 	// Read remaining from clone
 	remaining := make([]byte, len(testData)-5)
-	if err := cloned.ReadBytes(remaining); err != nil {
+	if err := cloned.ReadBytes(remaining, 0, len(remaining)); err != nil {
 		t.Fatalf("Failed to read from clone: %v", err)
 	}
 	if string(remaining) != string(testData[5:]) {
@@ -257,7 +257,7 @@ func TestNIOFSDirectory_Slice(t *testing.T) {
 
 	// Read slice content
 	sliceData := make([]byte, 4)
-	if err := slice.ReadBytes(sliceData); err != nil {
+	if err := slice.ReadBytes(sliceData, 0, len(sliceData)); err != nil {
 		t.Fatalf("Failed to read from slice: %v", err)
 	}
 	if string(sliceData) != "test" {

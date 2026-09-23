@@ -117,14 +117,11 @@ func (q *KnnByteVectorQuery) CreateVectorScorer(ctx *index.LeafReaderContext, fi
 }
 
 // ToString returns a string representation of the query.
+//
+// Mirrors KnnByteVectorQuery.toString(String): the field argument is ignored,
+// target[0] is rendered as a Java byte and the filter with its toString().
 func (q *KnnByteVectorQuery) ToString(field string) string {
-	targetFirst := "nil"
-	if len(q.target) > 0 {
-		targetFirst = fmt.Sprintf("%d", q.target[0])
-	}
-
-	res := fmt.Sprintf("KnnByteVectorQuery:%s[%s,...][%d]",
-		field, targetFirst, q.k)
+	res := fmt.Sprintf("KnnByteVectorQuery:%s[%d,...][%d]", q.field, int8(q.target[0]), q.k)
 	if q.filter != nil {
 		res += fmt.Sprintf("[%s]", queryToString(q.filter, ""))
 	}

@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestNGramFilter_Basic tests basic n-gram generation.
@@ -85,7 +84,7 @@ func TestNGramFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -143,7 +142,7 @@ func TestNGramFilter_PositionIncrement(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := ngramFilter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
@@ -215,12 +214,12 @@ func TestNGramFilter_Offset(t *testing.T) {
 				}
 
 				var info tokenInfo
-				if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						info.text = termAttr.String()
 					}
 				}
-				if attr := ngramFilter.GetAttribute("OffsetAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(OffsetAttributeType); attr != nil {
 					if offsetAttr, ok := attr.(OffsetAttribute); ok {
 						info.startOffset = offsetAttr.StartOffset()
 						info.endOffset = offsetAttr.EndOffset()
@@ -319,7 +318,7 @@ func TestNGramFilter_ShortToken(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -455,7 +454,7 @@ func TestNGramFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -521,7 +520,7 @@ func TestNGramFilter_LargeMaxGram(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -579,7 +578,7 @@ func TestNGramFilter_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -612,7 +611,7 @@ func TestNGramFilter_SingleGramSize(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := ngramFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := ngramFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}

@@ -121,7 +121,7 @@ func TestNeverDelete_Indexing(t *testing.T) {
 			if err := r.Close(); err != nil {
 				t.Fatalf("close stale reader: %v", err)
 			}
-			r = r2.(*index.DirectoryReader)
+			r = r2
 		}
 	}
 	if err := r.Close(); err != nil {

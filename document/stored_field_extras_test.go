@@ -76,8 +76,8 @@ func TestStoredField_StoredValue(t *testing.T) {
 			if sv == nil {
 				t.Fatalf("StoredValue is nil")
 			}
-			if sv.GetType() != c.kind {
-				t.Fatalf("type = %v, want %v", sv.GetType(), c.kind)
+			if sv.Type() != c.kind {
+				t.Fatalf("type = %v, want %v", sv.Type(), c.kind)
 			}
 		})
 	}

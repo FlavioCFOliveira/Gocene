@@ -25,7 +25,7 @@ func writeFile(t *testing.T, dir Directory, name string, content []byte) {
 	if err != nil {
 		t.Fatalf("CreateOutput(%q): %v", name, err)
 	}
-	if err := out.WriteBytes(content); err != nil {
+	if err := out.WriteBytes(content, 0, len(content)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -53,7 +53,7 @@ func TestMockDirectoryWrapper_HappyPath(t *testing.T) {
 		t.Fatalf("OpenInput: %v", err)
 	}
 	buf := make([]byte, 5)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	if string(buf) != "hello" {

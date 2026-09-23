@@ -419,11 +419,9 @@ func (w *IndexWriter) changed() {
 }
 
 func (w *IndexWriter) ensureOpen(failIfClosing bool) error {
-	if w.closed.Load() {
-		return fmt.Errorf("IndexWriter has been closed")
-	}
-	if failIfClosing && w.closing.Load() {
-		return fmt.Errorf("IndexWriter is closing")
+	if w.closed.Load() || (failIfClosing && w.closing.Load()) {
+		tragedy, _ := w.tragedy.Load().(error)
+		return store.NewAlreadyClosedException("this IndexWriter is closed", tragedy)
 	}
 	return nil
 }

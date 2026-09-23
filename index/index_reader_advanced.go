@@ -9,59 +9,47 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// OpenIfChanged reopens the index if there have been changes since this reader was opened.
-// Returns the new reader if changed, or the same reader if unchanged.
+// OpenIfChanged renders org.apache.lucene.index.DirectoryReader.openIfChanged(DirectoryReader
+// oldReader): if the index has changed since the provided reader was opened,
+// it opens and returns a new reader; else, it returns nil. The new reader, if
+// not nil, will be the same type of reader as the previous one, ie an NRT
+// reader will open a new NRT reader, a MultiReader will open a new
+// MultiReader, etc.
 //
-// This implements GC-641: openIfChanged for IndexReader
-func OpenIfChanged(reader spi.IndexReaderInterface) (spi.IndexReaderInterface, error) {
-	// Check if the reader supports IsCurrent
-	type currentChecker interface {
-		IsCurrent() (bool, error)
+// This method is typically far less costly than opening a fully new
+// DirectoryReader as it shares resources (for example sub-readers) with the
+// provided DirectoryReader, when possible.
+//
+// The provided reader is not closed (you are responsible for doing so); if a
+// new reader is returned you also must eventually close it. Be sure to never
+// close a reader while other threads are still using it.
+func OpenIfChanged(oldReader *DirectoryReader) (*DirectoryReader, error) {
+	newReader, err := oldReader.doOpenIfChanged(nil, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	if cc, ok := reader.(currentChecker); ok {
-		current, err := cc.IsCurrent()
-		if err != nil {
-			return nil, err
-		}
-		if current {
-			// Lucene's openIfChanged returns null when the reader is already
-			// up-to-date; callers rely on the nil sentinel to avoid closing the
-			// existing reader and then reusing it.
-			return nil, nil
-		}
+	if util.AssertsEnabled() && newReader == oldReader {
+		panic(util.NewAssertionError(nil))
 	}
-
-	// If we can't determine if it's current, return the same reader
-	return reader, nil
+	return newReader, nil
 }
 
-// OpenIfChangedWithCommit reopens the index if the provided commit is different from
-// what the reader was opened with.
-//
-// This implements GC-641: openIfChanged with commit
-func OpenIfChangedWithCommit(reader spi.IndexReaderInterface, commit *IndexCommit) (spi.IndexReaderInterface, error) {
-	if commit == nil {
-		return OpenIfChanged(reader)
+// OpenIfChangedWithCommit renders org.apache.lucene.index.DirectoryReader.openIfChanged(DirectoryReader
+// oldReader, IndexCommit commit): if the IndexCommit differs from what the
+// provided reader is searching, it opens and returns a new reader; else, it
+// returns nil.
+func OpenIfChangedWithCommit(oldReader *DirectoryReader, commit *IndexCommit) (*DirectoryReader, error) {
+	newReader, err := oldReader.doOpenIfChanged(commit, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	// Check if the reader was opened with a different commit
-	type commitReader interface {
-		GetIndexCommit() *IndexCommit
+	if util.AssertsEnabled() && newReader == oldReader {
+		panic(util.NewAssertionError(nil))
 	}
-
-	if cr, ok := reader.(commitReader); ok {
-		currentCommit := cr.GetIndexCommit()
-		if currentCommit != nil && currentCommit.GetGeneration() == commit.GetGeneration() {
-			return reader, nil
-		}
-	}
-
-	// Need to reopen with the new commit
-	// This would typically involve opening a new reader from the commit
-	return reader, fmt.Errorf("reopening from commit not yet fully implemented")
+	return newReader, nil
 }
 
 // leafTerms narrows a reader to the LeafReader terms accessor. IndexReader is
@@ -231,19 +219,33 @@ func NewIndexReaderAdvanced(reader spi.IndexReaderInterface) *IndexReaderAdvance
 // OpenIfChanged reopens the index if there have been changes.
 // Returns the new reader if changed, or the same reader if unchanged.
 func (a *IndexReaderAdvanced) OpenIfChanged() (spi.IndexReaderInterface, error) {
-	return OpenIfChanged(a.reader)
+	return a.openIfChanged(nil)
+}
+
+// openIfChanged forwards to the DirectoryReader.openIfChanged statics; a
+// reader that is not a DirectoryReader has nothing to reopen.
+func (a *IndexReaderAdvanced) openIfChanged(commit *IndexCommit) (spi.IndexReaderInterface, error) {
+	dr, ok := a.reader.(*DirectoryReader)
+	if !ok {
+		return a.reader, nil
+	}
+	nr, err := OpenIfChangedWithCommit(dr, commit)
+	if err != nil || nr == nil {
+		return nil, err
+	}
+	return nr, nil
 }
 
 // OpenIfChangedWithWriter reopens the index if there have been changes made by the given writer.
 func (a *IndexReaderAdvanced) OpenIfChangedWithWriter(writer *IndexWriter) (spi.IndexReaderInterface, error) {
 	// If a writer is provided, we should check if there are uncommitted changes
 	// For now, just delegate to OpenIfChanged
-	return OpenIfChanged(a.reader)
+	return a.openIfChanged(nil)
 }
 
 // OpenIfChangedWithCommit reopens the index if the provided commit is different.
 func (a *IndexReaderAdvanced) OpenIfChangedWithCommit(commit *IndexCommit) (spi.IndexReaderInterface, error) {
-	return OpenIfChangedWithCommit(a.reader, commit)
+	return a.openIfChanged(commit)
 }
 
 // GetTermVectors returns term vectors for a document.

@@ -178,6 +178,34 @@ func (q *SpanNearQuery) Clone() search.Query {
 	return newSpanNearQuery(clauses, q.slop, q.inOrder, q.field)
 }
 
+// Rewrite mirrors SpanNearQuery.rewrite(IndexSearcher): every clause is
+// rewritten; when any clause changed, a clone carrying the rewritten clauses
+// is returned, otherwise super.rewrite(IndexSearcher) returns this query.
+func (q *SpanNearQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	actuallyRewritten := false
+	rewrittenClauses := make([]SpanQuery, 0, len(q.clauses))
+	for i := 0; i < len(q.clauses); i++ {
+		c := q.clauses[i]
+		rewrittenQuery, err := c.Rewrite(searcher)
+		if err != nil {
+			return nil, err
+		}
+		query, ok := rewrittenQuery.(SpanQuery)
+		if !ok {
+			// (SpanQuery) c.rewrite(indexSearcher): ClassCastException
+			return nil, fmt.Errorf("java.lang.ClassCastException: %T cannot be cast to SpanQuery", rewrittenQuery)
+		}
+		actuallyRewritten = actuallyRewritten || query != c
+		rewrittenClauses = append(rewrittenClauses, query)
+	}
+	if actuallyRewritten {
+		rewritten := q.Clone().(*SpanNearQuery)
+		rewritten.clauses = rewrittenClauses
+		return rewritten, nil
+	}
+	return q, nil
+}
+
 // Equals reports structural equality.
 func (q *SpanNearQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanNearQuery)

@@ -5,275 +5,260 @@
 package search
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// defaultRefreshCommitSupplier mirrors the anonymous
-// "new RefreshCommitSupplier() {}" instance that SearcherManager installs when
-// no supplier is given; it relies on the interface's default behaviour of
-// refreshing on the latest commit.
-type defaultRefreshCommitSupplier struct{}
-
-func (s *defaultRefreshCommitSupplier) GetSearcherRefreshCommit(reader *index.DirectoryReader) (*index.IndexCommit, error) {
-	return nil, nil
-}
-
-// SearcherManager is a utility class to safely share IndexSearcher instances across multiple threads,
-// while periodically reopening. It ensures each searcher is closed only once all threads have
-// finished using it.
+// SearcherManager is the Go port of org.apache.lucene.search.SearcherManager
+// (Apache Lucene 10.5.0): utility class to safely share [IndexSearcher]
+// instances across multiple threads, while periodically reopening. This class
+// ensures each searcher is closed only once all threads have finished using
+// it.
+//
+// Use [ReferenceManager.Acquire] to obtain the current searcher, and
+// [ReferenceManager.Release] to release it, like this:
+//
+//	s, err := manager.Acquire()
+//	if err != nil { ... }
+//	defer manager.Release(s)
+//	// Do searching, doc retrieval, etc. with s
+//	// Do not use s after this!
+//
+// In addition you should periodically call [ReferenceManager.MaybeRefresh].
+// While it's possible to call this just before running each query, this is
+// discouraged since it penalizes the unlucky queries that need to refresh.
+// It's better to use a separate background thread, that periodically calls
+// MaybeRefresh. Finally, be sure to call [ReferenceManager.Close] once you
+// are done.
 type SearcherManager struct {
-	*index.ReferenceManager[*IndexSearcher]
+	*ReferenceManager[*IndexSearcher]
+
 	searcherFactory       SearcherFactory
 	refreshCommitSupplier RefreshCommitSupplier
 }
 
-// NewSearcherManager creates and returns a new SearcherManager from the given IndexWriter.
-func NewSearcherManager(writer *index.IndexWriter, factory SearcherFactory) (*SearcherManager, error) {
-	return NewSearcherManagerWithOptions(writer, true, false, factory, nil)
+// newSearcherManagerBase wires the ReferenceManager base to a fresh
+// SearcherManager and installs the default refreshCommitSupplier
+// (`new RefreshCommitSupplier() {}`).
+func newSearcherManagerBase(searcherFactory SearcherFactory) *SearcherManager {
+	sm := &SearcherManager{
+		searcherFactory:       searcherFactory,
+		refreshCommitSupplier: DefaultRefreshCommitSupplier{},
+	}
+	sm.ReferenceManager = index.NewReferenceManager[*IndexSearcher](sm)
+	return sm
 }
 
-// NewSearcherManagerWithOptions creates and returns a new SearcherManager from the given IndexWriter,
-// controlling whether past deletions should be applied.
-func NewSearcherManagerWithOptions(
-	writer *index.IndexWriter,
-	applyAllDeletes bool,
-	writeAllDeletes bool,
-	factory SearcherFactory,
-	supplier RefreshCommitSupplier,
-) (*SearcherManager, error) {
-	if factory == nil {
-		factory = NewDefaultSearcherFactory()
-	}
+// NewSearcherManager creates and returns a new SearcherManager from the given
+// [index.IndexWriter]; it renders SearcherManager(IndexWriter, SearcherFactory),
+// which applies all deletes and does not write them.
+//
+// searcherFactory is an optional SearcherFactory; if nil, a default
+// [BaseSearcherFactory] is used. It can be used to warm new searchers.
+func NewSearcherManager(writer *index.IndexWriter, searcherFactory SearcherFactory) (*SearcherManager, error) {
+	return NewSearcherManagerWithDeletes(writer, true, false, searcherFactory)
+}
 
+// NewSearcherManagerWithDeletes creates and returns a new SearcherManager from
+// the given [index.IndexWriter]; it renders SearcherManager(IndexWriter,
+// boolean applyAllDeletes, boolean writeAllDeletes, SearcherFactory).
+//
+// If applyAllDeletes is true, all buffered deletes will be applied (made
+// visible) in the IndexSearcher / DirectoryReader. If false, the deletes may
+// or may not be applied, but remain buffered (in IndexWriter) so that they
+// will be applied in the future. Applying deletes can be costly, so if your
+// app can tolerate deleted documents being returned you might gain some
+// performance by passing false. If writeAllDeletes is true, new deletes will
+// be forcefully written to index files.
+func NewSearcherManagerWithDeletes(writer *index.IndexWriter, applyAllDeletes, writeAllDeletes bool, searcherFactory SearcherFactory) (*SearcherManager, error) {
+	return NewSearcherManagerWithDeletesAndRefreshCommitSupplier(writer, applyAllDeletes, writeAllDeletes, searcherFactory, nil)
+}
+
+// NewSearcherManagerWithDeletesAndRefreshCommitSupplier creates and returns a
+// new SearcherManager from the given [index.IndexWriter]; it renders
+// SearcherManager(IndexWriter, boolean applyAllDeletes, boolean
+// writeAllDeletes, SearcherFactory, RefreshCommitSupplier).
+//
+// refreshCommitSupplier supplies the commit to refresh on, when the
+// searcher is refreshed; nil keeps the default (the latest commit).
+func NewSearcherManagerWithDeletesAndRefreshCommitSupplier(
+	writer *index.IndexWriter,
+	applyAllDeletes, writeAllDeletes bool,
+	searcherFactory SearcherFactory,
+	refreshCommitSupplier RefreshCommitSupplier,
+) (*SearcherManager, error) {
+	if searcherFactory == nil {
+		searcherFactory = NewSearcherFactory()
+	}
+	sm := newSearcherManagerBase(searcherFactory)
 	reader, err := index.OpenDirectoryReaderFromWriterWithOptions(writer, applyAllDeletes, writeAllDeletes)
 	if err != nil {
 		return nil, err
 	}
-
-	searcher, err := GetSearcher(context.Background(), factory, reader, nil)
+	current, err := GetSearcher(searcherFactory, reader, nil)
 	if err != nil {
-		reader.DecRef()
 		return nil, err
 	}
-
-	if supplier == nil {
-		supplier = &defaultRefreshCommitSupplier{}
+	sm.SetCurrent(current)
+	if refreshCommitSupplier != nil {
+		sm.refreshCommitSupplier = refreshCommitSupplier
 	}
-
-	sm := &SearcherManager{
-		searcherFactory:       factory,
-		refreshCommitSupplier: supplier,
-	}
-
-	sm.ReferenceManager = index.NewReferenceManagerWithFuncs(
-		searcher,
-		func(s *IndexSearcher) *IndexSearcher {
-			s.GetIndexReader().IncRef()
-			return s
-		},
-		func(s *IndexSearcher) error {
-			return s.GetIndexReader().DecRef()
-		},
-	)
-
 	return sm, nil
 }
 
-// NewSearcherManagerFromDir creates and returns a new SearcherManager from the given Directory.
-func NewSearcherManagerFromDir(dir store.Directory, factory SearcherFactory) (*SearcherManager, error) {
-	if factory == nil {
-		factory = NewDefaultSearcherFactory()
+// NewSearcherManagerFromDir creates and returns a new SearcherManager from
+// the given [store.Directory]; it renders SearcherManager(Directory,
+// SearcherFactory).
+func NewSearcherManagerFromDir(dir store.Directory, searcherFactory SearcherFactory) (*SearcherManager, error) {
+	if searcherFactory == nil {
+		searcherFactory = NewSearcherFactory()
 	}
-
+	sm := newSearcherManagerBase(searcherFactory)
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		return nil, err
 	}
-
-	searcher, err := GetSearcher(context.Background(), factory, reader, nil)
+	current, err := GetSearcher(searcherFactory, reader, nil)
 	if err != nil {
-		reader.DecRef()
 		return nil, err
 	}
-
-	sm := &SearcherManager{
-		searcherFactory:       factory,
-		refreshCommitSupplier: &defaultRefreshCommitSupplier{},
-	}
-
-	sm.ReferenceManager = index.NewReferenceManagerWithFuncs(
-		searcher,
-		func(s *IndexSearcher) *IndexSearcher {
-			s.GetIndexReader().IncRef()
-			return s
-		},
-		func(s *IndexSearcher) error {
-			return s.GetIndexReader().DecRef()
-		},
-	)
-
+	sm.SetCurrent(current)
 	return sm, nil
 }
 
-// NewSearcherManagerFromReader creates and returns a new SearcherManager from an existing DirectoryReader.
+// NewSearcherManagerFromReader creates and returns a new SearcherManager from
+// an existing [index.DirectoryReader]; it renders
+// SearcherManager(DirectoryReader, SearcherFactory). Note that this steals the
+// incoming reference.
+func NewSearcherManagerFromReader(reader *index.DirectoryReader, searcherFactory SearcherFactory) (*SearcherManager, error) {
+	return NewSearcherManagerFromReaderWithRefreshCommitSupplier(reader, searcherFactory, nil)
+}
+
+// NewSearcherManagerFromReaderWithRefreshCommitSupplier creates and returns a
+// new SearcherManager from an existing [index.DirectoryReader]; it renders
+// SearcherManager(DirectoryReader, SearcherFactory, RefreshCommitSupplier).
 // Note that this steals the incoming reference.
-func NewSearcherManagerFromReader(reader *index.DirectoryReader, factory SearcherFactory, supplier RefreshCommitSupplier) (*SearcherManager, error) {
-	if factory == nil {
-		factory = NewDefaultSearcherFactory()
+func NewSearcherManagerFromReaderWithRefreshCommitSupplier(
+	reader *index.DirectoryReader,
+	searcherFactory SearcherFactory,
+	refreshCommitSupplier RefreshCommitSupplier,
+) (*SearcherManager, error) {
+	if searcherFactory == nil {
+		searcherFactory = NewSearcherFactory()
 	}
-
-	searcher, err := GetSearcher(context.Background(), factory, reader, nil)
+	sm := newSearcherManagerBase(searcherFactory)
+	current, err := GetSearcher(searcherFactory, reader, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	if supplier == nil {
-		supplier = &defaultRefreshCommitSupplier{}
+	sm.SetCurrent(current)
+	if refreshCommitSupplier != nil {
+		sm.refreshCommitSupplier = refreshCommitSupplier
 	}
-
-	sm := &SearcherManager{
-		searcherFactory:       factory,
-		refreshCommitSupplier: supplier,
-	}
-
-	sm.ReferenceManager = index.NewReferenceManagerWithFuncs(
-		searcher,
-		func(s *IndexSearcher) *IndexSearcher {
-			s.GetIndexReader().IncRef()
-			return s
-		},
-		func(s *IndexSearcher) error {
-			return s.GetIndexReader().DecRef()
-		},
-	)
-
 	return sm, nil
 }
 
-// MaybeRefresh checks if a refresh is needed and performs it if so.
-// Returns true if a refresh was performed, false otherwise.
-func (sm *SearcherManager) MaybeRefresh() (bool, error) {
-	// We can't call the embedded ReferenceManager.MaybeRefresh because it's a dummy.
-	// We implement the logic here and use Swap.
+// DecRef renders protected void decRef(IndexSearcher reference).
+func (sm *SearcherManager) DecRef(reference *IndexSearcher) error {
+	return reference.GetIndexReader().DecRef()
+}
 
-	searcher := sm.GetCurrent()
-	reader := searcher.GetIndexReader()
-	dr, ok := reader.(*index.DirectoryReader)
-	if !ok {
-		return false, fmt.Errorf("searcher's IndexReader should be a DirectoryReader, but got %T", reader)
+// RefreshIfNeeded renders protected IndexSearcher refreshIfNeeded(IndexSearcher
+// referenceToRefresh).
+func (sm *SearcherManager) RefreshIfNeeded(referenceToRefresh *IndexSearcher) (*IndexSearcher, error) {
+	r := referenceToRefresh.GetIndexReader()
+	dr, ok := r.(*index.DirectoryReader)
+	if util.AssertsEnabled() && !ok {
+		panic(util.NewAssertionError(fmt.Sprintf("searcher's IndexReader should be a DirectoryReader, but got %v", r)))
 	}
-
 	refreshCommit, err := sm.refreshCommitSupplier.GetSearcherRefreshCommit(dr)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-
-	// To simulate openIfChanged(dr, refreshCommit):
-	// 1. Open from commit
-	newReader, err := dr.ReopenFromCommit(refreshCommit)
+	newReader, err := index.OpenIfChangedWithCommit(dr, refreshCommit)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-
-	// 2. If the new reader is the same as the old one, it's current.
-	if newReader == dr {
-		newReader.DecRef()
-		return false, nil
+	if newReader == nil {
+		return nil, nil
 	}
-
-	// 3. Create searcher and swap
-	newSearcher, err := GetSearcher(context.Background(), sm.searcherFactory, newReader, reader)
-	if err != nil {
-		newReader.DecRef()
-		return false, err
-	}
-
-	oldSearcher := sm.Swap(newSearcher)
-
-	// The Swap method in ReferenceManager increments generation and updates current.
-	// It returns the old reference. We must release it.
-	sm.Release(oldSearcher)
-
-	return true, nil
+	return GetSearcher(sm.searcherFactory, newReader, r)
 }
 
-// Refresh refreshes the searcher and returns the new generation.
-func (sm *SearcherManager) Refresh() (int64, error) {
-	// In Java, this calls maybeRefresh() and returns the generation.
-	// Since MaybeRefresh in Go returns bool, we can call it and then get generation.
-
-	refreshed, err := sm.MaybeRefresh()
-	if err != nil {
-		return 0, err
-	}
-
-	if !refreshed {
-		// If not refreshed, we still return the current generation.
-		return sm.GetGeneration(), nil
-	}
-
-	return sm.GetGeneration(), nil
+// TryIncRef renders protected boolean tryIncRef(IndexSearcher reference).
+func (sm *SearcherManager) TryIncRef(reference *IndexSearcher) (bool, error) {
+	return reference.GetIndexReader().TryIncRef(), nil
 }
 
-// GetSearcherCommitGeneration returns index commit generation for current searcher.
-func (sm *SearcherManager) GetSearcherCommitGeneration() (int64, error) {
+// GetRefCount renders protected int getRefCount(IndexSearcher reference).
+func (sm *SearcherManager) GetRefCount(reference *IndexSearcher) int {
+	return int(reference.GetIndexReader().GetRefCount())
+}
+
+// getSearcherCommitGeneration renders the package-private long
+// getSearcherCommitGeneration(): the index commit generation for the current
+// searcher.
+func (sm *SearcherManager) getSearcherCommitGeneration() (int64, error) {
 	s, err := sm.Acquire()
 	if err != nil {
 		return 0, err
 	}
-	defer sm.Release(s)
-
-	reader := s.GetIndexReader()
-	dr, ok := reader.(*index.DirectoryReader)
-	if !ok {
-		return 0, fmt.Errorf("searcher's IndexReader should be a DirectoryReader, but got %T", reader)
+	gen := s.GetIndexReader().(*index.DirectoryReader).GetIndexCommit().GetGeneration()
+	if err := sm.Release(s); err != nil {
+		return 0, err
 	}
-
-	return dr.GetIndexCommit().GetGeneration(), nil
+	return gen, nil
 }
 
-// IsSearcherCurrent returns true if no changes have occurred since this searcher was opened.
-func (sm *SearcherManager) IsSearcherCurrent() (bool, error) {
-	s, err := sm.Acquire()
+// isSearcherCurrent renders the package-private boolean isSearcherCurrent():
+// true if no changes have occurred since this searcher ie. reader was opened,
+// otherwise false.
+func (sm *SearcherManager) isSearcherCurrent() (current bool, err error) {
+	searcher, err := sm.Acquire()
 	if err != nil {
 		return false, err
 	}
-	defer sm.Release(s)
-
-	reader := s.GetIndexReader()
-	dr, ok := reader.(*index.DirectoryReader)
-	if !ok {
-		return false, fmt.Errorf("searcher's IndexReader should be a DirectoryReader, but got %T", reader)
+	defer func() {
+		if releaseErr := sm.Release(searcher); releaseErr != nil {
+			current, err = false, releaseErr
+		}
+	}()
+	r := searcher.GetIndexReader()
+	dr, ok := r.(*index.DirectoryReader)
+	if util.AssertsEnabled() && !ok {
+		panic(util.NewAssertionError(fmt.Sprintf("searcher's IndexReader should be a DirectoryReader, but got %v", r)))
 	}
-
 	return dr.IsCurrent()
 }
 
-// GetSearcher creates a searcher from the provided IndexReader using the provided SearcherFactory.
-func GetSearcher(ctx context.Context, factory SearcherFactory, reader index.IndexReaderInterface, previousReader index.IndexReaderInterface) (*IndexSearcher, error) {
+// GetSearcher renders public static IndexSearcher getSearcher(SearcherFactory
+// searcherFactory, IndexReader reader, IndexReader previousReader): expert,
+// it creates a searcher from the provided [index.IndexReaderInterface] using
+// the provided [SearcherFactory]. NOTE: this decRefs incoming reader on
+// throwing an exception.
+func GetSearcher(searcherFactory SearcherFactory, reader, previousReader index.IndexReaderInterface) (searcher *IndexSearcher, err error) {
 	success := false
-	var searcher *IndexSearcher
-	var err error
-
 	defer func() {
 		if !success {
-			reader.DecRef()
+			// an exception thrown by the finally block replaces the pending one
+			if decErr := reader.DecRef(); decErr != nil {
+				searcher, err = nil, decErr
+			}
 		}
 	}()
-
-	searcher, err = factory.NewSearcher(ctx, reader)
+	searcher, err = searcherFactory.NewSearcher(reader, previousReader)
 	if err != nil {
 		return nil, err
 	}
-
 	if searcher.GetIndexReader() != reader {
-		return nil, fmt.Errorf("SearcherFactory must wrap exactly the provided reader (got %v but expected %v)", searcher.GetIndexReader(), reader)
+		return nil, fmt.Errorf("SearcherFactory must wrap exactly the provided reader (got %v but expected %v)",
+			searcher.GetIndexReader(), reader)
 	}
-
 	success = true
 	return searcher, nil
 }
+
+var _ ReferenceManagerOverrides[*IndexSearcher] = (*SearcherManager)(nil)

@@ -59,10 +59,7 @@ func TestLetterTokenizer_Basic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			tokenizer := NewLetterTokenizer()
-			err := tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -122,10 +119,7 @@ func TestLetterTokenizer_Unicode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run("unicode", func(t *testing.T) {
 			tokenizer := NewLetterTokenizer()
-			err := tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -162,10 +156,7 @@ func TestLetterTokenizer_Unicode(t *testing.T) {
 func TestLetterTokenizer_Offsets(t *testing.T) {
 	tokenizer := NewLetterTokenizer()
 	input := "Hello, World!"
-	err := tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	expected := []struct {
 		term  string
@@ -218,10 +209,7 @@ func TestLetterTokenizer_Reset(t *testing.T) {
 	tokenizer := NewLetterTokenizer()
 
 	// First run
-	err := tokenizer.SetReader(strings.NewReader("Hello"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("Hello"))
 
 	hasToken, _ := tokenizer.IncrementToken()
 	if !hasToken {
@@ -229,15 +217,12 @@ func TestLetterTokenizer_Reset(t *testing.T) {
 	}
 
 	// Reset and second run
-	err = tokenizer.Reset()
+	err := tokenizer.Reset()
 	if err != nil {
 		t.Fatalf("Reset failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("World"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("World"))
 
 	hasToken, _ = tokenizer.IncrementToken()
 	if !hasToken {

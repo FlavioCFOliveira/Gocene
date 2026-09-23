@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestManyKnnDocs_SameVectorIndexedMultipleTimes verifies that
@@ -19,7 +20,7 @@ import (
 func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 	t.Run("construct field", func(t *testing.T) {
 		vector := []float32{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5}
-		f, err := NewKnnFloatVectorField("field", vector, index.VectorSimilarityFunctionDotProduct)
+		f, err := NewKnnFloatVectorField("field", vector, util.DotProductSim)
 		if err != nil {
 			t.Fatalf("NewKnnFloatVectorField: %v", err)
 		}
@@ -34,7 +35,7 @@ func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 	t.Run("multiple fields same vector", func(t *testing.T) {
 		vector := []float32{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5}
 		for i := 0; i < 10; i++ {
-			f, err := NewKnnFloatVectorField("field", vector, index.VectorSimilarityFunctionDotProduct)
+			f, err := NewKnnFloatVectorField("field", vector, util.DotProductSim)
 			if err != nil {
 				t.Fatalf("iteration %d: NewKnnFloatVectorField: %v", i, err)
 			}
@@ -51,7 +52,7 @@ func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 			{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
 		}
 		for i, v := range vectors {
-			f, err := NewKnnFloatVectorField("vec", v, index.VectorSimilarityFunctionEuclidean)
+			f, err := NewKnnFloatVectorField("vec", v, util.EuclideanSim)
 			if err != nil {
 				t.Fatalf("vector %d: NewKnnFloatVectorField: %v", i, err)
 			}
@@ -65,7 +66,7 @@ func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 		// A 16-dim float32 vector should produce a field with the correct
 		// vector dimension property.
 		vector := make([]float32, 16)
-		f, err := NewKnnFloatVectorField("f", vector, index.VectorSimilarityFunctionDotProduct)
+		f, err := NewKnnFloatVectorField("f", vector, util.DotProductSim)
 		if err != nil {
 			t.Fatalf("NewKnnFloatVectorField: %v", err)
 		}
@@ -83,7 +84,7 @@ func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 func TestManyKnnDocs_LargeSegment(t *testing.T) {
 	t.Run("one dim vector", func(t *testing.T) {
 		vector := []float32{120}
-		f, err := NewKnnFloatVectorField("field", vector, index.VectorSimilarityFunctionDotProduct)
+		f, err := NewKnnFloatVectorField("field", vector, util.DotProductSim)
 		if err != nil {
 			t.Fatalf("NewKnnFloatVectorField: %v", err)
 		}
@@ -98,7 +99,7 @@ func TestManyKnnDocs_LargeSegment(t *testing.T) {
 		names := []string{"a", "b", "c", "d", "e"}
 		for i, name := range names {
 			v := []float32{float32(i)}
-			f, err := NewKnnFloatVectorField(name, v, index.VectorSimilarityFunctionEuclidean)
+			f, err := NewKnnFloatVectorField(name, v, util.EuclideanSim)
 			if err != nil {
 				t.Fatalf("field %q: NewKnnFloatVectorField: %v", name, err)
 			}
@@ -110,7 +111,7 @@ func TestManyKnnDocs_LargeSegment(t *testing.T) {
 
 	t.Run("float32 encoding roundtrip", func(t *testing.T) {
 		original := []float32{1.5, 2.5, -3.5}
-		f, err := NewKnnFloatVectorField("f", original, index.VectorSimilarityFunctionEuclidean)
+		f, err := NewKnnFloatVectorField("f", original, util.EuclideanSim)
 		if err != nil {
 			t.Fatalf("NewKnnFloatVectorField: %v", err)
 		}
@@ -128,11 +129,11 @@ func TestManyKnnDocs_LargeSegment(t *testing.T) {
 		// individual field construction works regardless.
 		v1 := []float32{1, 2, 3}
 		v2 := []float32{4, 5, 6, 7}
-		f1, err := NewKnnFloatVectorField("f", v1, index.VectorSimilarityFunctionEuclidean)
+		f1, err := NewKnnFloatVectorField("f", v1, util.EuclideanSim)
 		if err != nil {
 			t.Fatalf("first field: %v", err)
 		}
-		f2, err := NewKnnFloatVectorField("f", v2, index.VectorSimilarityFunctionEuclidean)
+		f2, err := NewKnnFloatVectorField("f", v2, util.EuclideanSim)
 		if err != nil {
 			t.Fatalf("second field: %v", err)
 		}
@@ -142,7 +143,7 @@ func TestManyKnnDocs_LargeSegment(t *testing.T) {
 	})
 
 	t.Run("empty vector errors", func(t *testing.T) {
-		_, err := NewKnnFloatVectorField("f", []float32{}, index.VectorSimilarityFunctionEuclidean)
+		_, err := NewKnnFloatVectorField("f", []float32{}, util.EuclideanSim)
 		if err == nil {
 			t.Fatal("expected error for empty vector, got nil")
 		}

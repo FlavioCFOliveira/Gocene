@@ -9,6 +9,8 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -64,7 +66,7 @@ func TestBinaryFieldInIndex(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -74,7 +76,7 @@ func TestBinaryFieldInIndex(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("writer.Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -139,7 +141,7 @@ func TestBinaryFieldInIndex(t *testing.T) {
 func TestBinaryFieldFromDataInputInIndex(t *testing.T) {
 	byteArray := []byte(binaryDocValStored)
 	badi := store.NewByteArrayDataInput(byteArray)
-	sfdi := index.NewStoredFieldDataInputFromByteArray(badi)
+	sfdi := spi.NewStoredFieldDataInput(badi, badi.Length())
 	binaryFldStored, err := document.NewStoredFieldFromDataInput("binaryStored", sfdi)
 	if err != nil {
 		t.Fatalf("NewStoredFieldFromDataInput: %v", err)
@@ -151,14 +153,14 @@ func TestBinaryFieldFromDataInputInIndex(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

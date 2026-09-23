@@ -98,43 +98,48 @@ func (e *errReader) Read([]byte) (int, error) { return 0, e.err }
 func TestStandardTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
 	tok := NewStandardTokenizer()
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want ErrInputTooLarge", err)
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want ErrInputTooLarge", err)
 	}
 }
 
 func TestCJKTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
 	tok := NewCJKTokenizer()
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want ErrInputTooLarge", err)
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want ErrInputTooLarge", err)
 	}
 }
 
 func TestPatternTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
 	tok := NewPatternTokenizer(regexp.MustCompile(`\s+`))
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want ErrInputTooLarge", err)
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want ErrInputTooLarge", err)
 	}
 }
 
 func TestSimplePatternSplitTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
-	tok, err := NewSimplePatternSplitTokenizer(regexp.MustCompile(`\s+`))
+	tok, err := NewSimplePatternSplitTokenizer(DefaultTokenAttributeFactory, regexp.MustCompile(`\s+`))
 	if err != nil {
 		t.Fatalf("construct tokenizer: %v", err)
 	}
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want ErrInputTooLarge", err)
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want ErrInputTooLarge", err)
 	}
 }
 
 func TestSimplePatternTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
-	tok := NewSimplePatternTokenizerWithRegexp(regexp.MustCompile(`\w+`))
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want ErrInputTooLarge", err)
+	tok := NewSimplePatternTokenizerWithRegexp(DefaultTokenAttributeFactory, regexp.MustCompile(`\w+`))
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want ErrInputTooLarge", err)
 	}
 }
 

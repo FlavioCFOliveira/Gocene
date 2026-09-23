@@ -4,12 +4,11 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 func TestNGramTokenizer_Basic(t *testing.T) {
@@ -148,10 +147,7 @@ func TestNGramTokenizer_Basic(t *testing.T) {
 				t.Fatalf("Failed to create NGramTokenizer with minGram=%d, maxGram=%d", tt.minGram, tt.maxGram)
 			}
 
-			err := tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -246,10 +242,7 @@ func TestNGramTokenizer_Offsets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewNGramTokenizer(tt.minGram, tt.maxGram)
-			err := tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			i := 0
 			for {
@@ -297,10 +290,7 @@ func TestNGramTokenizer_Offsets(t *testing.T) {
 
 func TestNGramTokenizer_PositionIncrement(t *testing.T) {
 	tokenizer := NewNGramTokenizer(2, 2)
-	err := tokenizer.SetReader(strings.NewReader("abcd"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("abcd"))
 
 	// All tokens should have position increment of 1
 	expectedIncrements := []int{1, 1, 1}
@@ -339,10 +329,7 @@ func TestNGramTokenizer_Reset(t *testing.T) {
 	tokenizer := NewNGramTokenizer(2, 2)
 
 	// First run
-	err := tokenizer.SetReader(strings.NewReader("abc"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("abc"))
 
 	tokens1 := []string{}
 	for {
@@ -357,15 +344,12 @@ func TestNGramTokenizer_Reset(t *testing.T) {
 	}
 
 	// Reset and second run
-	err = tokenizer.Reset()
+	err := tokenizer.Reset()
 	if err != nil {
 		t.Fatalf("Reset failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("xyz"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("xyz"))
 
 	tokens2 := []string{}
 	for {
@@ -405,10 +389,7 @@ func TestNGramTokenizer_Reset(t *testing.T) {
 func TestNGramTokenizer_End(t *testing.T) {
 	tokenizer := NewNGramTokenizer(2, 2)
 	input := "abcd"
-	err := tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -422,7 +403,7 @@ func TestNGramTokenizer_End(t *testing.T) {
 	}
 
 	// Call End
-	err = tokenizer.End()
+	err := tokenizer.End()
 	if err != nil {
 		t.Fatalf("End failed: %v", err)
 	}
@@ -497,10 +478,7 @@ func TestNGramTokenizer_LargeInput(t *testing.T) {
 	// Test with a larger input to ensure performance is reasonable
 	input := "the quick brown fox jumps over the lazy dog"
 	tokenizer := NewNGramTokenizer(3, 3)
-	err := tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	tokenCount := 0
 	for {
@@ -526,10 +504,7 @@ func TestNGramTokenizer_Newlines(t *testing.T) {
 	// Test that newlines are treated as regular characters
 	input := "a\nb"
 	tokenizer := NewNGramTokenizer(2, 2)
-	err := tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	expected := []string{"a\n", "\nb"}
 

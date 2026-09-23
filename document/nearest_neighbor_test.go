@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -140,27 +141,27 @@ func TestNearestVisitor_Compare_OutsideAndCrosses(t *testing.T) {
 		name           string
 		minLat, maxLat float64
 		minLon, maxLon float64
-		want           PointTreeCellRelation
+		want           spi.Relation
 	}{
 		{
 			name:   "cell fully inside bbox crosses",
 			minLat: -0.5, maxLat: 0.5, minLon: -0.5, maxLon: 0.5,
-			want: PointTreeCellCrossesQuery,
+			want: spi.CellCrossesQuery,
 		},
 		{
 			name:   "cell to the north is outside",
 			minLat: 5, maxLat: 10, minLon: -0.5, maxLon: 0.5,
-			want: PointTreeCellOutsideQuery,
+			want: spi.CellOutsideQuery,
 		},
 		{
 			name:   "cell to the east is outside",
 			minLat: -0.5, maxLat: 0.5, minLon: 5, maxLon: 10,
-			want: PointTreeCellOutsideQuery,
+			want: spi.CellOutsideQuery,
 		},
 		{
 			name:   "cell straddling bbox crosses",
 			minLat: -2, maxLat: 0, minLon: -2, maxLon: 0,
-			want: PointTreeCellCrossesQuery,
+			want: spi.CellCrossesQuery,
 		},
 	}
 	for _, tc := range tests {
@@ -194,14 +195,14 @@ func TestNearestVisitor_Compare_DatelineSplit(t *testing.T) {
 	if got := v.Compare(
 		packedLatLon(-1, -179),
 		packedLatLon(1, -171),
-	); got != PointTreeCellCrossesQuery {
+	); got != spi.CellCrossesQuery {
 		t.Fatalf("western fragment: got %v want CROSSES", got)
 	}
 	// A cell well inside the eastern fragment is "crosses".
 	if got := v.Compare(
 		packedLatLon(-1, 171),
 		packedLatLon(1, 179),
-	); got != PointTreeCellCrossesQuery {
+	); got != spi.CellCrossesQuery {
 		t.Fatalf("eastern fragment: got %v want CROSSES", got)
 	}
 	// A cell at lon [-160, 160] sits in the gap and is OUTSIDE: its
@@ -211,7 +212,7 @@ func TestNearestVisitor_Compare_DatelineSplit(t *testing.T) {
 	if got := v.Compare(
 		packedLatLon(-1, -160),
 		packedLatLon(1, 160),
-	); got != PointTreeCellOutsideQuery {
+	); got != spi.CellOutsideQuery {
 		t.Fatalf("middle gap: got %v want OUTSIDE", got)
 	}
 }

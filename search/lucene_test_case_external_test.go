@@ -19,6 +19,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // This file renders, for the external search_test package, the members of
@@ -228,6 +229,37 @@ func newSearcher(t testing.TB, r index.IndexReaderInterface) *search.IndexSearch
 	t.Fatal(newSearcherBlocker)
 	return nil
 }
+
+// newSearcherMaybeWrap renders LuceneTestCase.newSearcher(IndexReader,
+// boolean maybeWrap), which delegates to newSearcher(r, maybeWrap, true).
+func newSearcherMaybeWrap(t testing.TB, r index.IndexReaderInterface, maybeWrap bool) *search.IndexSearcher {
+	t.Helper()
+	t.Fatal(newSearcherBlocker)
+	return nil
+}
+
+// newSearcherWithOptions renders LuceneTestCase.newSearcher(IndexReader,
+// boolean maybeWrap, boolean wrapWithAssertions, boolean useThreads). Every
+// path wraps the reader with maybeWrapReader and sets the randomized class
+// similarity; the asserting path builds an AssertingIndexSearcher.
+func newSearcherWithOptions(t testing.TB, r index.IndexReaderInterface, maybeWrap, wrapWithAssertions, useThreads bool) *search.IndexSearcher {
+	t.Helper()
+	t.Fatal(newSearcherOptionsBlocker)
+	return nil
+}
+
+// newSearcherOptionsBlocker names what LuceneTestCase.newSearcher(IndexReader,
+// boolean, boolean, ...) needs.
+const newSearcherOptionsBlocker = "requires LuceneTestCase.newSearcher(IndexReader, boolean, boolean, ...) support: " +
+	"org.apache.lucene.tests.search.AssertingIndexSearcher, LuceneTestCase.maybeWrapReader and the randomized " +
+	"class similarity (not ported)"
+
+// assertingQueryBlocker names org.apache.lucene.tests.search.AssertingQuery.
+const assertingQueryBlocker = "requires org.apache.lucene.tests.search.AssertingQuery (not ported)"
+
+// blockScoreQueryWrapperBlocker names
+// org.apache.lucene.tests.search.BlockScoreQueryWrapper.
+const blockScoreQueryWrapperBlocker = "requires org.apache.lucene.tests.search.BlockScoreQueryWrapper (not ported)"
 
 // queryUtilsCheck renders QueryUtils.check(Query).
 func queryUtilsCheck(t testing.TB, q search.Query) {
@@ -588,4 +620,63 @@ func (p *cachedThreadPool) Execute(runnable func()) {
 
 func (p *cachedThreadPool) shutdownAndAwaitTermination() {
 	p.wg.Wait()
+}
+
+// getOnlyLeafReader renders LuceneTestCase.getOnlyLeafReader(IndexReader): the
+// reader must have exactly one segment, whose leaf reader is returned.
+func getOnlyLeafReader(t testing.TB, reader interface {
+	Leaves() ([]*index.LeafReaderContext, error)
+}) index.LeafReader {
+	t.Helper()
+	subReaders, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
+	}
+	if len(subReaders) != 1 {
+		t.Fatalf("reader has %d segments instead of exactly one", len(subReaders))
+	}
+	return subReaders[0].LeafReader()
+}
+
+// newBytesRef renders LuceneTestCase.newBytesRef(byte[]): a copy of b that
+// sometimes uses a non-zero offset and non-zero end padding, to tickle latent
+// bugs that fail to look at BytesRef.offset.
+func newBytesRef(b []byte) *util.BytesRef {
+	return newBytesRefSlice(b, 0, len(b))
+}
+
+// newBytesRefSlice renders LuceneTestCase.newBytesRef(byte[], int, int).
+func newBytesRefSlice(bytesIn []byte, offset, length int) *util.BytesRef {
+	if util.AssertsEnabled() && !(len(bytesIn) >= offset+length) {
+		panic(util.NewAssertionError(fmt.Sprintf("got offset=%d length=%d bytesIn.length=%d", offset, length, len(bytesIn))))
+	}
+
+	// randomly set a non-zero offset
+	var startOffset int
+	if random().Intn(2) == 0 {
+		startOffset = 1 + random().Intn(20)
+	} else {
+		startOffset = 0
+	}
+
+	// also randomly set an end padding:
+	var endPadding int
+	if random().Intn(2) == 0 {
+		endPadding = 1 + random().Intn(20)
+	} else {
+		endPadding = 0
+	}
+
+	bytes := make([]byte, startOffset+length+endPadding)
+
+	copy(bytes[startOffset:], bytesIn[offset:offset+length])
+
+	it := &util.BytesRef{Bytes: bytes, Offset: startOffset, Length: length}
+
+	if 1+random().Intn(17) == 7 {
+		// try to ferret out bugs in this method too!
+		return newBytesRefSlice(it.Bytes, it.Offset, it.Length)
+	}
+
+	return it
 }

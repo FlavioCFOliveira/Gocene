@@ -2,31 +2,13 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestBlockMaxConjunction.java
-//
-// Indexes ~1000 documents, each carrying a random number of "foo" StringField
-// values, into a single segment, then runs 100 random MUST conjunctions through
-// CheckHits.checkTopScores (search/testsearch.CheckTopScores), which asserts that
-// the COMPLETE and TOP_SCORES (block-max WAND / dynamic-pruning) collectors agree
-// on the top hits and that the block-max bounds are valid. Each conjunction is
-// also exercised with a FILTER clause and with two-phase-approximation-wrapped
-// clauses, mirroring the Java testRandom loop.
-//
-// Deviations from the reference, immaterial to the assertions:
-//   - The MockAnalyzer is replaced by the WhitespaceAnalyzer.
-//   - maybeWrap optionally wraps a clause in the (delegating) AssertingQuery. The
-//     upstream BlockScoreQueryWrapper, which forces artificial impact blocks, is
-//     not part of Gocene's surface; its scoring is identical to the wrapped query,
-//     so omitting it preserves the checkTopScores invariant under test.
-//   - maybeWrapTwoPhase wraps a clause in RandomApproximationQuery + AssertingQuery,
-//     exercising the two-phase path exactly as the reference does.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestBlockMaxConjunction.java
+// (Apache Lucene 10.5.0).
 
 package search_test
 
 import (
-	"fmt"
-	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -35,68 +17,77 @@ import (
 	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
-// TestBlockMaxConjunction_Random ports testRandom.
-func TestBlockMaxConjunction_Random(t *testing.T) {
-	rng := rand.New(rand.NewSource(hashStringSeed(t.Name()))) //nolint:gosec // deterministic test seed
+// bmcMaybeWrap renders the private maybeWrap(Query).
+func bmcMaybeWrap(t *testing.T, query search.Query) search.Query {
+	t.Helper()
+	if random().Intn(2) == 0 {
+		// query = new BlockScoreQueryWrapper(query, TestUtil.nextInt(random(), 2, 8));
+		// query = new AssertingQuery(random(), query);
+		t.Fatal(blockScoreQueryWrapperBlocker)
+	}
+	return query
+}
 
-	ix := newIntegrationIndex(t)
-	numDocs := 1000
+// bmcMaybeWrapTwoPhase renders the private maybeWrapTwoPhase(Query).
+func bmcMaybeWrapTwoPhase(t *testing.T, query search.Query) search.Query {
+	t.Helper()
+	if random().Intn(2) == 0 {
+		query = testsearch.NewRandomApproximationQuery(query, random())
+		// query = new AssertingQuery(random(), query);
+		t.Fatal(assertingQueryBlocker)
+	}
+	return query
+}
+
+func TestBlockMaxConjunctionRandom(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	numDocs := atLeast(1000)
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		numValues := rng.Intn(1 << uint(rng.Intn(5)))
-		start := rng.Intn(10)
+		numValues := random().Intn(1 << random().Intn(5))
+		start := random().Intn(10)
 		for j := 0; j < numValues; j++ {
-			f, err := document.NewStringField("foo", fmt.Sprintf("%d", start+j), false)
-			if err != nil {
-				t.Fatalf("NewStringField: %v", err)
-			}
-			doc.Add(f)
+			doc.Add(mustStringField(t, "foo", strconv.Itoa(start+j), false))
 		}
-		ix.addDoc(doc)
+		mustAddDocument(t, w, doc)
 	}
-	// A single segment is required for the per-leaf block-max assertions.
-	ix.forceMerge(1)
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
-	maybeWrap := func(q search.Query) search.Query {
-		if rng.Intn(2) == 1 {
-			return newAssertingQuery(q)
-		}
-		return q
-	}
-	maybeWrapTwoPhase := func(q search.Query) search.Query {
-		if rng.Intn(2) == 1 {
-			return newAssertingQuery(newRandomApproximationQuery(q, rng))
-		}
-		return q
-	}
+	reader := mustOpenDirectoryReaderFromWriter(t, w)
+	mustClose(t, w)
+	// Disable search concurrency for this test: it requires a single segment, and no intra-segment
+	// concurrency for its assertions to always be valid
+	searcher := newSearcherWithOptions(t, reader, random().Intn(2) == 0, random().Intn(2) == 0, false)
 
 	for iter := 0; iter < 100; iter++ {
-		start := rng.Intn(10)
-		numClauses := rng.Intn(1 << uint(rng.Intn(5)))
-
+		start := random().Intn(10)
+		numClauses := random().Intn(1 << random().Intn(5))
 		builder := search.NewBooleanQueryBuilder()
 		for i := 0; i < numClauses; i++ {
-			builder.Add(maybeWrap(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", start+i)))), search.MUST)
+			builder.Add(bmcMaybeWrap(t, search.NewTermQuery(index.NewTerm("foo", strconv.Itoa(start+i)))), search.MUST)
 		}
 		query := builder.Build()
 
-		testsearch.CheckTopScores(t, rng, query, s)
+		testsearch.CheckTopScores(t, random(), query, searcher)
 
-		filterTerm := rng.Intn(30)
-		filtered := search.NewBooleanQueryBuilder()
-		filtered.Add(query, search.MUST)
-		filtered.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testsearch.CheckTopScores(t, rng, filtered.Build(), s)
+		filterTerm := random().Intn(30)
+		filteredQuery := search.NewBooleanQueryBuilder().
+			Add(query, search.MUST).
+			Add(search.NewTermQuery(index.NewTerm("foo", strconv.Itoa(filterTerm))), search.FILTER).
+			Build()
 
-		tpBuilder := search.NewBooleanQueryBuilder()
+		testsearch.CheckTopScores(t, random(), filteredQuery, searcher)
+
+		builder = search.NewBooleanQueryBuilder()
 		for i := 0; i < numClauses; i++ {
-			tpBuilder.Add(maybeWrapTwoPhase(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", start+i)))), search.MUST)
+			builder.Add(bmcMaybeWrapTwoPhase(t, search.NewTermQuery(index.NewTerm("foo", strconv.Itoa(start+i)))), search.MUST)
 		}
-		twoPhase := search.NewBooleanQueryBuilder()
-		twoPhase.Add(query, search.MUST)
-		twoPhase.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testsearch.CheckTopScores(t, rng, twoPhase.Build(), s)
+
+		twoPhaseQuery := search.NewBooleanQueryBuilder().
+			Add(query, search.MUST).
+			Add(search.NewTermQuery(index.NewTerm("foo", strconv.Itoa(filterTerm))), search.FILTER).
+			Build()
+
+		testsearch.CheckTopScores(t, random(), twoPhaseQuery, searcher)
 	}
+	mustClose(t, reader, dir)
 }

@@ -46,17 +46,17 @@ func TestField_StringField(t *testing.T) {
 
 			// Verify FieldType properties
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if ft.Tokenized {
+			if ft.Tokenized() {
 				t.Error("Expected field to not be tokenized")
 			}
-			if ft.OmitNorms != true {
+			if ft.OmitNorms() != true {
 				t.Error("Expected field to omit norms")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 
 			// StringField stores a string value; ReaderValue is nil for string fields
@@ -138,14 +138,14 @@ func TestField_TextField(t *testing.T) {
 
 			// Verify FieldType properties
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if !ft.Tokenized {
+			if !ft.Tokenized() {
 				t.Error("Expected field to be tokenized")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 		})
 	}
@@ -173,10 +173,10 @@ func TestField_TextFieldFromReader(t *testing.T) {
 
 	// Verify FieldType - should not be stored
 	ft := field.FieldType()
-	if ft.Stored {
+	if ft.Stored() {
 		t.Error("Expected field from reader to not be stored")
 	}
-	if !ft.Tokenized {
+	if !ft.Tokenized() {
 		t.Error("Expected field to be tokenized")
 	}
 }
@@ -211,13 +211,13 @@ func TestField_StoredField(t *testing.T) {
 
 			// Verify FieldType properties
 			ft := field.FieldType()
-			if ft.Indexed {
+			if ft.IndexOptions() != spi.IndexOptionsNone {
 				t.Error("Expected stored field to not be indexed")
 			}
-			if !ft.Stored {
+			if !ft.Stored() {
 				t.Error("Expected field to be stored")
 			}
-			if ft.Tokenized {
+			if ft.Tokenized() {
 				t.Error("Expected stored field to not be tokenized")
 			}
 		})
@@ -264,10 +264,10 @@ func TestField_StoredFieldNumeric(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if ft.Indexed {
+			if ft.IndexOptions() != spi.IndexOptionsNone {
 				t.Error("Expected stored field to not be indexed")
 			}
-			if !ft.Stored {
+			if !ft.Stored() {
 				t.Error("Expected field to be stored")
 			}
 		})
@@ -303,11 +303,11 @@ func TestField_IntField(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 		})
 	}
@@ -342,11 +342,11 @@ func TestField_LongField(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 		})
 	}
@@ -381,11 +381,11 @@ func TestField_FloatField(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 		})
 	}
@@ -420,11 +420,11 @@ func TestField_DoubleField(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected field to be indexed")
 			}
-			if ft.Stored != tt.stored {
-				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored)
+			if ft.Stored() != tt.stored {
+				t.Errorf("Expected stored=%v, got %v", tt.stored, ft.Stored())
 			}
 		})
 	}
@@ -494,10 +494,10 @@ func TestField_PointFields(t *testing.T) {
 
 			// Verify FieldType
 			ft := field.FieldType()
-			if !ft.Indexed {
+			if !(ft.IndexOptions() != spi.IndexOptionsNone) {
 				t.Error("Expected point field to be indexed")
 			}
-			if ft.Stored {
+			if ft.Stored() {
 				t.Error("Expected point field to not be stored")
 			}
 		})
@@ -784,8 +784,8 @@ func TestField_DocValuesType(t *testing.T) {
 				t.Fatalf("NewField() error = %v", err)
 			}
 
-			if field.FieldType().DocValuesType != tt.docValuesType {
-				t.Errorf("Expected DocValuesType %v, got %v", tt.docValuesType, field.FieldType().DocValuesType)
+			if field.FieldType().DocValuesType() != tt.docValuesType {
+				t.Errorf("Expected DocValuesType %v, got %v", tt.docValuesType, field.FieldType().DocValuesType())
 			}
 		})
 	}
@@ -841,7 +841,7 @@ func TestField_OmitNorms(t *testing.T) {
 		t.Fatalf("NewField() error = %v", err)
 	}
 
-	if !field.FieldType().OmitNorms {
+	if !field.FieldType().OmitNorms() {
 		t.Error("Expected OmitNorms to be true")
 	}
 }
@@ -974,10 +974,10 @@ func TestField_StoredFieldFromReader(t *testing.T) {
 
 	// Verify FieldType
 	ft := field.FieldType()
-	if ft.Indexed {
+	if ft.IndexOptions() != spi.IndexOptionsNone {
 		t.Error("Expected stored field to not be indexed")
 	}
-	if !ft.Stored {
+	if !ft.Stored() {
 		t.Error("Expected field to be stored")
 	}
 }
@@ -1021,16 +1021,16 @@ func TestField_FieldTypeEquality(t *testing.T) {
 	ft2.SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions)
 
 	// Compare properties
-	if ft1.Indexed != ft2.Indexed {
+	if ft1.IsIndexed() != ft2.IsIndexed() {
 		t.Error("Indexed should match")
 	}
-	if ft1.Stored != ft2.Stored {
+	if ft1.Stored() != ft2.Stored() {
 		t.Error("Stored should match")
 	}
-	if ft1.Tokenized != ft2.Tokenized {
+	if ft1.Tokenized() != ft2.Tokenized() {
 		t.Error("Tokenized should match")
 	}
-	if ft1.IndexOptions != ft2.IndexOptions {
+	if ft1.IndexOptions() != ft2.IndexOptions() {
 		t.Error("IndexOptions should match")
 	}
 }

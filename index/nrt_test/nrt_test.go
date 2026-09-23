@@ -65,7 +65,7 @@ func TestNRTDeleteVisibility(t *testing.T) {
 	}
 
 	// This reader should be for commit point 1
-	oldest, err := index.OpenIfChangedWithCommit(latest, ic1)
+	oldest, err := index.OpenIfChangedWithCommit(latest.DirectoryReader, ic1)
 	if err != nil {
 		t.Fatalf("failed to open reader for ic1: %v", err)
 	}

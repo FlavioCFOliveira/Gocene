@@ -2,20 +2,8 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/search/TestPhrasePrefixQuery.java
-//
-// Five tokenized "body" documents are indexed; a MultiPhraseQuery is then built
-// by enumerating, through the committed reader's merged TermsEnum, the terms
-// sharing the prefix "pi" ("piccadilly", "pie", "pizza") and adding them as the
-// second position of the phrase. Exercising the full IndexWriter -> reader ->
-// IndexSearcher path (rmp #18 / #123 / #124), the "blueberry" phrase must match
-// exactly two documents and the "strawberry" phrase (no such term) must match
-// none — identical to Lucene's assertions.
-//
-// Deviation from the reference, immaterial to the assertions: MockAnalyzer is
-// replaced by the WhitespaceAnalyzer, which tokenizes "blueberry pie" into the
-// position-aware terms "blueberry"@0 and "pie"@1 exactly as the test requires.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestPhrasePrefixQuery.java
+// (Apache Lucene 10.5.0).
 
 package search_test
 
@@ -23,110 +11,80 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-const phrasePrefixField = "body"
+// This class tests PhrasePrefixQuery class.
+func TestPhrasePrefixQueryPhrasePrefix(t *testing.T) {
+	indexStore := newDirectory()
+	writer := newRandomIndexWriter(t, indexStore)
+	doc1 := document.NewDocument()
+	doc2 := document.NewDocument()
+	doc3 := document.NewDocument()
+	doc4 := document.NewDocument()
+	doc5 := document.NewDocument()
+	doc1.Add(newTextField(t, "body", "blueberry pie", true))
+	doc2.Add(newTextField(t, "body", "blueberry strudel", true))
+	doc3.Add(newTextField(t, "body", "blueberry pizza", true))
+	doc4.Add(newTextField(t, "body", "blueberry chewing gum", true))
+	doc5.Add(newTextField(t, "body", "piccadilly circus", true))
+	mustAddDocument(t, writer, doc1)
+	mustAddDocument(t, writer, doc2)
+	mustAddDocument(t, writer, doc3)
+	mustAddDocument(t, writer, doc4)
+	mustAddDocument(t, writer, doc5)
+	reader := mustGetReader(t, writer)
+	mustClose(t, writer)
 
-// termsProvider is the narrow accessor the merged DirectoryReader exposes for a
-// field's terms; mirrors MultiTerms.getTerms(reader, field) in the reference.
-type termsProvider interface {
-	Terms(field string) (index.Terms, error)
-}
+	searcher := newSearcher(t, reader)
 
-// TestPhrasePrefixQuery_TestPhrasePrefixQuery ports testPhrasePrefix.
-func TestPhrasePrefixQuery_TestPhrasePrefixQuery(t *testing.T) {
-	ix := newIntegrationIndex(t)
-	ix.addText(phrasePrefixField, "blueberry pie")         // doc 0
-	ix.addText(phrasePrefixField, "blueberry strudel")     // doc 1
-	ix.addText(phrasePrefixField, "blueberry pizza")       // doc 2
-	ix.addText(phrasePrefixField, "blueberry chewing gum") // doc 3
-	ix.addText(phrasePrefixField, "piccadilly circus")     // doc 4
+	// PhrasePrefixQuery query1 = new PhrasePrefixQuery();
+	query1builder := search.NewMultiPhraseQueryBuilder()
+	// PhrasePrefixQuery query2 = new PhrasePrefixQuery();
+	query2builder := search.NewMultiPhraseQueryBuilder()
+	query1builder.Add(index.NewTerm("body", "blueberry"))
+	query2builder.Add(index.NewTerm("body", "strawberry"))
 
-	s, done := ix.searcher()
-	defer done()
+	var termsWithPrefix []*index.Term
 
-	// Enumerate the terms sharing the prefix "pi": this yields "piccadilly",
-	// "pie" and "pizza" in byte order, mirroring the reference TermsEnum walk.
-	termsWithPrefix := collectPrefixTerms(t, s, phrasePrefixField, "pi")
-	if len(termsWithPrefix) != 3 {
-		t.Fatalf("prefix %q: got %d terms %v, want 3 (piccadilly, pie, pizza)",
-			"pi", len(termsWithPrefix), termTexts(termsWithPrefix))
-	}
-
-	// query1: "blueberry" followed by any of the pi* terms.
-	query1 := search.NewMultiPhraseQueryBuilder()
-	query1.Add(index.NewTerm(phrasePrefixField, "blueberry"))
-	query1.AddTerms(termsWithPrefix)
-
-	// query2: "strawberry" (no such term) followed by any of the pi* terms.
-	query2 := search.NewMultiPhraseQueryBuilder()
-	query2.Add(index.NewTerm(phrasePrefixField, "strawberry"))
-	query2.AddTerms(termsWithPrefix)
-
-	top1, err := s.Search(query1.Build(), 1000)
+	// this TermEnum gives "piccadilly", "pie" and "pizza".
+	prefix := "pi"
+	terms, err := index.MultiTermsGetTerms(reader, "body")
 	if err != nil {
-		t.Fatalf("search query1: %v", err)
+		t.Fatalf("MultiTerms.getTerms: %v", err)
 	}
-	if got := len(top1.ScoreDocs); got != 2 {
-		t.Errorf("query1 (blueberry pi*): got %d hits, want 2", got)
-	}
-
-	top2, err := s.Search(query2.Build(), 1000)
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("search query2: %v", err)
+		t.Fatalf("iterator: %v", err)
 	}
-	if got := len(top2.ScoreDocs); got != 0 {
-		t.Errorf("query2 (strawberry pi*): got %d hits, want 0", got)
+	if _, err := te.SeekCeil(index.NewTerm("body", prefix)); err != nil {
+		t.Fatalf("seekCeil: %v", err)
 	}
-}
-
-// collectPrefixTerms walks the field's merged TermsEnum from the ceiling of
-// prefix and collects every term that starts with prefix, stopping at the first
-// term that does not. Mirrors the reference seekCeil/next loop over
-// MultiTerms.getTerms(reader, field).iterator().
-func collectPrefixTerms(t *testing.T, s *search.IndexSearcher, field, prefix string) []*index.Term {
-	t.Helper()
-	tp, ok := s.GetIndexReader().(termsProvider)
-	if !ok {
-		t.Fatalf("reader does not expose Terms(field)")
-	}
-	terms, err := tp.Terms(field)
-	if err != nil {
-		t.Fatalf("Terms(%q): %v", field, err)
-	}
-	if terms == nil {
-		t.Fatalf("Terms(%q) returned nil", field)
-	}
-	it, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-	cur, err := it.SeekCeil(index.NewTerm(field, prefix))
-	if err != nil {
-		t.Fatalf("SeekCeil(%q): %v", prefix, err)
-	}
-	var out []*index.Term
-	for cur != nil {
-		text := cur.Text()
-		if !strings.HasPrefix(text, prefix) {
+	for {
+		s := te.Term().Text()
+		if strings.HasPrefix(s, prefix) {
+			termsWithPrefix = append(termsWithPrefix, index.NewTerm("body", s))
+		} else {
 			break
 		}
-		out = append(out, index.NewTerm(field, text))
-		cur, err = it.Next()
+		next, err := te.Next()
 		if err != nil {
-			t.Fatalf("Next: %v", err)
+			t.Fatalf("next: %v", err)
+		}
+		if next == nil {
+			break
 		}
 	}
-	return out
-}
 
-// termTexts is a diagnostic helper rendering a term slice's texts.
-func termTexts(terms []*index.Term) []string {
-	out := make([]string, len(terms))
-	for i, term := range terms {
-		out[i] = term.Text()
-	}
-	return out
+	query1builder.AddTerms(append([]*index.Term(nil), termsWithPrefix...))
+	query2builder.AddTerms(append([]*index.Term(nil), termsWithPrefix...))
+
+	result := mustSearch(t, searcher, query1builder.Build(), 1000).ScoreDocs
+	assertIntEquals(t, 2, len(result))
+
+	result = mustSearch(t, searcher, query2builder.Build(), 1000).ScoreDocs
+	assertIntEquals(t, 0, len(result))
+	mustClose(t, reader, indexStore)
 }

@@ -17,7 +17,7 @@ func createTestInput(t *testing.T, data []byte) IndexInput {
 	if err != nil {
 		t.Fatalf("Failed to create output: %v", err)
 	}
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -212,7 +212,7 @@ func TestChecksumIndexInput_Slice(t *testing.T) {
 	sliceChecksum := slice.(*ChecksumIndexInput)
 
 	buf := make([]byte, 4)
-	if err := sliceChecksum.ReadBytes(buf); err != nil {
+	if err := sliceChecksum.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("Failed to read from slice: %v", err)
 	}
 	if string(buf) != "test" {
@@ -308,7 +308,7 @@ func TestChecksumIndexOutput_WriteBytes(t *testing.T) {
 	defer checksumOutput.Close()
 
 	testData := []byte("Hello, World!")
-	if err := checksumOutput.WriteBytes(testData); err != nil {
+	if err := checksumOutput.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 
@@ -354,7 +354,7 @@ func TestChecksumIndexOutput_Length(t *testing.T) {
 	}
 
 	testData := []byte("Length test")
-	if err := checksumOutput.WriteBytes(testData); err != nil {
+	if err := checksumOutput.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
@@ -380,7 +380,7 @@ func TestChecksumIndexOutput_Adler32(t *testing.T) {
 	defer checksumOutput.Close()
 
 	testData := []byte("Adler32 test")
-	if err := checksumOutput.WriteBytes(testData); err != nil {
+	if err := checksumOutput.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write: %v", err)
 	}
 
@@ -429,7 +429,7 @@ func TestChecksumIndexOutput_ByteByByteVsBulk(t *testing.T) {
 
 	baseOutput2, _ := createTestOutput(t)
 	checksumOutput2 := NewChecksumIndexOutput(baseOutput2)
-	if err := checksumOutput2.WriteBytes(testData); err != nil {
+	if err := checksumOutput2.WriteBytes(testData, 0, len(testData)); err != nil {
 		t.Fatalf("Failed to write bytes: %v", err)
 	}
 	checksum2 := checksumOutput2.GetChecksum()

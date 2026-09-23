@@ -24,7 +24,7 @@ func drainArabicNormFilter(t *testing.T, f *ArabicNormalizationFilter) []string 
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(CharTermAttributeType)
 		if attr == nil {
 			break
 		}
@@ -45,7 +45,7 @@ func drainArabicStemFilter(t *testing.T, f *ArabicStemFilter) []string {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(CharTermAttributeType)
 		if attr == nil {
 			break
 		}
@@ -133,7 +133,7 @@ func TestArabicFilters_PersianCharFilter(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tokenizer.GetAttribute("CharTermAttribute")
+		attr := tokenizer.GetAttribute(CharTermAttributeType)
 		if attr == nil {
 			break
 		}

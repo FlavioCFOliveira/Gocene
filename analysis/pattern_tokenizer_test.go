@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestPatternTokenizer_SplitMode tests the tokenizer in split mode (default).
@@ -88,9 +87,7 @@ func TestPatternTokenizer_SplitMode(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
 			tokenizer := NewPatternTokenizer(re)
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -207,11 +204,9 @@ func TestPatternTokenizer_MatchMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			tokenizer := NewPatternTokenizerWithGroup(re, tt.group)
+			tokenizer := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, tt.group)
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -283,11 +278,9 @@ func TestPatternTokenizer_Offsets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			tokenizer := NewPatternTokenizerWithGroup(re, tt.group)
+			tokenizer := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, tt.group)
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var startOffsets []int
 			var endOffsets []int
@@ -334,9 +327,7 @@ func TestPatternTokenizer_TypeAttribute(t *testing.T) {
 	re := regexp.MustCompile(`\s+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	hasToken, err := tokenizer.IncrementToken()
 	if err != nil {
@@ -363,9 +354,7 @@ func TestPatternTokenizer_PositionIncrement(t *testing.T) {
 	re := regexp.MustCompile(`\s+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	tokenCount := 0
 	for {
@@ -395,9 +384,7 @@ func TestPatternTokenizer_Reset(t *testing.T) {
 	tokenizer := NewPatternTokenizer(regexp.MustCompile(`\s+`))
 
 	// First input
-	if err := tokenizer.SetReader(strings.NewReader("hello world")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("hello world"))
 
 	count1 := 0
 	for {
@@ -417,9 +404,7 @@ func TestPatternTokenizer_Reset(t *testing.T) {
 		t.Fatalf("Reset failed: %v", err)
 	}
 
-	if err := tokenizer.SetReader(strings.NewReader("a b c")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("a b c"))
 
 	count2 := 0
 	for {
@@ -444,9 +429,7 @@ func TestPatternTokenizer_End(t *testing.T) {
 	re := regexp.MustCompile(`\s+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -514,11 +497,9 @@ func TestPatternTokenizer_Unicode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			re := regexp.MustCompile(tt.pattern)
-			tokenizer := NewPatternTokenizerWithGroup(re, tt.group)
+			tokenizer := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, tt.group)
 
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -558,9 +539,7 @@ func TestPatternTokenizer_LargeInput(t *testing.T) {
 	re := regexp.MustCompile(`\s+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader(large)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(large))
 
 	count := 0
 	for {
@@ -585,9 +564,7 @@ func TestPatternTokenizer_ConsecutiveDelimiters(t *testing.T) {
 	re := regexp.MustCompile(`,+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	var tokens []string
 	for {
@@ -636,7 +613,7 @@ func TestPatternTokenizer_Getters(t *testing.T) {
 	}
 
 	// Match mode (group = 0)
-	tokenizer2 := NewPatternTokenizerWithGroup(re, 0)
+	tokenizer2 := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, 0)
 	if tokenizer2.GetGroup() != 0 {
 		t.Errorf("GetGroup = %d, want 0", tokenizer2.GetGroup())
 	}
@@ -645,7 +622,7 @@ func TestPatternTokenizer_Getters(t *testing.T) {
 	}
 
 	// Match mode with group
-	tokenizer3 := NewPatternTokenizerWithGroup(re, 2)
+	tokenizer3 := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, 2)
 	if tokenizer3.GetGroup() != 2 {
 		t.Errorf("GetGroup = %d, want 2", tokenizer3.GetGroup())
 	}
@@ -659,7 +636,7 @@ func TestPatternTokenizerFactory(t *testing.T) {
 		t.Fatal("NewPatternTokenizerFactory returned nil")
 	}
 
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
 	}
@@ -689,7 +666,7 @@ func TestPatternTokenizerFactory_WithGroup(t *testing.T) {
 		t.Fatal("NewPatternTokenizerFactoryWithGroup returned nil")
 	}
 
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
 	}
@@ -708,9 +685,7 @@ func TestPatternTokenizer_Close(t *testing.T) {
 	re := regexp.MustCompile(`\s+`)
 	tokenizer := NewPatternTokenizer(re)
 
-	if err := tokenizer.SetReader(strings.NewReader("hello world")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("hello world"))
 
 	// Consume one token
 	tokenizer.IncrementToken()
@@ -753,7 +728,7 @@ func BenchmarkPatternTokenizer_Match(b *testing.B) {
 	input := "hello, world! test. foo bar baz."
 	re := regexp.MustCompile(`\b\w+\b`)
 	reader := strings.NewReader(input)
-	tokenizer := NewPatternTokenizerWithGroup(re, 0)
+	tokenizer := NewPatternTokenizerWithGroup(DefaultTokenAttributeFactory, re, 0)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

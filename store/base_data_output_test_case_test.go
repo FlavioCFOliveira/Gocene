@@ -188,7 +188,7 @@ var genWriteBytesFull = generator{
 		// the test alternates between WriteBytes and WriteBytesN instead.
 		var err error
 		if rng.IntN(2) == 0 {
-			err = dst.WriteBytes(b)
+			err = dst.WriteBytes(b, 0, len(b))
 		} else {
 			err = dst.WriteBytesN(b, len(b))
 		}

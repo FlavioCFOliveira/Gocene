@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -22,7 +23,7 @@ func TestPointValues_IntPoint(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -46,7 +47,7 @@ func TestPointValues_IntPoint(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -68,7 +69,7 @@ func TestPointValues_LongPoint(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestPointValues_LongPoint(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -114,7 +115,7 @@ func TestPointValues_FloatPoint(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -138,7 +139,7 @@ func TestPointValues_FloatPoint(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -160,7 +161,7 @@ func TestPointValues_DoublePoint(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -184,7 +185,7 @@ func TestPointValues_DoublePoint(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -206,7 +207,7 @@ func TestPointValues_RangeQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -230,7 +231,7 @@ func TestPointValues_RangeQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -269,7 +270,7 @@ func TestPointValues_ExactQuery(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -293,7 +294,7 @@ func TestPointValues_ExactQuery(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -315,7 +316,7 @@ func TestPointValues_MultipleDimensions(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -343,7 +344,7 @@ func TestPointValues_MultipleDimensions(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -365,7 +366,7 @@ func TestPointValues_NegativeValues(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -389,7 +390,7 @@ func TestPointValues_NegativeValues(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -411,7 +412,7 @@ func TestPointValues_BoundaryValues(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -445,7 +446,7 @@ func TestPointValues_BoundaryValues(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -467,7 +468,7 @@ func BenchmarkPointValues_Indexing(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 

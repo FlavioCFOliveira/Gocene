@@ -7,6 +7,8 @@ package store
 import (
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TestNewDefaultIOContext_NoHints mirrors `new DefaultIOContext()` in Lucene
@@ -29,9 +31,9 @@ func TestNewDefaultIOContext_NoHints(t *testing.T) {
 }
 
 // TestNewDefaultIOContext_WithDistinctHints replicates the Lucene READONCE
-// construction: `new DefaultIOContext(DataAccessHint.SEQUENTIAL, ReadOnceHint.INSTANCE)`.
+// construction: `new DefaultIOContext(spi.DataAccessHint.SEQUENTIAL, spi.ReadOnceHint.INSTANCE)`.
 func TestNewDefaultIOContext_WithDistinctHints(t *testing.T) {
-	ctx := NewDefaultIOContext(DataAccessSequential, ReadOnceInstance)
+	ctx := NewDefaultIOContext(spi.DataAccessSequential, spi.ReadOnceInstance)
 	if ctx.Context != ContextRead {
 		t.Fatalf("context = %v, want ContextRead", ctx.Context)
 	}
@@ -39,8 +41,8 @@ func TestNewDefaultIOContext_WithDistinctHints(t *testing.T) {
 		t.Fatalf("hints len = %d, want 2", got)
 	}
 	want := map[FileOpenHint]bool{
-		DataAccessSequential: true,
-		ReadOnceInstance:     true,
+		spi.DataAccessSequential: true,
+		spi.ReadOnceInstance:     true,
 	}
 	for _, h := range ctx.Hints {
 		if !want[h] {
@@ -66,7 +68,7 @@ func TestNewDefaultIOContext_DuplicateHintTypePanics(t *testing.T) {
 			t.Fatalf("panic message = %q, want substring %q", msg, "multiple hints of type")
 		}
 	}()
-	_ = NewDefaultIOContext(DataAccessSequential, DataAccessRandom)
+	_ = NewDefaultIOContext(spi.DataAccessSequential, spi.DataAccessRandom)
 }
 
 // TestNewDefaultIOContext_NilHintPanics guards against nil entries in the
@@ -85,11 +87,11 @@ func TestNewDefaultIOContext_NilHintPanics(t *testing.T) {
 // is decoupled from the caller's argument array, matching the immutability
 // of Lucene's Set.copyOf.
 func TestNewDefaultIOContext_HintsAreDefensiveCopy(t *testing.T) {
-	src := []FileOpenHint{DataAccessSequential, ReadOnceInstance}
+	src := []FileOpenHint{spi.DataAccessSequential, spi.ReadOnceInstance}
 	ctx := NewDefaultIOContext(src...)
-	src[0] = DataAccessRandom // mutate caller's slice
-	if ctx.Hints[0] != DataAccessSequential {
-		t.Fatalf("hints[0] = %v, want DataAccessSequential (defensive copy violated)", ctx.Hints[0])
+	src[0] = spi.DataAccessRandom // mutate caller's slice
+	if ctx.Hints[0] != spi.DataAccessSequential {
+		t.Fatalf("hints[0] = %v, want spi.DataAccessSequential (defensive copy violated)", ctx.Hints[0])
 	}
 }
 
@@ -99,12 +101,12 @@ func TestNewDefaultIOContext_HintsAreDefensiveCopy(t *testing.T) {
 // DefaultIOContext for the DEFAULT context.
 func TestNewDefaultIOContext_WithHintsChainsToNewInstance(t *testing.T) {
 	base := NewDefaultIOContext()
-	next := base.WithHints(ReadOnceInstance)
+	next := base.WithHints(spi.ReadOnceInstance)
 	if next.Context != ContextRead {
 		t.Fatalf("next.Context = %v, want ContextRead", next.Context)
 	}
-	if len(next.Hints) != 1 || next.Hints[0] != ReadOnceInstance {
-		t.Fatalf("next.Hints = %v, want [ReadOnceInstance]", next.Hints)
+	if len(next.Hints) != 1 || next.Hints[0] != spi.ReadOnceInstance {
+		t.Fatalf("next.Hints = %v, want [spi.ReadOnceInstance]", next.Hints)
 	}
 	if len(base.Hints) != 0 {
 		t.Fatalf("base.Hints mutated = %v, want []", base.Hints)

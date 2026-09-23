@@ -2,158 +2,150 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/search/TestElevationComparator.java
-//
-// This test exercises a custom FieldComparatorSource (an "elevation" comparator
-// that promotes selected documents to the top of a field-sorted result set). It
-// builds a six-document index, runs a SHOULD(ipod) OR SHOULD(elevated ids) query
-// sorted by [elevation(id), SCORE], and asserts the two elevated documents
-// (ids "a" and "x", docs 0 and 3) sort first, with the remaining ipod documents
-// ordered by score (reversed for the SortingReversed variant).
-//
-// Deviation: Gocene's index/search Similarity is not swapped (no
-// IndexWriterConfig.SetSimilarity); the default similarity is used throughout.
-// The assertions only constrain document ORDER (elevated first, then by score),
-// which is preserved under any monotonic TF-based similarity, so the comparison
-// remains faithful.
+// Port of lucene/core/src/test/org/apache/lucene/search/TestElevationComparator.java
+// (Apache Lucene 10.5.0), including the package-private class
+// ElevationComparatorSource declared in the same file.
+
 package search_test
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-func TestElevationComparator_Sorting(t *testing.T) {
-	runElevationTest(t, false)
+// elevationComparatorTestCase renders the fields of TestElevationComparator.
+type elevationComparatorTestCase struct {
+	searcher *search.IndexSearcher
+	// priority renders Map<BytesRef, Integer>, keyed by the BytesRef bytes.
+	priority map[string]int
 }
 
-func TestElevationComparator_SortingReversed(t *testing.T) {
-	runElevationTest(t, true)
+// ecSetUp renders setUp(); the returned function renders tearDown().
+func ecSetUp(t *testing.T) (*elevationComparatorTestCase, func()) {
+	t.Helper()
+	tc := &elevationComparatorTestCase{priority: map[string]int{}}
+	directory := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzerRandom(random()))
+	iwc.SetMaxBufferedDocs(2)
+	mp := newLogMergePolicy()
+	mp.SetMergeFactor(1000) // newLogMergePolicy(1000)
+	iwc.SetMergePolicy(mp)
+	iwc.SetSimilarity(search.NewClassicSimilarity())
+	writer := mustNewIndexWriter(t, directory, iwc)
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "a", "title", "ipod", "str_s", "a"}))
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "b", "title", "ipod ipod", "str_s", "b"}))
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "c", "title", "ipod ipod ipod", "str_s", "c"}))
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "x", "title", "boosted", "str_s", "x"}))
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "y", "title", "boosted boosted", "str_s", "y"}))
+	mustAddDocument(t, writer, tc.adoc(t, []string{"id", "z", "title", "boosted boosted boosted", "str_s", "z"}))
+
+	reader := mustOpenDirectoryReaderFromWriter(t, writer)
+	mustClose(t, writer)
+
+	tearDown := func() {
+		mustClose(t, reader, directory)
+	}
+	tc.searcher = newSearcher(t, reader)
+	tc.searcher.SetSimilarity(search.NewLuceneBM25Similarity())
+	return tc, tearDown
 }
 
-// runElevationTest mirrors TestElevationComparator.runTest.
-func runElevationTest(t *testing.T, reversed bool) {
-	priority := map[string]int{}
-	searcher, cleanup := buildElevationIndex(t)
-	defer cleanup()
+func TestElevationComparatorSorting(t *testing.T) {
+	tc, tearDown := ecSetUp(t)
+	defer tearDown()
+	tc.runTest(t, false)
+}
 
-	// BooleanQuery: SHOULD(title:ipod) OR SHOULD(elevated id query, boost 0).
+func TestElevationComparatorSortingReversed(t *testing.T) {
+	tc, tearDown := ecSetUp(t)
+	defer tearDown()
+	tc.runTest(t, true)
+}
+
+// runTest renders the private runTest(boolean).
+func (tc *elevationComparatorTestCase) runTest(t *testing.T, reversed bool) {
+	t.Helper()
 	newq := search.NewBooleanQueryBuilder()
-	newq.Add(search.NewTermQuery(index.NewTerm("title", "ipod")), search.SHOULD)
-	newq.Add(getElevatedQuery(priority, []string{"id", "a", "id", "x"}), search.SHOULD)
+	query := search.NewTermQuery(index.NewTerm("title", "ipod"))
 
-	// Sort: [elevation(id) ascending, SCORE].
-	elevation := search.NewSortFieldCustom("id", &elevationComparatorSource{priority: priority}, false)
-	scoreSort := &search.SortField{Type: spi.SortFieldTypeScore, Reverse: reversed}
-	sort := search.NewSort(elevation, scoreSort)
+	newq.Add(query, search.SHOULD)
+	newq.Add(tc.getElevatedQuery([]string{"id", "a", "id", "x"}), search.SHOULD)
 
-	mgr, err := search.NewTopFieldCollectorManager(sort, 50, nil, 1<<30)
+	sort := search.NewSort(
+		search.NewSortFieldCustom("id", newElevationComparatorSource(tc.priority), false),
+		search.NewSortFieldWithReverse("", spi.SortFieldTypeScore, reversed))
+
+	manager, err := search.NewTopFieldCollectorManager(sort, 50, nil, math.MaxInt32)
 	if err != nil {
-		t.Fatalf("NewTopFieldCollectorManager: %v", err)
+		t.Fatalf("new TopFieldCollectorManager: %v", err)
 	}
-	collector, err := mgr.NewCollector()
+	topDocs, err := search.SearchWithCollectorManager(tc.searcher, newq.Build(), manager)
 	if err != nil {
-		t.Fatalf("NewCollector: %v", err)
-	}
-	if err := searcher.SearchWithCollector(newq.Build(), collector); err != nil {
-		t.Fatalf("SearchWithCollector: %v", err)
-	}
-	topDocs, err := mgr.Reduce([]*search.TopFieldCollector{collector})
-	if err != nil {
-		t.Fatalf("Reduce: %v", err)
+		t.Fatalf("search: %v", err)
 	}
 
-	if got := len(topDocs.ScoreDocs); got != 4 {
-		t.Fatalf("nDocsReturned = %d, want 4", got)
-	}
+	nDocsReturned := len(topDocs.ScoreDocs)
 
-	// 0 (id a) & 3 (id x) were elevated.
-	if topDocs.ScoreDocs[0].Doc != 0 {
-		t.Errorf("scoreDocs[0].doc = %d, want 0", topDocs.ScoreDocs[0].Doc)
-	}
-	if topDocs.ScoreDocs[1].Doc != 3 {
-		t.Errorf("scoreDocs[1].doc = %d, want 3", topDocs.ScoreDocs[1].Doc)
-	}
+	assertIntEquals(t, 4, nDocsReturned)
+
+	// 0 & 3 were elevated
+	assertIntEquals(t, 0, topDocs.ScoreDocs[0].Doc)
+	assertIntEquals(t, 3, topDocs.ScoreDocs[1].Doc)
 
 	if reversed {
-		if topDocs.ScoreDocs[2].Doc != 1 {
-			t.Errorf("scoreDocs[2].doc = %d, want 1", topDocs.ScoreDocs[2].Doc)
-		}
-		if topDocs.ScoreDocs[3].Doc != 2 {
-			t.Errorf("scoreDocs[3].doc = %d, want 2", topDocs.ScoreDocs[3].Doc)
-		}
+		assertIntEquals(t, 1, topDocs.ScoreDocs[2].Doc)
+		assertIntEquals(t, 2, topDocs.ScoreDocs[3].Doc)
 	} else {
-		if topDocs.ScoreDocs[2].Doc != 2 {
-			t.Errorf("scoreDocs[2].doc = %d, want 2", topDocs.ScoreDocs[2].Doc)
-		}
-		if topDocs.ScoreDocs[3].Doc != 1 {
-			t.Errorf("scoreDocs[3].doc = %d, want 1", topDocs.ScoreDocs[3].Doc)
-		}
+		assertIntEquals(t, 2, topDocs.ScoreDocs[2].Doc)
+		assertIntEquals(t, 1, topDocs.ScoreDocs[3].Doc)
 	}
 }
 
-// buildElevationIndex builds the six-document corpus, each with a tokenized
-// "title" and a SortedDocValuesField "id".
-func buildElevationIndex(t *testing.T) (*search.IndexSearcher, func()) {
-	t.Helper()
-	ix := newIntegrationIndex(t)
-	rows := [][2]string{
-		{"a", "ipod"},
-		{"b", "ipod ipod"},
-		{"c", "ipod ipod ipod"},
-		{"x", "boosted"},
-		{"y", "boosted boosted"},
-		{"z", "boosted boosted boosted"},
-	}
-	for _, row := range rows {
-		id, title := row[0], row[1]
-		doc := document.NewDocument()
-		tf, err := document.NewTextField("title", title, true)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(tf)
-		idf, err := document.NewTextField("id", id, true)
-		if err != nil {
-			t.Fatalf("NewTextField(id): %v", err)
-		}
-		doc.Add(idf)
-		dv, err := document.NewSortedDocValuesField("id", []byte(id))
-		if err != nil {
-			t.Fatalf("NewSortedDocValuesField: %v", err)
-		}
-		doc.Add(dv)
-		ix.addDoc(doc)
-	}
-	return ix.searcher()
-}
-
-// getElevatedQuery mirrors TestElevationComparator.getElevatedQuery: it builds a
-// SHOULD disjunction of TermQueries over (field,value) pairs, records descending
-// priorities for each value, and wraps the result in a zero-boost BoostQuery so
-// the elevated clause contributes matches without scores.
-func getElevatedQuery(priority map[string]int, vals []string) search.Query {
+// getElevatedQuery renders the private getElevatedQuery(String[]).
+func (tc *elevationComparatorTestCase) getElevatedQuery(vals []string) search.Query {
 	b := search.NewBooleanQueryBuilder()
 	max := (len(vals) / 2) + 5
 	for i := 0; i < len(vals)-1; i += 2 {
 		b.Add(search.NewTermQuery(index.NewTerm(vals[i], vals[i+1])), search.SHOULD)
-		priority[vals[i+1]] = max
+		tc.priority[vals[i+1]] = max
 		max--
+		// System.out.println(" pri doc=" + vals[i+1] + " pri=" + (1+max));
 	}
-	return search.NewBoostQuery(b.Build(), 0)
+	q := b.Build()
+	return search.NewBoostQuery(q, 0)
 }
 
-// elevationComparatorSource is the Go port of the anonymous
-// FieldComparatorSource in TestElevationComparator. NewComparator builds a
-// comparator that orders documents by their recorded elevation priority
-// (descending), reading the "id" SortedDocValues per leaf.
+// adoc renders the private adoc(String[]).
+func (tc *elevationComparatorTestCase) adoc(t *testing.T, vals []string) *document.Document {
+	t.Helper()
+	doc := document.NewDocument()
+	for i := 0; i < len(vals)-2; i += 2 {
+		doc.Add(newTextField(t, vals[i], vals[i+1], true))
+		if vals[i] == "id" {
+			dv, err := document.NewSortedDocValuesField(vals[i], []byte(vals[i+1]))
+			if err != nil {
+				t.Fatalf("new SortedDocValuesField: %v", err)
+			}
+			doc.Add(dv)
+		}
+	}
+	return doc
+}
+
+// newElevationComparatorSource renders ElevationComparatorSource(Map<BytesRef, Integer>).
+func newElevationComparatorSource(boosts map[string]int) *elevationComparatorSource {
+	return &elevationComparatorSource{priority: boosts}
+}
+
+// elevationComparatorSource renders the package-private class
+// ElevationComparatorSource.
 type elevationComparatorSource struct {
 	priority map[string]int
 }

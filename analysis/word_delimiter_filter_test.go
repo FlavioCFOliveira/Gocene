@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // wdTokenInfo holds information about an emitted token for testing
@@ -84,7 +83,7 @@ func TestWordDelimiterFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -141,7 +140,7 @@ func TestWordDelimiterFilter_PreserveOriginal(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -207,12 +206,12 @@ func TestWordDelimiterFilter_PositionIncrement(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
 				}
-				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+				if attr := filter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						posIncs = append(posIncs, posAttr.GetPositionIncrement())
 					}
@@ -284,18 +283,18 @@ func TestWordDelimiterFilter_Offsets(t *testing.T) {
 				}
 
 				var info wdTokenInfo
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						info.text = termAttr.String()
 					}
 				}
-				if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
+				if attr := filter.GetAttribute(OffsetAttributeType); attr != nil {
 					if offsetAttr, ok := attr.(OffsetAttribute); ok {
 						info.startOffset = offsetAttr.StartOffset()
 						info.endOffset = offsetAttr.EndOffset()
 					}
 				}
-				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+				if attr := filter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						info.posInc = posAttr.GetPositionIncrement()
 					}
@@ -363,7 +362,7 @@ func TestWordDelimiterFilter_NoCaseChangeSplit(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -420,7 +419,7 @@ func TestWordDelimiterFilter_NoNumericSplit(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -472,7 +471,7 @@ func TestWordDelimiterFilter_NoPossessiveStemming(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -529,7 +528,7 @@ func TestWordDelimiterFilter_Possessive(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -618,7 +617,7 @@ func TestWordDelimiterFilter_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -685,7 +684,7 @@ func TestWordDelimiterFilter_Complex(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -723,7 +722,7 @@ func TestWordDelimiterFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -786,7 +785,7 @@ func TestWordDelimiterFilter_CustomTable(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -820,7 +819,7 @@ func TestWordDelimiterFilter_Factory(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -855,12 +854,12 @@ func TestWordDelimiterFilter_MultipleTokens(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
 		}
-		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncs = append(posIncs, posAttr.GetPositionIncrement())
 			}
@@ -926,7 +925,7 @@ func TestWordDelimiterFilter_SingleWordNotSplit(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -988,7 +987,7 @@ func TestWordDelimiterFilter_LeadingTrailingDelimiters(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}

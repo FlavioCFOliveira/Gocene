@@ -15,16 +15,16 @@ import (
 // without writing the bytes that were previously read into the buffer.
 func TestNRTCachingDirectory_FlushNonAlignedFileSize(t *testing.T) {
 	sizes := []int64{
-		1,       // single byte
-		8191,    // one less than buffer size
-		8192,    // exactly buffer size (aligned)
-		8193,    // one more than buffer size
-		16383,   // just under 2x buffer
-		16384,   // exactly 2x buffer
-		16385,   // just over 2x buffer
-		100,     // arbitrary small
-		5000,    // arbitrary medium
-		20000,   // arbitrary larger
+		1,     // single byte
+		8191,  // one less than buffer size
+		8192,  // exactly buffer size (aligned)
+		8193,  // one more than buffer size
+		16383, // just under 2x buffer
+		16384, // exactly 2x buffer
+		16385, // just over 2x buffer
+		100,   // arbitrary small
+		5000,  // arbitrary medium
+		20000, // arbitrary larger
 	}
 
 	for _, size := range sizes {
@@ -55,7 +55,7 @@ func testNRTCachingFlushSize(t *testing.T, size int64) {
 	flushCtx := IOContext{
 		Context: ContextFlush,
 		FlushInfo: &FlushInfo{
-			NumDocs:             1,
+			NumDocs:              1,
 			EstimatedSegmentSize: size,
 		},
 	}
@@ -64,7 +64,7 @@ func testNRTCachingFlushSize(t *testing.T, size int64) {
 		nrtDir.Close()
 		t.Fatalf("CreateOutput failed: %v", err)
 	}
-	if err := out.WriteBytes(content); err != nil {
+	if err := out.WriteBytes(content, 0, len(content)); err != nil {
 		out.Close()
 		nrtDir.Close()
 		t.Fatalf("WriteBytes failed: %v", err)

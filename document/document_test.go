@@ -189,10 +189,10 @@ func TestNewFieldType(t *testing.T) {
 	if ft == nil {
 		t.Fatal("Expected non-nil FieldType")
 	}
-	if ft.Indexed {
+	if ft.IsIndexed() {
 		t.Error("Expected Indexed to be false by default")
 	}
-	if ft.Stored {
+	if ft.Stored() {
 		t.Error("Expected Stored to be false by default")
 	}
 }
@@ -205,16 +205,16 @@ func TestFieldType_Setters(t *testing.T) {
 		SetTokenized(true).
 		SetIndexOptions(spi.IndexOptionsDocsAndFreqs)
 
-	if !ft.Indexed {
+	if !ft.IsIndexed() {
 		t.Error("Expected Indexed to be true")
 	}
-	if !ft.Stored {
+	if !ft.Stored() {
 		t.Error("Expected Stored to be true")
 	}
-	if !ft.Tokenized {
+	if !ft.Tokenized() {
 		t.Error("Expected Tokenized to be true")
 	}
-	if ft.IndexOptions != spi.IndexOptionsDocsAndFreqs {
+	if ft.IndexOptions() != spi.IndexOptionsDocsAndFreqs {
 		t.Error("Expected IndexOptions to be set")
 	}
 }
@@ -275,16 +275,16 @@ func TestNewTextField(t *testing.T) {
 	if field.StringValue() != "Hello World" {
 		t.Errorf("Expected 'Hello World', got '%s'", field.StringValue())
 	}
-	if !field.FieldType().Stored {
+	if !field.FieldType().Stored() {
 		t.Error("Expected field to be stored")
 	}
-	if !field.FieldType().Tokenized {
+	if !field.FieldType().Tokenized() {
 		t.Error("Expected field to be tokenized")
 	}
 
 	// Not stored
 	field2, _ := NewTextField("body", "Content", false)
-	if field2.FieldType().Stored {
+	if field2.FieldType().Stored() {
 		t.Error("Expected field to not be stored")
 	}
 }
@@ -302,13 +302,13 @@ func TestNewStringField(t *testing.T) {
 	if field.StringValue() != "doc-123" {
 		t.Errorf("Expected 'doc-123', got '%s'", field.StringValue())
 	}
-	if !field.FieldType().Indexed {
+	if !(field.FieldType().IndexOptions() != spi.IndexOptionsNone) {
 		t.Error("Expected field to be indexed")
 	}
-	if field.FieldType().Tokenized {
+	if field.FieldType().Tokenized() {
 		t.Error("Expected field to not be tokenized")
 	}
-	if !field.FieldType().OmitNorms {
+	if !field.FieldType().OmitNorms() {
 		t.Error("Expected field to omit norms")
 	}
 }
@@ -333,10 +333,10 @@ func TestNewStoredField(t *testing.T) {
 	if field.Name() != "metadata" {
 		t.Errorf("Expected name 'metadata', got '%s'", field.Name())
 	}
-	if field.FieldType().Indexed {
+	if field.FieldType().IndexOptions() != spi.IndexOptionsNone {
 		t.Error("Expected field to not be indexed")
 	}
-	if !field.FieldType().Stored {
+	if !field.FieldType().Stored() {
 		t.Error("Expected field to be stored")
 	}
 }

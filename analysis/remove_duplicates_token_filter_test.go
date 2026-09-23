@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestRemoveDuplicatesTokenFilter_Basic tests basic duplicate removal.
@@ -105,13 +104,13 @@ func TestRemoveDuplicatesTokenFilter_Basic(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
 				}
 
-				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+				if attr := filter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 					}
@@ -175,7 +174,7 @@ func TestRemoveDuplicatesTokenFilter_SingleToken(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -208,7 +207,7 @@ func TestRemoveDuplicatesTokenFilter_WithRealTokenizer(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -246,7 +245,7 @@ func TestRemoveDuplicatesTokenFilter_PositionIncrementAccumulation(t *testing.T)
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
@@ -314,7 +313,7 @@ func TestRemoveDuplicatesTokenFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -365,7 +364,7 @@ func TestRemoveDuplicatesTokenFilter_DifferentTextsSamePosition(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -403,7 +402,7 @@ func TestRemoveDuplicatesTokenFilter_MultiplePositionsWithDuplicates(t *testing.
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}

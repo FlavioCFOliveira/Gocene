@@ -51,11 +51,11 @@ func TestDocument_BinaryField(t *testing.T) {
 	if binaryFld.BinaryValue() == nil {
 		t.Error("Expected non-nil binary value")
 	}
-	if !binaryFld.FieldType().Stored {
+	if !binaryFld.FieldType().Stored() {
 		t.Error("Expected binary field to be stored")
 	}
-	if binaryFld.FieldType().IndexOptions != spi.IndexOptionsNone {
-		t.Errorf("Expected IndexOptionsNone, got %v", binaryFld.FieldType().IndexOptions)
+	if binaryFld.FieldType().IndexOptions() != spi.IndexOptionsNone {
+		t.Errorf("Expected IndexOptionsNone, got %v", binaryFld.FieldType().IndexOptions())
 	}
 
 	// Test GetBinaryValue
@@ -420,21 +420,21 @@ func TestDocument_MixedFieldTypes(t *testing.T) {
 	text := doc.Get("content")
 	if text == nil {
 		t.Error("Expected to find text field")
-	} else if !text.FieldType().Tokenized {
+	} else if !text.FieldType().Tokenized() {
 		t.Error("Expected text field to be tokenized")
 	}
 
 	id := doc.Get("id")
 	if id == nil {
 		t.Error("Expected to find id field")
-	} else if id.FieldType().Tokenized {
+	} else if id.FieldType().Tokenized() {
 		t.Error("Expected string field to not be tokenized")
 	}
 
 	meta := doc.Get("metadata")
 	if meta == nil {
 		t.Error("Expected to find metadata field")
-	} else if meta.FieldType().Indexed {
+	} else if meta.FieldType().IndexOptions() != spi.IndexOptionsNone {
 		t.Error("Expected stored field to not be indexed")
 	}
 

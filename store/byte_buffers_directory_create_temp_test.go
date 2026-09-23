@@ -31,7 +31,7 @@ func TestByteBuffersDirectory_CreateTempOutput_NoDeadlock(t *testing.T) {
 			return
 		}
 		// Write some data and close
-		_ = out.WriteBytes([]byte("hello"))
+		_ = out.WriteBytes([]byte("hello"), 0, len([]byte("hello")))
 		done <- out.Close()
 	}()
 

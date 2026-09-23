@@ -4,12 +4,11 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // TestPathHierarchyTokenizer_ForwardBasic tests basic forward tokenization.
@@ -69,9 +68,7 @@ func TestPathHierarchyTokenizer_ForwardBasic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewPathHierarchyTokenizer()
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -148,9 +145,7 @@ func TestPathHierarchyTokenizer_ReverseBasic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewPathHierarchyTokenizer(WithReverse(true))
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -222,9 +217,7 @@ func TestPathHierarchyTokenizer_CustomDelimiter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewPathHierarchyTokenizer(WithDelimiter(tt.delimiter))
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -325,9 +318,7 @@ func TestPathHierarchyTokenizer_Skip(t *testing.T) {
 				WithSkip(tt.skip),
 				WithReverse(tt.reverse),
 			)
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -366,9 +357,7 @@ func TestPathHierarchyTokenizer_Skip(t *testing.T) {
 func TestPathHierarchyTokenizer_Offsets(t *testing.T) {
 	input := "/a/b/c"
 	tokenizer := NewPathHierarchyTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	expectedOffsets := []struct {
 		start int
@@ -421,9 +410,7 @@ func TestPathHierarchyTokenizer_Offsets(t *testing.T) {
 func TestPathHierarchyTokenizer_PositionIncrement(t *testing.T) {
 	input := "/a/b/c"
 	tokenizer := NewPathHierarchyTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	for i := 0; i < 3; i++ {
 		hasToken, err := tokenizer.IncrementToken()
@@ -451,9 +438,7 @@ func TestPathHierarchyTokenizer_Reset(t *testing.T) {
 	tokenizer := NewPathHierarchyTokenizer()
 
 	// First input
-	if err := tokenizer.SetReader(strings.NewReader("/a/b")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("/a/b"))
 
 	// Consume first token
 	hasToken, _ := tokenizer.IncrementToken()
@@ -471,9 +456,7 @@ func TestPathHierarchyTokenizer_Reset(t *testing.T) {
 	if err := tokenizer.Reset(); err != nil {
 		t.Fatalf("Reset failed: %v", err)
 	}
-	if err := tokenizer.SetReader(strings.NewReader("/x/y/z")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("/x/y/z"))
 
 	// Consume tokens from new input
 	var tokens []string
@@ -510,7 +493,7 @@ func TestPathHierarchyTokenizer_Factory(t *testing.T) {
 		WithFactoryReverse(true),
 	)
 
-	tokenizer := factory.Create()
+	tokenizer := factory.Create(DefaultTokenAttributeFactory)
 	if tokenizer == nil {
 		t.Fatal("Factory.Create returned nil")
 	}
@@ -522,9 +505,7 @@ func TestPathHierarchyTokenizer_Factory(t *testing.T) {
 	}
 
 	// Test the created tokenizer
-	if err := phTokenizer.SetReader(strings.NewReader("com.example.app")); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	phTokenizer.SetReader(strings.NewReader("com.example.app"))
 
 	var tokens []string
 	for {
@@ -557,9 +538,7 @@ func TestPathHierarchyTokenizer_Factory(t *testing.T) {
 func TestPathHierarchyTokenizer_End(t *testing.T) {
 	input := "/a/b/c"
 	tokenizer := NewPathHierarchyTokenizer()
-	if err := tokenizer.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -616,9 +595,7 @@ func TestPathHierarchyTokenizer_Unicode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewPathHierarchyTokenizer()
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -680,9 +657,7 @@ func TestPathHierarchyTokenizer_URLPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenizer := NewPathHierarchyTokenizer()
-			if err := tokenizer.SetReader(strings.NewReader(tt.input)); err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {

@@ -9,6 +9,7 @@
 package index_test
 
 import (
+	"errors"
 	"io"
 	"maps"
 	"math"
@@ -1855,7 +1856,6 @@ func TestIndexWriterManySeparateThreads(t *testing.T) {
 }
 
 const (
-	maybeRefreshBlockingMissing    = "org.apache.lucene.search.ReferenceManager#maybeRefreshBlocking() is not ported"
 	tokenOutOfBoundsPayloadMissing = "org.apache.lucene.analysis.Token#setPayload(BytesRef) with a BytesRef whose offset + length " +
 		"exceeds its array is not representable (Gocene payloads are []byte)"
 	indexWriterUpdateDocumentsQueryMissing = "org.apache.lucene.index.IndexWriter#updateDocuments(Query, Iterable) is not ported"
@@ -2660,16 +2660,75 @@ func TestIndexWriterFlushWhileStartingNewThreads(t *testing.T) {
 	t.Fatal(documentsWriterAccessMissing)
 }
 
+// isAlreadyClosed renders `catch (AlreadyClosedException e)`.
+func isAlreadyClosed(err error) bool {
+	var ace *store.AlreadyClosedException
+	return errors.As(err, &ace)
+}
+
 func TestIndexWriterRefreshAndRollbackConcurrently(t *testing.T) {
 	dir := newDirectory()
 	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
-	sm, err := search.NewSearcherManager(w, search.NewDefaultSearcherFactory())
+	var stopped atomic.Bool
+	indexedDocs := make(chan struct{}, 1<<16) // Semaphore(0): one token per release(1)
+	var threads sync.WaitGroup
+	indexer := func() {
+		defer threads.Done()
+		for !stopped.Load() {
+			id := strconv.Itoa(rand.Intn(100))
+			doc := document.NewDocument()
+			f, err := document.NewStringField("id", id, true)
+			if err != nil {
+				t.Errorf("new StringField: %v", err)
+				return
+			}
+			doc.Add(f)
+			if _, err := w.UpdateDocument(index.NewTerm("id", id), doc); err != nil {
+				if isAlreadyClosed(err) {
+					return
+				}
+				t.Errorf("AssertionError: %v", err)
+				return
+			}
+			indexedDocs <- struct{}{}
+		}
+	}
+
+	sm, err := search.NewSearcherManager(w, search.NewSearcherFactory())
 	if err != nil {
 		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer mustClose(t, sm, w, dir)
-	// The refresher thread loops on sm.maybeRefreshBlocking().
-	t.Fatal(maybeRefreshBlockingMissing)
+	refresher := func() {
+		defer threads.Done()
+		for !stopped.Load() {
+			if err := sm.MaybeRefreshBlocking(); err != nil {
+				if isAlreadyClosed(err) {
+					return
+				}
+				t.Errorf("AssertionError: %v", err)
+				return
+			}
+		}
+	}
+
+	func() {
+		defer func() {
+			stopped.Store(true)
+			threads.Wait() // indexer.join(); refresher.join();
+			// assertNull("should not consider ACE a tragedy on a closed IW: " + ..., w.getTragicException());
+			t.Error(indexWriterGetTragicExceptionMissing)
+			mustClose(t, sm, dir)
+		}()
+		threads.Add(2)
+		go indexer()
+		go refresher()
+		for i := 1 + rand.Intn(100); i > 0; i-- {
+			<-indexedDocs
+		}
+		if err := w.Rollback(); err != nil {
+			t.Errorf("rollback: %v", err)
+		}
+	}()
 }
 
 func TestIndexWriterCloseableQueue(t *testing.T) {
@@ -2715,7 +2774,7 @@ func TestIndexWriterRandomOperations(t *testing.T) {
 	})
 	dir := newDirectory()
 	writer := mustNewIndexWriter(t, dir, iwc)
-	sm, err := search.NewSearcherManager(writer, search.NewDefaultSearcherFactory())
+	sm, err := search.NewSearcherManager(writer, search.NewSearcherFactory())
 	if err != nil {
 		t.Fatalf("new SearcherManager: %v", err)
 	}
@@ -2756,8 +2815,10 @@ func TestIndexWriterRandomOperations(t *testing.T) {
 					return
 				}
 				if rand.Intn(100) < 10 {
-					t.Errorf("%s", maybeRefreshBlockingMissing)
-					return
+					if err := sm.MaybeRefreshBlocking(); err != nil {
+						t.Errorf("maybeRefreshBlocking: %v", err)
+						return
+					}
 				}
 				if rand.Intn(100) < 5 {
 					if _, err := writer.Commit(); err != nil {
@@ -2822,14 +2883,74 @@ func TestIndexWriterMaxCompletedSequenceNumber(t *testing.T) {
 	}
 	dir := newDirectory()
 	writer := mustNewIndexWriter(t, dir, newIndexWriterConfig())
-	manager, err := search.NewSearcherManager(writer, search.NewDefaultSearcherFactory())
+	manager, err := search.NewSearcherManager(writer, search.NewSearcherFactory())
 	if err != nil {
 		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer mustClose(t, manager, writer, dir)
-	// Each indexing thread's first document reaches
-	// manager.maybeRefreshBlocking(), since maxCompletedSeqID starts at -1.
-	t.Fatal(maybeRefreshBlockingMissing)
+	defer mustClose(t, dir, writer, manager)
+	start := make(chan struct{}) // CountDownLatch(1)
+	numDocs := nextInt(10, 60)   // TEST_NIGHTLY ? nextInt(100, 600) : nextInt(10, 60)
+	var maxCompletedSeqID atomic.Int64
+	maxCompletedSeqID.Store(-1)
+	var threads sync.WaitGroup
+	numThreads := 2 + rand.Intn(2)
+	for i := 0; i < numThreads; i++ {
+		idx := i
+		threads.Add(1)
+		go func() {
+			defer threads.Done()
+			<-start
+			for j := 0; j < numDocs; j++ {
+				doc := document.NewDocument()
+				id := strconv.Itoa(idx) + "-" + strconv.Itoa(j)
+				f, err := document.NewStringField("id", id, false)
+				if err != nil {
+					t.Errorf("AssertionError: %v", err)
+					return
+				}
+				doc.Add(f)
+				seqNo, err := writer.AddDocument(doc)
+				if err != nil {
+					t.Errorf("AssertionError: %v", err)
+					return
+				}
+				if maxCompletedSeqID.Load() < seqNo {
+					maxCompletedSequenceNumber := writer.GetMaxCompletedSequenceNumber()
+					if err := manager.MaybeRefreshBlocking(); err != nil {
+						t.Errorf("AssertionError: %v", err)
+						return
+					}
+					for {
+						oldVal := maxCompletedSeqID.Load()
+						if maxCompletedSeqID.CompareAndSwap(oldVal, max(oldVal, maxCompletedSequenceNumber)) {
+							break
+						}
+					}
+				}
+				acquire, err := manager.Acquire()
+				if err != nil {
+					t.Errorf("AssertionError: %v", err)
+					return
+				}
+				td, err := acquire.Search(search.NewTermQuery(index.NewTerm("id", id)), 10)
+				releaseErr := manager.Release(acquire)
+				if err != nil {
+					t.Errorf("AssertionError: %v", err)
+					return
+				}
+				if releaseErr != nil {
+					t.Errorf("AssertionError: %v", releaseErr)
+					return
+				}
+				if td.TotalHits.Value != 1 {
+					t.Errorf("AssertionError: expected 1 hit for id=%s, got %d", id, td.TotalHits.Value)
+					return
+				}
+			}
+		}()
+	}
+	close(start)
+	threads.Wait()
 }
 
 func TestIndexWriterEnsureMaxSeqNoIsAccurateDuringFlush(t *testing.T) {

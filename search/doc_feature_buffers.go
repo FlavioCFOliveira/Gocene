@@ -9,7 +9,7 @@ package search
 //   - DocAndScoreAccBuffer → promoted to concrete type (below).
 //   - ConstantScoreScorerSupplier/ConstantScoreWeight → promoted to own files.
 //   - DocIdStream → promoted to doc_id_stream.go.
-//   - ControlledRealTimeReopenThread → removed (unused; real impl. in index/).
+//   - ControlledRealTimeReopenThread → promoted to controlled_real_time_reopen_thread.go.
 //   - DocIdSetBulkIterator → removed (unused; bulk iteration done inline).
 //   - DocIdSet → removed (unused; DocIdSetIterator is the canonical type).
 //   - DocValuesRangeIterator → removed (unused; range queries use DocIdSetIterator directly).

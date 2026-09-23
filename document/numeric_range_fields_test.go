@@ -22,15 +22,18 @@ func TestIntRange(t *testing.T) {
 }
 
 func TestFloatRange(t *testing.T) {
-	f := NewFloatRange("floatrange", 1.5, 99.5)
+	f, err := NewFloatRange("floatrange", []float32{1.5}, []float32{99.5})
+	if err != nil {
+		t.Fatalf("NewFloatRange error: %v", err)
+	}
 	if f == nil {
 		t.Fatal("NewFloatRange returned nil")
 	}
-	if f.Min() != 1.5 {
-		t.Errorf("Min() = %v, want 1.5", f.Min())
+	if min, err := f.GetMin(0); err != nil || min != 1.5 {
+		t.Errorf("GetMin(0) = %v, want 1.5 (err: %v)", min, err)
 	}
-	if f.Max() != 99.5 {
-		t.Errorf("Max() = %v, want 99.5", f.Max())
+	if max, err := f.GetMax(0); err != nil || max != 99.5 {
+		t.Errorf("GetMax(0) = %v, want 99.5 (err: %v)", max, err)
 	}
 }
 

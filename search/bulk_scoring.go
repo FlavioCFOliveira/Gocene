@@ -5,8 +5,8 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -175,142 +175,6 @@ func (q *DisablingBulkScorerQuery) String() string {
 	return queryToString(q.inner, "")
 }
 
-// BulkScorerWrapperScorer is a Scorer backed by a BulkScorer.
-// This is the Go port of org.apache.lucene.tests.search.BulkScorerWrapperScorer.
-type BulkScorerWrapperScorer struct {
-	scorer   BulkScorer
-	i        int
-	doc      int
-	next     int
-	docs     []int
-	scores   []float32
-	bufLen   int
-}
-
-// NewBulkScorerWrapperScorer returns a new BulkScorerWrapperScorer.
-func NewBulkScorerWrapperScorer(scorer BulkScorer, bufferSize int) *BulkScorerWrapperScorer {
-	return &BulkScorerWrapperScorer{
-		scorer: scorer,
-		docs:   make([]int, bufferSize),
-		scores: make([]float32, bufferSize),
-		i:      -1,
-		doc:    -1,
-		next:   0,
-	}
-}
-
-func (s *BulkScorerWrapperScorer) refill(target int) error {
-	s.bufLen = 0
-	for s.next != NO_MORE_DOCS && s.bufLen == 0 {
-		min := target
-		if s.next > min {
-			min = s.next
-		}
-		max := min + len(s.docs)
-
-		collector := &bulkScorerWrapperCollector{
-			scorer:  s,
-			docs:    s.docs,
-			scores:  s.scores,
-			bufLen:  &s.bufLen,
-		}
-
-		next, err := s.scorer.Score(collector, nil, min, max)
-		if err != nil {
-			return err
-		}
-		s.next = next
-	}
-	s.i = -1
-	return nil
-}
-
-type bulkScorerWrapperCollector struct {
-	BaseLeafCollector
-	scorer *BulkScorerWrapperScorer
-	docs   []int
-	scores []float32
-	bufLen *int
-}
-
-func (c *bulkScorerWrapperCollector) SetScorer(scorer Scorable) error {
-	return nil
-}
-
-func (c *bulkScorerWrapperCollector) Collect(doc int) error {
-	// In Gocene's BulkScorer.Score, the collector is called.
-	// To mirror Lucene, we need the score.
-	// However, Gocene's current BulkScorer interface doesn't provide a way
-	// to get the current score during collection unless we cast the scorer.
-	// Let's assume for now that the score is managed internally.
-
-	// Wait, the provided Lucene source for BulkScorerWrapperScorer used:
-	// scores[bufferLength] = scorer.score();
-	// where 'scorer' was the one set in SetScorer.
-
-	// In Gocene, I'll need the current score.
-	// I'll modify the collector to handle this if possible, or use the Scorer.
-
-	// Since the current BulkScorer implementation in Gocene might not
-	// provide the scorer to the collector in a way that allows Score(),
-	// I might need to adjust the BulkScorer interface or the collector.
-
-	// For now, let's use a placeholder or a way to capture it.
-	return nil
-}
-
-func (s *BulkScorerWrapperScorer) DocID() int {
-	return s.doc
-}
-
-func (s *BulkScorerWrapperScorer) NextDoc() (int, error) {
-	return s.Advance(s.doc + 1)
-}
-
-func (s *BulkScorerWrapperScorer) Advance(target int) (int, error) {
-	if s.bufLen == 0 || s.docs[s.bufLen-1] < target {
-		if err := s.refill(target); err != nil {
-			return 0, err
-		}
-	}
-
-	low := s.i + 1
-	high := s.bufLen - 1
-	idx := -1
-	for low <= high {
-		mid := (low + high) / 2
-		if s.docs[mid] >= target {
-			idx = mid
-			high = mid - 1
-		} else {
-			low = mid + 1
-		}
-	}
-
-	if idx == -1 {
-		return NO_MORE_DOCS, nil
-	}
-
-	s.i = idx
-	s.doc = s.docs[idx]
-	return s.doc, nil
-}
-
-func (s *BulkScorerWrapperScorer) Score() (float32, error) {
-	if s.i < 0 || s.i >= s.bufLen {
-		return 0, nil
-	}
-	return s.scores[s.i], nil
-}
-
-func (s *BulkScorerWrapperScorer) GetMaxScore(_ int) (float32, error) {
-	return float32(math.Inf(1)), nil
-}
-
-func (s *BulkScorerWrapperScorer) Cost() int64 {
-	return s.scorer.Cost()
-}
-
 // BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
 // Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
 func (d *disablingBulkScorerSupplier) BulkScorer() (BulkScorer, error) {
@@ -327,18 +191,6 @@ func (d *disablingBulkScorerSupplier) SetTopLevelScoringClause() error {
 // change the number of documents the scorer will visit.
 func (s *disablingBulkScorerSupplier) Cost() int64 {
 	return s.supplier.Cost()
-}
-
-// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
-// in Apache Lucene 10.5.0.
-func (b *bulkScorerWrapperCollector) CollectRange(min, max int) error {
-	return DefaultCollectRange(b, min, max)
-}
-
-// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
-// in Apache Lucene 10.5.0.
-func (b *bulkScorerWrapperCollector) CollectStream(stream DocIdStream) error {
-	return DefaultCollectStream(b, stream)
 }
 
 // IsCacheable mirrors the isCacheable(LeafReaderContext) override of the
@@ -368,4 +220,45 @@ func (q *ForceNoBulkScoringQuery) Visit(visitor QueryVisitor) {
 // this port's spelling of Java's query field.
 func (q *DisablingBulkScorerQuery) Visit(visitor QueryVisitor) {
 	q.inner.Visit(visitor)
+}
+
+// Scorer renders the final Weight.scorer(LeafReaderContext): the scorer of
+// scorerSupplier(context).get(Long.MAX_VALUE), or nil when no document
+// matches. It is restated because the embedded BaseWeight.Scorer would call
+// BaseWeight.ScorerSupplier, not this type's override.
+func (w *disablingBulkScorerWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	return scorerSupplier.Get(math.MaxInt64)
+}
+
+// Scorer renders the final Weight.scorer(LeafReaderContext): the scorer of
+// scorerSupplier(context).get(Long.MAX_VALUE), or nil when no document
+// matches. It is restated because the embedded BaseWeight.Scorer would call
+// BaseWeight.ScorerSupplier, not this type's override.
+func (w *forceNoBulkScoringWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		return nil, err
+	}
+	return scorerSupplier.Get(math.MaxInt64)
+}
+
+// BulkScorer renders the final Weight.bulkScorer(LeafReaderContext):
+// scorerSupplier(context), marked as the top-level scoring clause, supplies
+// the bulk scorer; nil when no document matches. It is restated because the
+// embedded BaseWeight.BulkScorer would call BaseWeight.ScorerSupplier, not
+// this type's override.
+func (w *forceNoBulkScoringWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorerSupplier, err := w.ScorerSupplier(context)
+	if err != nil || scorerSupplier == nil {
+		// No docs match
+		return nil, err
+	}
+	if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+		return nil, err
+	}
+	return scorerSupplier.BulkScorer()
 }

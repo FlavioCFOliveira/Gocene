@@ -74,9 +74,7 @@ func drainElisionTokens(t *testing.T, stream TokenStream) []string {
 func TestElision_Elision(t *testing.T) {
 	text := "Plop, juste pour voir l'embrouille avec O'brian. M'enfin."
 	tok := NewStandardTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	articles := GetWordSetFromStrings([]string{"l", "M"}, false)
 	filter := NewElisionFilter(tok, articles)
 	tokens := drainElisionTokens(t, filter)
@@ -103,9 +101,7 @@ func TestElision_Elision(t *testing.T) {
 // ElisionFilter on an empty string via KeywordTokenizer must return one empty token.
 func TestElision_EmptyTerm(t *testing.T) {
 	tok := NewKeywordTokenizer()
-	if err := tok.SetReader(strings.NewReader("")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(""))
 	filter := NewElisionFilter(tok, frenchDefaultArticles)
 	tokens := drainElisionTokens(t, filter)
 

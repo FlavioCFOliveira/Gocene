@@ -4,13 +4,12 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 func TestSimplePatternSplitTokenizer_BasicWhitespace(t *testing.T) {
@@ -72,15 +71,12 @@ func TestSimplePatternSplitTokenizer_BasicWhitespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenizer, err := NewSimplePatternSplitTokenizerWithString(tt.pattern)
+			tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, tt.pattern)
 			if err != nil {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -161,15 +157,12 @@ func TestSimplePatternSplitTokenizer_Punctuation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenizer, err := NewSimplePatternSplitTokenizerWithString(tt.pattern)
+			tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, tt.pattern)
 			if err != nil {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -262,15 +255,12 @@ func TestSimplePatternSplitTokenizer_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenizer, err := NewSimplePatternSplitTokenizerWithString(tt.pattern)
+			tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, tt.pattern)
 			if err != nil {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -349,15 +339,12 @@ func TestSimplePatternSplitTokenizer_Offsets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenizer, err := NewSimplePatternSplitTokenizerWithString(tt.pattern)
+			tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, tt.pattern)
 			if err != nil {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []struct {
 				term  string
@@ -415,15 +402,12 @@ func TestSimplePatternSplitTokenizer_Offsets(t *testing.T) {
 }
 
 func TestSimplePatternSplitTokenizer_PositionIncrement(t *testing.T) {
-	tokenizer, err := NewSimplePatternSplitTokenizerWithString(`\s+`)
+	tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, `\s+`)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("Hello World Test"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("Hello World Test"))
 
 	for i := 0; i < 3; i++ {
 		hasToken, err := tokenizer.IncrementToken()
@@ -447,16 +431,13 @@ func TestSimplePatternSplitTokenizer_PositionIncrement(t *testing.T) {
 }
 
 func TestSimplePatternSplitTokenizer_Reset(t *testing.T) {
-	tokenizer, err := NewSimplePatternSplitTokenizerWithString(`\s+`)
+	tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, `\s+`)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
 	// First run
-	err = tokenizer.SetReader(strings.NewReader("Hello World"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("Hello World"))
 
 	var tokens1 []string
 	for {
@@ -484,10 +465,7 @@ func TestSimplePatternSplitTokenizer_Reset(t *testing.T) {
 		t.Fatalf("Reset failed: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("Foo Bar"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("Foo Bar"))
 
 	var tokens2 []string
 	for {
@@ -511,16 +489,13 @@ func TestSimplePatternSplitTokenizer_Reset(t *testing.T) {
 }
 
 func TestSimplePatternSplitTokenizer_End(t *testing.T) {
-	tokenizer, err := NewSimplePatternSplitTokenizerWithString(`\s+`)
+	tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, `\s+`)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
 	input := "Hello World"
-	err = tokenizer.SetReader(strings.NewReader(input))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader(input))
 
 	// Consume all tokens
 	for {
@@ -551,14 +526,14 @@ func TestSimplePatternSplitTokenizer_End(t *testing.T) {
 }
 
 func TestSimplePatternSplitTokenizer_NilPattern(t *testing.T) {
-	_, err := NewSimplePatternSplitTokenizer(nil)
+	_, err := NewSimplePatternSplitTokenizer(DefaultTokenAttributeFactory, nil)
 	if err != ErrNilPattern {
 		t.Errorf("Expected ErrNilPattern, got %v", err)
 	}
 }
 
 func TestSimplePatternSplitTokenizer_InvalidPattern(t *testing.T) {
-	_, err := NewSimplePatternSplitTokenizerWithString(`[invalid`)
+	_, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, `[invalid`)
 	if err == nil {
 		t.Error("Expected error for invalid pattern")
 	}
@@ -566,7 +541,7 @@ func TestSimplePatternSplitTokenizer_InvalidPattern(t *testing.T) {
 
 func TestSimplePatternSplitTokenizer_GetPattern(t *testing.T) {
 	pattern := regexp.MustCompile(`\s+`)
-	tokenizer, err := NewSimplePatternSplitTokenizer(pattern)
+	tokenizer, err := NewSimplePatternSplitTokenizer(DefaultTokenAttributeFactory, pattern)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
@@ -617,15 +592,12 @@ func TestSimplePatternSplitTokenizer_ComplexPatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tokenizer, err := NewSimplePatternSplitTokenizerWithString(tt.pattern)
+			tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, tt.pattern)
 			if err != nil {
 				t.Fatalf("Failed to create tokenizer: %v", err)
 			}
 
-			err = tokenizer.SetReader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatalf("SetReader failed: %v", err)
-			}
+			tokenizer.SetReader(strings.NewReader(tt.input))
 
 			var tokens []string
 			for {
@@ -660,15 +632,12 @@ func TestSimplePatternSplitTokenizer_ComplexPatterns(t *testing.T) {
 }
 
 func TestSimplePatternSplitTokenizer_Close(t *testing.T) {
-	tokenizer, err := NewSimplePatternSplitTokenizerWithString(`\s+`)
+	tokenizer, err := NewSimplePatternSplitTokenizerWithString(DefaultTokenAttributeFactory, `\s+`)
 	if err != nil {
 		t.Fatalf("Failed to create tokenizer: %v", err)
 	}
 
-	err = tokenizer.SetReader(strings.NewReader("Hello World"))
-	if err != nil {
-		t.Fatalf("SetReader failed: %v", err)
-	}
+	tokenizer.SetReader(strings.NewReader("Hello World"))
 
 	// Consume a token
 	hasToken, _ := tokenizer.IncrementToken()

@@ -2,14 +2,9 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/search/TestSearchWithThreads.java
-//
-// This test hammers a single shared IndexSearcher from several goroutines, each
-// running many TermQuery counting searches concurrently, and asserts every
-// worker observed both searches and a positive hit total. It verifies that the
-// committed-reader search path is safe for concurrent reads (run with -race).
+// Port of lucene/core/src/test/org/apache/lucene/search/TestSearchWithThreads.java
+// (Apache Lucene 10.5.0).
+
 package search_test
 
 import (
@@ -21,95 +16,79 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
-// TestSearchWithThreads_Search mirrors TestSearchWithThreads.test.
-func TestSearchWithThreads_Search(t *testing.T) {
-	const (
-		numThreads  = 2
-		numSearches = 500
-		numDocs     = 200
-	)
+func TestSearchWithThreads(t *testing.T) {
+	numThreads := 2             // TEST_NIGHTLY ? 5 : 2
+	numSearches := atLeast(500) // TEST_NIGHTLY ? atLeast(2000) : atLeast(500)
+	numDocs := atLeast(200)     // TEST_NIGHTLY ? atLeast(10000) : atLeast(200)
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
 
-	ix := newIntegrationIndex(t)
-	// Build numDocs documents, each with a deterministic-but-varied mix of the
-	// two tokens "aaa" and "bbb" so that both terms match a non-trivial subset.
+	doc := document.NewDocument()
+	body := newTextField(t, "body", "", false)
+	doc.Add(body)
+	var sb strings.Builder
 	for docCount := 0; docCount < numDocs; docCount++ {
-		var sb strings.Builder
-		numTerms := docCount % 10
+		numTerms := random().Intn(10)
 		for termCount := 0; termCount < numTerms; termCount++ {
-			if (docCount+termCount)%2 == 0 {
+			if random().Intn(2) == 0 {
 				sb.WriteString("aaa")
 			} else {
 				sb.WriteString("bbb")
 			}
 			sb.WriteByte(' ')
 		}
-		doc := document.NewDocument()
-		f, err := document.NewTextField("body", sb.String(), false)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(f)
-		ix.addDoc(doc)
+		body.SetStringValue(sb.String())
+		mustAddDocument(t, w, doc)
+		sb.Reset()
 	}
-	searcher, cleanup := ix.searcher()
-	defer cleanup()
+	r := mustGetReader(t, w)
+	mustClose(t, w)
 
-	aaa := search.NewTermQuery(index.NewTerm("body", "aaa"))
-	bbb := search.NewTermQuery(index.NewTerm("body", "bbb"))
+	s := newSearcher(t, r)
 
 	var failed atomic.Bool
 	var netSearch atomic.Int64
-	var startingGun sync.WaitGroup
-	startingGun.Add(1)
 
-	count := func(q search.Query) (int64, error) {
-		c := search.NewTotalHitCountCollector()
-		if err := searcher.SearchWithCollector(q, c); err != nil {
-			return 0, err
-		}
-		return int64(c.GetTotalHits()), nil
-	}
-
-	var wg sync.WaitGroup
+	collectorManager := testsearch.DummyTotalHitCountCollectorCreateManager()
+	var threads sync.WaitGroup
 	for threadID := 0; threadID < numThreads; threadID++ {
-		wg.Add(1)
+		threads.Add(1)
 		go func() {
-			defer wg.Done()
-			startingGun.Wait()
-			var totHits, totSearch int64
-			for ; totSearch < numSearches && !failed.Load(); totSearch++ {
-				h1, err := count(aaa)
+			defer threads.Done()
+			totHits := int64(0)
+			totSearch := int64(0)
+			for ; totSearch < int64(numSearches) && !failed.Load(); totSearch++ {
+				hits, err := search.SearchWithCollectorManager(s, search.NewTermQuery(index.NewTerm("body", "aaa")), collectorManager)
 				if err != nil {
 					failed.Store(true)
-					t.Errorf("count(aaa): %v", err)
+					t.Errorf("RuntimeException: %v", err)
 					return
 				}
-				h2, err := count(bbb)
+				totHits += int64(hits)
+				hits, err = search.SearchWithCollectorManager(s, search.NewTermQuery(index.NewTerm("body", "bbb")), collectorManager)
 				if err != nil {
 					failed.Store(true)
-					t.Errorf("count(bbb): %v", err)
+					t.Errorf("RuntimeException: %v", err)
 					return
 				}
-				totHits += h1 + h2
+				totHits += int64(hits)
 			}
 			if !(totSearch > 0 && totHits > 0) {
-				failed.Store(true)
-				t.Errorf("worker observed totSearch=%d totHits=%d, want both > 0", totSearch, totHits)
-				return
+				t.Errorf("assertTrue(totSearch > 0 && totHits > 0): totSearch=%d totHits=%d", totSearch, totHits)
 			}
 			netSearch.Add(totSearch)
 		}()
+		// threads[threadID].setDaemon(true): no Go counterpart.
 	}
 
-	startingGun.Done()
-	wg.Wait()
+	threads.Wait()
 
-	if failed.Load() {
-		t.Fatal("at least one concurrent search worker failed")
+	if testing.Verbose() {
+		t.Logf("%d threads did %d searches", numThreads, netSearch.Load())
 	}
-	if got := netSearch.Load(); got != int64(numThreads*numSearches) {
-		t.Errorf("netSearch = %d, want %d", got, numThreads*numSearches)
-	}
+
+	mustClose(t, r, dir)
 }

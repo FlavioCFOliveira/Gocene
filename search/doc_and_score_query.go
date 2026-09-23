@@ -289,11 +289,12 @@ func (s *DocAndScoreScorer) DocID() int {
 	return s.docIDNoShadow()
 }
 
+// Score mirrors the anonymous Scorer.score() of DocAndScoreQuery
+// (`return scores[upTo] * boost;`): before the first nextDoc (upTo == -1) and
+// past the last hit of the index the access is out of range and panics, the
+// Go rendering of Java's ArrayIndexOutOfBoundsException.
 func (s *DocAndScoreScorer) Score() (float32, error) {
-	if s.upTo >= s.lower && s.upTo < s.upper {
-		return s.weight.query.scores[s.upTo] * s.weight.boost, nil
-	}
-	return 0, nil
+	return s.weight.query.scores[s.upTo] * s.weight.boost, nil
 }
 
 func (s *DocAndScoreScorer) GetMaxScore(docID int) (float32, error) {

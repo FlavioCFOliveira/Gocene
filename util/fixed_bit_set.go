@@ -458,6 +458,21 @@ func (fs *FixedBitSet) Equals(other *FixedBitSet) bool {
 	return true
 }
 
+// HashCode renders FixedBitSet.hashCode(): it folds the numWords words that
+// hold numBits, rotating left by one after each, and adds a constant so an
+// empty set does not hash to 0.
+func (fs *FixedBitSet) HashCode() int {
+	// Don't use Arrays.hashCode(long[]) because the bitset may be larger than numBits
+	var h int64
+	for i := wordsNeeded(fs.size) - 1; i >= 0; i-- {
+		h ^= int64(fs.bits[i])
+		h = (h << 1) | int64(uint64(h)>>63) // rotate left
+	}
+	// fold leftmost bits into right and add a constant to prevent
+	// empty sets from returning 0, which is too common.
+	return int(int32((h>>32)^h) + int32(-0x6789edcc)) // 0x98761234 as a Java int
+}
+
 // BitsIterator iterates over the set bits in a FixedBitSet.
 type BitsIterator struct {
 	bits      *FixedBitSet

@@ -34,10 +34,7 @@ func TestIntRangeLucene_MismatchedSizesErrors(t *testing.T) {
 }
 
 func TestLongRangeLucene_BasicRoundTrip(t *testing.T) {
-	r, err := NewLongRangeLucene("r", []int64{-100}, []int64{200})
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := NewLongRangeLucene("r", []int64{-100}, []int64{200})
 	if r.GetMin(0) != -100 || r.GetMax(0) != 200 {
 		t.Fatalf("min/max mismatch")
 	}

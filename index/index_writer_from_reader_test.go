@@ -35,14 +35,7 @@ func iwfrOpenIfChanged(t *testing.T, r *index.DirectoryReader) *index.DirectoryR
 	if err != nil {
 		t.Fatalf("openIfChanged: %v", err)
 	}
-	if r2 == nil {
-		return nil
-	}
-	dr, ok := r2.(*index.DirectoryReader)
-	if !ok {
-		t.Fatalf("openIfChanged returned a %T", r2)
-	}
-	return dr
+	return r2
 }
 
 func iwfrExpectIllegalArgument(t *testing.T, dir store.Directory, iwc *index.IndexWriterConfig) error {

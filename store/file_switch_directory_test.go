@@ -50,7 +50,7 @@ func TestFileSwitchDirectory_FileOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create output: %v", err)
 	}
-	out.WriteBytes([]byte("hello"))
+	out.WriteBytes([]byte("hello"), 0, len([]byte("hello")))
 	out.Close()
 
 	// Create a file that should go to secondary
@@ -58,7 +58,7 @@ func TestFileSwitchDirectory_FileOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create output: %v", err)
 	}
-	out2.WriteBytes([]byte("world"))
+	out2.WriteBytes([]byte("world"), 0, len([]byte("world")))
 	out2.Close()
 
 	// Check file existence
@@ -111,7 +111,7 @@ func TestFileSwitchDirectory_ReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create output: %v", err)
 	}
-	out.WriteBytes([]byte("hello world"))
+	out.WriteBytes([]byte("hello world"), 0, len([]byte("hello world")))
 	out.Close()
 
 	// Read from the file
@@ -121,7 +121,7 @@ func TestFileSwitchDirectory_ReadWrite(t *testing.T) {
 	}
 
 	buf := make([]byte, 11)
-	err = in.ReadBytes(buf)
+	err = in.ReadBytes(buf, 0, len(buf))
 	if err != nil {
 		t.Fatalf("failed to read bytes: %v", err)
 	}
